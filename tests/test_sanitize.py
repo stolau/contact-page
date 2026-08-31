@@ -41,6 +41,38 @@ def test_style_is_dropped_with_its_content():
     assert sanitize_rich("a<style>body { display: none }</style>b") == "ab"
 
 
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "<p>Hei <b>a</b><script>alert(2)</script></p>",
+        "<p>Hei <b>a</b><style>.x{color:red}</style></p>",
+        "<div><span><script>alert(2)</script></span>Hei <b>a</b></div>",
+    ],
+)
+def test_script_and_style_are_dropped_with_content_inside_a_block(raw):
+    """script/style go with their content wherever they sit, block
+    wrapper included — not just leading or between bare text nodes.
+
+    This is the rule the paste filter's client twin in
+    app/static/editor.js mirrors (its DROP_WITH_CONTENT is this set). It
+    is pinned here because a client that strips the tag but keeps the
+    text hands the server script source as ordinary characters, which
+    the server can no longer tell apart and so stores as page copy —
+    the divergence found in the live browser pass, where a *leading*
+    <style> hid the bug because DOMParser hoists that one into <head>.
+
+    pytest executes no JavaScript: this locks the server invariant the
+    twin is written against. The twin itself is proven only by the live
+    browser pass.
+    """
+    result = sanitize_rich(raw)
+    assert "<script" not in result
+    assert "<style" not in result
+    assert "alert" not in result
+    assert "color:red" not in result
+    assert result.endswith("Hei <strong>a</strong>")
+
+
 def test_attributes_are_stripped_from_allowed_tags():
     assert (
         sanitize_rich('<strong class="x" onclick="evil()">y</strong>')

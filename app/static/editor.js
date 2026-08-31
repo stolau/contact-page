@@ -29,6 +29,12 @@
 
   var SAFE_SCHEMES = ["http", "https", "mailto", "tel"];
 
+  // Mirrors _DROP_WITH_CONTENT in app/sanitize.py: these go with their
+  // subtree, not with their text kept. Keeping the text would hand the
+  // server script or style source as ordinary characters, which it can
+  // no longer tell apart — so it would store the junk as page copy.
+  var DROP_WITH_CONTENT = ["script", "style"];
+
   function escapeText(text) {
     return text
       .replace(/&/g, "&amp;")
@@ -67,7 +73,9 @@
         out += escapeText(child.nodeValue);
       } else if (child.nodeType === Node.ELEMENT_NODE) {
         var tag = child.tagName.toLowerCase();
-        if (tag === "br") {
+        if (DROP_WITH_CONTENT.indexOf(tag) !== -1) {
+          // Dropped with its subtree — no recursion, no text.
+        } else if (tag === "br") {
           out += "<br>";
         } else if (tag === "b" || tag === "strong") {
           out += "<strong>" + serialize(child) + "</strong>";
