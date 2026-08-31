@@ -29,6 +29,28 @@ def test_migrate_creates_sections_and_stamps_user_version(tmp_path):
     c.close()
 
 
+def test_migration_2_creates_the_auth_tables(tmp_path):
+    c = database.connect(str(tmp_path / "auth.sqlite3"))
+    database.migrate(c)
+    (version,) = c.execute("PRAGMA user_version").fetchone()
+    assert version == 2
+
+    def columns(table):
+        return {row["name"] for row in c.execute(f"PRAGMA table_info({table})")}
+
+    assert columns("admin_user") == {"id", "username", "password_hash"}
+    assert columns("sessions") == {
+        "id",
+        "token_hash",
+        "created_at",
+        "last_seen_at",
+        "remember",
+        "expires_at",
+    }
+    assert columns("audit_log") == {"id", "at", "event"}
+    c.close()
+
+
 def test_migrate_second_run_is_a_noop(tmp_path):
     c = database.connect(str(tmp_path / "twice.sqlite3"))
     database.migrate(c)
