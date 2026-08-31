@@ -26,7 +26,43 @@ def _migration_1(conn):
     )
 
 
-MIGRATIONS = [_migration_1]
+def _migration_2(conn):
+    # Auth layer (LLM-COP-2). Every timestamp column below (at, created_at,
+    # last_seen_at, expires_at) is an integer Unix epoch in seconds — the one
+    # representation shared by app.auth and any test that rewinds a session.
+    conn.execute(
+        """
+        CREATE TABLE admin_user (
+            id INTEGER PRIMARY KEY,
+            username TEXT NOT NULL,
+            password_hash TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE sessions (
+            id INTEGER PRIMARY KEY,
+            token_hash TEXT NOT NULL UNIQUE,
+            created_at INTEGER NOT NULL,
+            last_seen_at INTEGER NOT NULL,
+            remember INTEGER NOT NULL,
+            expires_at INTEGER
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE audit_log (
+            id INTEGER PRIMARY KEY,
+            at INTEGER NOT NULL,
+            event TEXT NOT NULL
+        )
+        """
+    )
+
+
+MIGRATIONS = [_migration_1, _migration_2]
 
 
 def migrate(conn):
