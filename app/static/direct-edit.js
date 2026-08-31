@@ -26,6 +26,7 @@
   var sections = bootstrap.sections;
   var FIELDS = bootstrap.fields;
   var LABELS = bootstrap.field_labels;
+  var NAMES = bootstrap.section_names;
 
   var PLAIN_ONLY_TITLE = "Vain rich-tekstikentissä";
 
@@ -384,17 +385,32 @@
       when.getHours() + "." + ("0" + when.getMinutes()).slice(-2);
   }
 
-  function showErrors(kind, errors) {
-    errorNote.textContent = Object.keys(errors)
-      .map(function (name) {
-        return ((LABELS[kind] || {})[name] || name) + ": " + errors[name];
-      })
-      .join(" · ");
-    errorNote.hidden = false;
+  // One dropped connection fails every dirty section at once, so a note
+  // that replaces itself would report one unattributed failure for all
+  // of them. Messages accumulate within a single saveDrafts() run and
+  // each carries the section it belongs to.
+  function showMessages(messages) {
+    errorNote.textContent = messages.join(" · ");
+    errorNote.hidden = messages.length === 0;
+  }
+
+  function sectionMessages(section, errors) {
+    var where = NAMES[section.kind] || section.kind;
+    return Object.keys(errors).map(function (name) {
+      var label = (LABELS[section.kind] || {})[name] || name;
+      return where + " — " + label + ": " + errors[name];
+    });
   }
 
   function saveDrafts() {
-    errorNote.hidden = true;
+    var messages = [];
+    showMessages(messages);
+
+    function fail(section, errors) {
+      messages = messages.concat(sectionMessages(section, errors));
+      showMessages(messages);
+    }
+
     var dirty = sections.filter(function (section) {
       return (
         JSON.stringify(working[section.id]) !==
@@ -434,7 +450,7 @@
             return null;
           }).then(function (data) {
             if (!response.ok || data === null) {
-              showErrors(section.kind, (data && data.errors) || {
+              fail(section, (data && data.errors) || {
                 tallennus: "tallennus epäonnistui (" + response.status + ")"
               });
               ok = false;
@@ -444,15 +460,22 @@
             lastSaved[section.id] = payload;
             return data.saved_at;
           });
+        }, function () {
+          // Attached to the fetch ALONE, not to the chain above, so the
+          // "yhteysvirhe" label is honest by construction: only a
+          // request that never completed can land here. A dropped
+          // connection never reaches the response handler, and without
+          // this the per-section promise rejects, Promise.all with it,
+          // and it escapes both button handlers.
+          fail(section, { tallennus: "tallennus epäonnistui (yhteysvirhe)" });
+          ok = false;
+          return null;
         }).catch(function () {
-          // fetch itself rejected: a dropped connection never reaches
-          // the handler above, so without this the per-section promise
-          // rejects, Promise.all with it, and it escapes both button
-          // handlers — no error note, and Julkaise silently does
-          // nothing at all. Failing visibly is the whole point.
-          showErrors(section.kind, {
-            tallennus: "tallennus epäonnistui (yhteysvirhe)"
-          });
+          // Safety net for anything thrown by the handlers themselves,
+          // so a bug up there can still never reject out of Promise.all
+          // and silently abort a publish. Deliberately unlabelled: this
+          // is not known to be reachable.
+          fail(section, { tallennus: "tallennus epäonnistui" });
           ok = false;
           return null;
         });
@@ -482,7 +505,24 @@
           window.location = "/yllapito";
           return;
         }
+        if (!response.ok) {
+          // Reloading here would hand the owner a clean page and an
+          // empty badge while the public site still shows the old copy
+          // — a positive claim of success on a failure. Say what
+          // happened and leave the page alone.
+          showMessages([
+            "julkaisu epäonnistui (" + response.status + ")"
+          ]);
+          return;
+        }
         window.location.reload();
+      }, function () {
+        // The publish fetch needs its own rejection handler: with
+        // nothing dirty, saveDrafts resolves ok === true without
+        // issuing a request, so the save-side handlers are never
+        // involved and this is the only thing standing between a
+        // dropped connection and a click that visibly does nothing.
+        showMessages(["julkaisu epäonnistui (yhteysvirhe)"]);
       });
     });
   });
