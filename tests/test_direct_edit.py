@@ -614,6 +614,33 @@ def test_editing_attributes_are_never_in_the_template(
     assert attribute not in direct_html
 
 
+def test_the_contact_dialog_opener_coexists_with_direct_mode(
+    leaky_documents, direct_html
+):
+    """LLM-COP-3 binds a click handler to .cta-contact, which is also the
+    bound field hero.contact_label — so in direct edit mode one click
+    used to both focus the field and open the contact dialog, whose
+    backdrop then swallowed every further click and stopped editing.
+
+    direct-edit.js answers that with a capture-phase click listener on
+    the document, suppressing clicks on bound fields in edit mode only.
+    What this test pins is the *precondition*: COP-3's opener really does
+    ship into /muokkaa/sivu alongside direct-edit.js (so the suppression
+    is load-bearing, not dead code), and it ships into the public page
+    and the preview WITHOUT direct-edit.js (so the dialog still opens
+    there — test_direct_mode_assets_do_not_leak is the other half).
+
+    pytest executes no JavaScript, so it cannot prove the click
+    behaviour itself. That is verified only in the live browser pass,
+    where clicking the hero CTA in direct mode leaves the dialog hidden
+    and focuses contact_label, while the same click on / opens it.
+    """
+    for where, html in leaky_documents.items():
+        assert "contact-dialog" in html, f"COP-3's dialog is missing from {where}"
+    assert "contact-dialog" in direct_html
+    assert "direct-edit.js" in direct_html
+
+
 def test_the_preview_still_renders_the_draft_page(direct_admin):
     # The leak test above would also pass against an empty document; this
     # pins that /muokkaa/esikatselu is the real page.

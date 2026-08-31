@@ -301,14 +301,10 @@
       element.setAttribute("aria-multiline", field.rich ? "true" : "false");
     }
     if (tagName === "a") {
-      // Chrome suppresses the in-page jump on a contenteditable anchor,
-      // but that is observed behaviour, not a guarantee, and the jump
-      // would move the field out from under the caret. Links are also
-      // draggable by default, which turns a drag-select into a drag.
+      // Links are draggable by default, which turns a drag-select across
+      // the label into a link drag. (The in-page jump is suppressed by
+      // the document-level click rule below, with every other click.)
       element.draggable = false;
-      element.addEventListener("click", function (event) {
-        event.preventDefault();
-      });
     }
 
     element.addEventListener("focus", function () {
@@ -320,6 +316,38 @@
 
     fields.push(field);
   });
+
+  /* In edit mode a click on a bound field means "edit me" and nothing
+   * else — it must not also fire whatever that element does on the
+   * public page. LLM-COP-3 opens the contact dialog from .cta-contact,
+   * which is hero.contact_label; the dialog's backdrop then swallows
+   * pointer events and editing stops dead.
+   *
+   * This is one delegated listener on the document in the CAPTURE
+   * phase, deliberately, not a listener per element: contact_dialog.html
+   * is included before this script, so it registers on the element
+   * first, and listeners on one node run in registration order whatever
+   * their capture flag — an element-level listener could never beat it,
+   * and stopImmediatePropagation from a handler that runs second cannot
+   * undo what already ran. Capturing on an ancestor runs before the
+   * event reaches the target at all, so the rule holds however page.html
+   * later orders its includes.
+   *
+   * Focus and caret placement come from mousedown, which is untouched,
+   * so the field still activates and the toolbar still appears. Only
+   * bound fields are suppressed: the header's own Ota yhteyttä carries
+   * no data-field, so it keeps opening the dialog in edit mode too.
+   */
+  document.addEventListener(
+    "click",
+    function (event) {
+      var target = event.target;
+      if (!target || !target.closest || !target.closest("[data-field]")) return;
+      event.preventDefault();
+      event.stopPropagation();
+    },
+    true
+  );
 
   /* ---- toolbar ---- */
 
