@@ -26,6 +26,7 @@ from urllib.parse import urlparse
 import pytest
 
 from app import db as database
+from app.fields import FIELD_LABELS, FIELDS
 from app.sections import badge, draft_sections
 from app.seed import SEED_SECTIONS
 from tests.conftest import set_section_state
@@ -360,6 +361,105 @@ def test_hidden_section_is_absent_from_preview_but_editable(
         "nostolause"
     ]
     assert tietoa["badge"] == "Piilotettu"
+
+
+# --- field order end to end (LLM-COP-9) --------------------------------------
+
+
+def test_bootstrap_fields_keep_declaration_order(logged_in_admin):
+    """The served bootstrap lists every kind's fields in app/fields.py
+    declaration order, not alphabetically.
+
+    This pins the *input* to section-form.js:233, which draws
+    `(only || Object.keys(fields[kind]))` — edit.js passes no `only`, so
+    the panel's draw order IS the shipped JSON's key order, and an
+    alphabetised bootstrap silently reorders the form (the owner met
+    Painike 1 before Yläotsikko, Pääotsikko last). Jinja's |tojson passes
+    the environment's json.dumps_kwargs policy explicitly, so only that
+    policy — never app.json.sort_keys, which DefaultJSONProvider merely
+    setdefaults — decides this order; create_app sets it.
+
+    pytest cannot see the *rendered* order: this suite executes no
+    JavaScript. The browser check is what pins the output; this pins what
+    the browser is handed.
+    """
+    html = logged_in_admin.get("/muokkaa").get_data(as_text=True)
+    boot = bootstrap_json(html)
+    assert list(boot["fields"]) == list(FIELDS)  # the kinds, too
+    for kind in FIELDS:
+        assert list(boot["fields"][kind]) == list(FIELDS[kind]), kind
+
+
+def test_panel_draw_order_for_hero_matches_the_mockup(logged_in_admin):
+    """The hero panel's fields, in the order the browser draws them.
+
+    This encodes section-form.js's draw rule in Python — Object.keys of
+    the bootstrapped schema (:233), minus every field with no
+    FIELD_LABELS entry, which `if (!labelFor(name)) return;` (:236) skips
+    (hero.portrait: the Muotokuva row stands for it). It therefore
+    CANNOT notice that JS file changing its rule; the live browser check
+    covers that. What it does prove is that the served data, run through
+    today's rule, yields the reading order cp-main-edit's panel shows.
+    """
+    boot = bootstrap_json(logged_in_admin.get("/muokkaa").get_data(as_text=True))
+    labels = boot["field_labels"]["hero"]
+    drawn = [labels[name] for name in boot["fields"]["hero"] if labels.get(name)]
+    assert drawn == [
+        "Yläotsikko",
+        "Pääotsikko",
+        "Alaotsikko",
+        "Ingressi",
+        "Ingressi (mobiili)",
+        "Faktakortit",
+        "Yritystiedot",
+        "Painike 1",
+        "Painike 2",
+    ]
+    assert FIELD_LABELS["hero"].get("portrait") is None  # why it is absent
+
+
+def test_draft_put_of_a_reordered_payload_is_byte_identical(
+    logged_in_admin, app
+):
+    """A whole-payload save whose keys arrive in a different order stores
+    byte-identical text and keeps the badge Julkaistu.
+
+    The panel writes the payload whole, and nothing guarantees a client's
+    key order; validate_payload rebuilds `clean` by iterating
+    FIELDS[kind] (app/sanitize.py:168), so edit.py:90's json.dumps output
+    is stable. Without that, a save that changed nothing would rewrite
+    the stored text in a new key order, and badge() in app/sections.py —
+    a raw *text* comparison of draft against published — would flip
+    Julkaistu to Luonnos and mark an untouched section dirty for publish.
+
+    WHY EXPLICIT BYTES, NOT json=: Flask's test client serialises `json=`
+    through the app's own JSON provider, whose sort_keys is still True
+    (deliberately: it is a different path from Jinja's |tojson policy).
+    So `json=` would put an ALPHABETICAL body on the wire whatever order
+    the dict literal has, the reordering this test exists to exercise
+    would never reach the route, and the test would pass without proving
+    anything. Do not "simplify" this back to json= or put_draft.
+    """
+    before = section_row(app, "hero")
+    stored = json.loads(before["draft"])
+    assert list(stored) == list(FIELDS["hero"])  # the seed's own convention
+
+    reversed_payload = dict(reversed(list(stored.items())))
+    body = json.dumps(reversed_payload, ensure_ascii=False)
+    assert list(json.loads(body)) == list(reversed(list(FIELDS["hero"])))
+
+    response = logged_in_admin.put(
+        f"/api/sections/{before['id']}/draft",
+        data=body.encode("utf-8"),
+        content_type="application/json",
+        headers=JSON_ACCEPT,
+    )
+    assert response.status_code == 200, response.get_data(as_text=True)
+    assert response.get_json()["badge"] == "Julkaistu"
+
+    after = section_row(app, "hero")
+    assert after["draft"] == before["draft"]  # byte-identical
+    assert after["draft"] == after["published"]
 
 
 # --- the /muokkaa shell (spec cp-main-edit, contains-text byte-exact) --------

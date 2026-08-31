@@ -33,6 +33,17 @@ _DUMMY_HASH = generate_password_hash("dummy")
 
 def create_app(instance_path=None):
     app = Flask(__name__, instance_path=instance_path)
+    # Keep |tojson in declaration order: the edit panel draws a section's
+    # fields in the key order of the bootstrap JSON, so alphabetising it
+    # reorders the form (app/fields.py). This policy — not
+    # app.json.sort_keys — is the knob that path reads: sort_keys on the
+    # provider only defaults a missing kwarg, and Jinja always passes this
+    # policy explicitly, so the provider attribute never gets consulted and
+    # setting it does nothing here. Rebind the key rather than mutating it:
+    # Environment.policies is a shallow copy of Jinja's module-level
+    # defaults, so assigning into the existing dict would flip sorting off
+    # for every Jinja environment in the process, ours or not.
+    app.jinja_env.policies["json.dumps_kwargs"] = {"sort_keys": False}
     os.makedirs(app.instance_path, exist_ok=True)
     app.config.setdefault(
         "DATABASE", os.path.join(app.instance_path, "site.sqlite3")
