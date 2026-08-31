@@ -361,14 +361,10 @@
       if (button.dataset.command === "link") {
         var url = window.prompt("Linkin osoite", "https://");
         if (!url) return;
-        field.editor.exec("createLink", url);
-        // Normalize through the editor's own serializer: an href the
-        // sanitizer would reject disappears here rather than on save,
-        // so what the owner sees is what gets stored.
-        field.editor.setHTML(field.editor.getHTML());
-        field.editor.focus();
-        working[field.sid][field.name] = field.editor.getHTML();
-        updateChanges();
+        // One call, one undo step: the editor owns the command, the
+        // normalize and the undo bookkeeping. Its onInput writes the
+        // value back and updates the change count.
+        field.editor.link(url);
       } else {
         field.editor.exec(button.dataset.command);
       }
@@ -423,9 +419,16 @@
             ok = false;
             return null;
           }
-          return response.json().then(function (data) {
-            if (!response.ok) {
-              showErrors(section.kind, data.errors || {});
+          // A 500 answers HTML, so parsing it rejects; without this the
+          // whole save would reject unhandled and the owner would see
+          // nothing at all happen.
+          return response.json().catch(function () {
+            return null;
+          }).then(function (data) {
+            if (!response.ok || data === null) {
+              showErrors(section.kind, (data && data.errors) || {
+                tallennus: "tallennus epäonnistui (" + response.status + ")"
+              });
               ok = false;
               return null;
             }

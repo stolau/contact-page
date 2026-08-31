@@ -43,7 +43,13 @@
   }
 
   function escapeAttribute(value) {
-    return escapeText(value).replace(/"/g, "&quot;");
+    // &#x27; for the apostrophe, matching Python's html.escape(quote=True)
+    // in app/sanitize.py exactly — the attribute is double-quoted either
+    // way, so this is not a safety fix; it keeps the twin's bytes equal
+    // to the server's so a value does not change shape on first save.
+    return escapeText(value)
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#x27;");
   }
 
   /* The client twin of app/sanitize.py's _safe_href: same rules, same
@@ -149,6 +155,27 @@
         write(previous);
         return true;
       },
+      mark: function () {
+        // A discrete entry at the current value, for a change that is
+        // not typing. Unlike record() it never coalesces, so an undo
+        // stops here instead of folding this into the burst before it;
+        // unlike reset() the history under it survives.
+        if (coalescing) {
+          clearTimeout(coalescing);
+          coalescing = null;
+        }
+        stack.push(read());
+        if (stack.length > UNDO_LIMIT) stack.shift();
+      },
+      sync: function () {
+        // The value changed by some means other than typing; make it
+        // the baseline without pushing anything.
+        if (coalescing) {
+          clearTimeout(coalescing);
+          coalescing = null;
+        }
+        previous = read();
+      },
       reset: function () {
         stack.length = 0;
         if (coalescing) {
@@ -224,8 +251,13 @@
       }
     );
 
+    // Set while a compound operation (link()) is running its own undo
+    // bookkeeping, so execCommand's input event cannot add a second
+    // entry for what is one action to the person pressing Kumoa.
+    var ownUndo = false;
+
     editable.addEventListener("input", function () {
-      undoStack.record();
+      if (!ownUndo) undoStack.record();
       notify();
     });
 
@@ -263,6 +295,10 @@
       },
       setHTML: function (html) {
         // Values arrive server-sanitized (strong/em/br/a[href] only).
+        // This is a field LOAD, so the stack is cleared deliberately:
+        // the previous field's history must not be undoable into this
+        // one. A change to the value being edited goes through link()
+        // or ordinary typing, neither of which clears anything.
         editable.innerHTML = html;
         undoStack.reset();
       },
@@ -271,6 +307,27 @@
       },
       exec: function (name, value) {
         command(name, value);
+      },
+      link: function (url) {
+        // The whole insert is ONE undo step: mark the value as it
+        // stands, run the command with the input-driven recorder muted,
+        // then normalize in place through serialize() so an href the
+        // sanitizer would reject disappears here rather than silently
+        // on save. Normalizing must not go through setHTML — that
+        // clears the stack, which left Kumoa dead and threw away the
+        // field's typing history with it.
+        undoStack.mark();
+        ownUndo = true;
+        try {
+          editable.focus();
+          document.execCommand("createLink", false, url);
+          editable.innerHTML = serialize(editable);
+          placeCaretAtEnd(editable);
+        } finally {
+          ownUndo = false;
+        }
+        undoStack.sync();
+        notify();
       },
       undo: function () {
         if (undoStack.undo()) notify();
