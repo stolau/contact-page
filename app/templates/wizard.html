@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="fi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sivun alustus – Puheterapia Anna Virtanen</title>
+{# edit.css first: its tokens, .button and the body flex column are the
+   reuse the wizard is built on. wizard.css carries the wizard chrome
+   only and must load second. #}
+<link rel="stylesheet" href="{{ url_for('static', filename='edit.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='wizard.css') }}">
+</head>
+<body>
+
+<header class="wizard-header">
+  <div class="wizard-header-row">
+    <div class="wizard-heading">
+      <p class="wizard-kicker">SIVUN ALUSTUS</p>
+      <h1 class="wizard-title">Täytetään profiili yhdessä</h1>
+    </div>
+    <p class="wizard-autosave">Tallennetaan automaattisesti</p>
+  </div>
+  <div class="wizard-progress">
+    {% for step in steps %}
+    <span class="wizard-progress-segment{{ ' is-filled' if loop.first }}"></span>
+    {% endfor %}
+  </div>
+</header>
+
+<div class="wizard-main">
+  {# All five nav rows are server-rendered: the spec counts five items and
+     names all five labels in one document. #}
+  <ol class="wizard-steps">
+    {% for step in steps %}
+    <li class="wizard-step is-{{ 'current' if loop.first else 'upcoming' }}">
+      <span class="wizard-step-marker">{{ loop.index }}</span>
+      <span class="wizard-step-label">{{ step.label }}</span>
+    </li>
+    {% endfor %}
+  </ol>
+
+  <div class="wizard-panels">
+    {# All five panels ship with their titles and descriptions, because
+       the spec asserts step 2's copy while the wizard opens on step 1.
+       Only the current one is shown; the forms themselves are drawn by
+       the shared builder into each panel's .section-form mount. #}
+    {% for step in steps %}
+    <section class="wizard-panel" data-step="{{ loop.index0 }}"{% if not loop.first %} hidden{% endif %}>
+      <h2 class="step-title">{{ step.title }}</h2>
+      <p class="step-desc">{{ step.description }}</p>
+      <form class="section-form wizard-form"></form>
+      {% if step.muotokuva %}
+      <div class="wizard-muotokuva" hidden>
+        <span class="wizard-muotokuva-avatar" aria-hidden="true"></span>
+        <span class="wizard-muotokuva-text">Muotokuva<br>
+          <span class="wizard-muotokuva-detail">Pyöreä rajaus · vähintään 600 × 600 px</span>
+        </span>
+        <button type="button" class="wizard-vaihda" disabled>Vaihda</button>
+      </div>
+      {% endif %}
+    </section>
+    {% endfor %}
+
+    {# The finish panel. The spec designs no finish surface at all, so
+       its copy and layout are invented; its Julkaise posts the same
+       /api/publish the edit panel posts. #}
+    <section class="wizard-panel wizard-finish" hidden>
+      <h2 class="wizard-finish-title">Valmis julkaistavaksi</h2>
+      <p class="wizard-finish-desc">Kävit alustuksen läpi. Julkaise sivu, tai palaa taaksepäin täydentämään ohitettuja kohtia.</p>
+      <ul class="wizard-summary"></ul>
+      <p class="wizard-published-note" hidden>Sivu on julkaistu. <a href="{{ url_for('page') }}">Siirry sivulle</a></p>
+    </section>
+  </div>
+</div>
+
+<footer class="wizard-footer">
+  <button type="button" class="wizard-skip">Ohita toistaiseksi</button>
+  <span class="wizard-footer-spacer"></span>
+  <button type="button" class="button secondary wizard-back">Takaisin</button>
+  <button type="button" class="button primary wizard-save">Tallenna ja jatka</button>
+  <button type="button" class="button primary wizard-julkaise" hidden>Julkaise</button>
+</footer>
+
+<script id="bootstrap" type="application/json">{{ bootstrap|tojson }}</script>
+<script src="{{ url_for('static', filename='editor.js') }}"></script>
+<script src="{{ url_for('static', filename='autosave.js') }}"></script>
+<script src="{{ url_for('static', filename='section-form.js') }}"></script>
+<script src="{{ url_for('static', filename='wizard.js') }}"></script>
+
+</body>
+</html>

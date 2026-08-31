@@ -319,7 +319,11 @@ def test_login_success_sets_hardened_cookie_with_hashed_row(
 ):
     response = login(admin_client)
     assert response.status_code == 302
-    assert urlparse(response.headers["Location"]).path == "/"
+    # A fresh seeded DB has never been published, so login offers the
+    # first-run wizard (LLM-COP-7); the configured-database branch back
+    # to "/" is covered in tests/test_wizard.py. What this test exists
+    # for — the cookie hardening and the hashed row — is unchanged.
+    assert urlparse(response.headers["Location"]).path == "/yllapito/alustus"
 
     jar = SimpleCookie()
     jar.load(response.headers["Set-Cookie"])

@@ -1,0 +1,226 @@
+/* First-run wizard chrome (LLM-COP-7).
+ *
+ * Loaded after edit.css and on top of it: edit.css owns the tokens, the
+ * body flex column and .button, and — crucially — every generated field
+ * control (.field, .field-head, .field-counter, .list-row, .rich-editor
+ * and the rest). None of those is redeclared here; the wizard draws the
+ * panel's own controls, so forking their styling would drift the moment
+ * the panel's changes.
+ */
+
+/* Load-bearing, not decorative, and it must stay first. An author
+   `display` declaration beats the UA's [hidden] rule outright, so every
+   element this file lays out with display:flex would render while
+   carrying the attribute — the step panels, the Muotokuva row and the
+   finish panel are all toggled by it. [hidden] and a class selector have
+   equal specificity, so a plain rule would win only by source order and
+   would break silently the first time this file is reordered. */
+[hidden] { display: none !important; }
+
+:root {
+  --wizard-navy: #123040;
+  --wizard-navy-deep: #0d2532;
+  --wizard-orange: #e08b2c;
+  --wizard-cta: #bf4b26;
+  --wizard-cta-dark: #a63f1f;
+  --wizard-rail: #f3ede4;
+}
+
+/* Header band */
+.wizard-header {
+  background: var(--wizard-navy);
+  color: #fff;
+  padding: 1.4rem 1.6rem 0;
+  flex-shrink: 0;
+}
+.wizard-header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.5rem;
+}
+.wizard-heading { min-width: 0; }
+.wizard-kicker {
+  margin: 0;
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #9fb4c0;
+}
+.wizard-title {
+  margin: 0.2rem 0 0;
+  font-size: 1.5rem;
+  font-weight: normal;
+}
+.wizard-autosave {
+  margin: 0.4rem 0 0;
+  font-size: 0.85rem;
+  color: #9fb4c0;
+  white-space: nowrap;
+}
+
+/* Five segments, one per step: filled = saved ∪ current. */
+.wizard-progress {
+  display: flex;
+  gap: 0.5rem;
+  padding: 1.2rem 0 0;
+}
+.wizard-progress-segment {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--wizard-navy-deep);
+}
+.wizard-progress-segment.is-filled { background: var(--wizard-orange); }
+
+/* Rail + panels */
+.wizard-main {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  background: var(--card);
+}
+
+.wizard-steps {
+  width: 14rem;
+  flex-shrink: 0;
+  list-style: none;
+  margin: 0;
+  padding: 1.2rem 0.8rem;
+  border-right: 1px solid var(--line);
+  overflow: auto;
+}
+.wizard-step {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.6rem 0.7rem;
+  border-radius: 0.5rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+.wizard-step-marker {
+  width: 1.7rem;
+  height: 1.7rem;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--line);
+  color: var(--ink);
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.wizard-step.is-current {
+  background: var(--wizard-rail);
+  color: var(--ink);
+  font-weight: bold;
+}
+.wizard-step.is-current .wizard-step-marker {
+  background: var(--wizard-cta);
+  color: #fff;
+}
+.wizard-step.is-done { color: var(--ink); }
+.wizard-step.is-done .wizard-step-marker {
+  background: var(--wizard-navy);
+  color: #fff;
+  /* The number stays in the DOM and the tick replaces it visually, so
+     the rail's markup is one server-rendered thing in every state. */
+  font-size: 0;
+}
+.wizard-step.is-done .wizard-step-marker::after {
+  content: "✓";
+  font-size: 0.9rem;
+}
+
+.wizard-panels {
+  flex: 1;
+  overflow: auto;
+  padding: 1.6rem 2rem;
+  min-width: 0;
+}
+.wizard-panel { max-width: 34rem; }
+.step-title { margin: 0; font-size: 1.4rem; font-weight: normal; }
+.step-desc {
+  margin: 0.5rem 0 1.4rem;
+  color: var(--muted);
+}
+
+/* Muotokuva row — the portrait is deferred, so Vaihda is disabled here
+   exactly as it is in the edit panel. */
+.wizard-muotokuva {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.9rem 1rem;
+  background: var(--wizard-rail);
+  border-radius: 0.6rem;
+  margin-top: 1.2rem;
+}
+.wizard-muotokuva-avatar {
+  width: 2.8rem;
+  height: 2.8rem;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--line);
+}
+.wizard-muotokuva-text { flex: 1; font-weight: bold; }
+.wizard-muotokuva-detail {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: normal;
+}
+.wizard-vaihda {
+  border: 1px solid var(--line);
+  background: var(--card);
+  border-radius: 0.4rem;
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 0.4rem 1rem;
+  cursor: pointer;
+}
+.wizard-vaihda:disabled { opacity: 0.5; cursor: default; }
+
+/* Finish panel */
+.wizard-finish-title { margin: 0; font-size: 1.4rem; font-weight: normal; }
+.wizard-finish-desc { margin: 0.5rem 0 1.2rem; color: var(--muted); }
+.wizard-summary { list-style: none; margin: 0 0 1rem; padding: 0; }
+.wizard-summary-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.55rem 0.2rem;
+  border-bottom: 1px solid var(--line);
+}
+.wizard-summary-state { color: var(--muted); font-size: 0.85rem; }
+.wizard-published-note { color: var(--accent); }
+
+/* Footer actions */
+.wizard-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.9rem 2rem;
+  border-top: 1px solid var(--line);
+  background: var(--card);
+  flex-shrink: 0;
+}
+.wizard-footer-spacer { flex: 1; }
+.wizard-skip {
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0.45rem 0;
+}
+.wizard-skip:hover { color: var(--ink); }
+.wizard-back:disabled { opacity: 0.5; cursor: default; }
+.wizard-save, .wizard-julkaise {
+  background: var(--wizard-cta);
+  border-color: var(--wizard-cta);
+}
+.wizard-save:hover, .wizard-julkaise:hover {
+  background: var(--wizard-cta-dark);
+  border-color: var(--wizard-cta-dark);
+}
