@@ -404,15 +404,23 @@
     var ok = true;
     return Promise.all(
       dirty.map(function (section) {
+        // Snapshot BEFORE the request: this is the payload that gets
+        // sent and, on success, the exact bytes that become the saved
+        // baseline. Re-reading working[] when the response lands would
+        // fold in whatever was typed during the flight — the counter
+        // would clear and beforeunload disarm for characters the server
+        // never received. edit.js:93 takes the same snapshot.
+        //
         // The whole payload, because the route validates the whole
         // payload — the same contract the side panel saves under.
+        var payload = deepCopy(working[section.id]);
         return fetch("/api/sections/" + section.id + "/draft", {
           method: "PUT",
           headers: {
             "Content-Type": "application/json",
             "Accept": "application/json"
           },
-          body: JSON.stringify(working[section.id])
+          body: JSON.stringify(payload)
         }).then(function (response) {
           if (response.status === 401) {
             window.location = "/yllapito";
@@ -432,9 +440,21 @@
               ok = false;
               return null;
             }
-            lastSaved[section.id] = deepCopy(working[section.id]);
+            // The snapshot that was sent — never a fresh read.
+            lastSaved[section.id] = payload;
             return data.saved_at;
           });
+        }).catch(function () {
+          // fetch itself rejected: a dropped connection never reaches
+          // the handler above, so without this the per-section promise
+          // rejects, Promise.all with it, and it escapes both button
+          // handlers — no error note, and Julkaise silently does
+          // nothing at all. Failing visibly is the whole point.
+          showErrors(section.kind, {
+            tallennus: "tallennus epäonnistui (yhteysvirhe)"
+          });
+          ok = false;
+          return null;
         });
       })
     ).then(function (times) {
