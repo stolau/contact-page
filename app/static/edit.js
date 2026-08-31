@@ -36,6 +36,7 @@
   var draft = null; // the working payload
   var lastSaved = null; // the payload as last saved (or loaded)
   var saveTimer = null;
+  var saveInFlight = null; // the last save()'s PUT, until it settles
   var peruutaTimer = null;
 
   function deepCopy(value) {
@@ -88,7 +89,7 @@
     }
     var section = sections[current];
     var payload = deepCopy(draft);
-    return fetch("/api/sections/" + section.id + "/draft", {
+    var request = fetch("/api/sections/" + section.id + "/draft", {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
@@ -105,15 +106,30 @@
           showErrors(data.errors || {});
           return;
         }
-        clearErrors();
-        lastSaved = payload;
+        // The section may have been switched while the PUT was in
+        // flight; the panel state (lastSaved, notes) belongs to the
+        // open section only, the saved section's own rows always.
+        if (section === sections[current]) {
+          clearErrors();
+          lastSaved = payload;
+          showSavedNote(data.saved_at);
+        }
         section.payload = deepCopy(payload);
         section.badge = data.badge;
-        showSavedNote(data.saved_at);
         reloadPreview();
         buildMuutOsiot();
       });
     });
+    saveInFlight = request;
+    request.then(
+      function () {
+        if (saveInFlight === request) saveInFlight = null;
+      },
+      function () {
+        if (saveInFlight === request) saveInFlight = null;
+      }
+    );
+    return request;
   }
 
   function saveIfPending() {
@@ -168,13 +184,36 @@
     });
   }
 
+  function fitRows(area) {
+    area.rows = area.value.split("\n").length;
+  }
+
+  function textControl(value, alwaysArea) {
+    // An <input type="text"> drops "\n" on assignment, flattening a
+    // value the page renders with white-space: pre-line (the hero fact
+    // values). Such values get a textarea instead, auto-grown one row
+    // per line — always for list-item parts, where they live, so a
+    // line break survives the round trip byte-exact.
+    var control;
+    if (alwaysArea || value.indexOf("\n") !== -1) {
+      control = document.createElement("textarea");
+      control.addEventListener("input", function () {
+        fitRows(control);
+      });
+    } else {
+      control = document.createElement("input");
+      control.type = "text";
+    }
+    control.value = value;
+    if (control.tagName === "TEXTAREA") fitRows(control);
+    return control;
+  }
+
   function plainField(kind, name, descriptor) {
     var field = document.createElement("div");
     field.className = "field";
     field.appendChild(fieldHead(labelFor(kind, name)));
-    var input = document.createElement("input");
-    input.type = "text";
-    input.value = draft[name];
+    var input = textControl(draft[name], false);
     var counter = null;
     if (descriptor.cap) {
       input.maxLength = descriptor.cap;
@@ -217,9 +256,7 @@
   function listRowInputs(kind, name, itemShape, index) {
     var inputs = [];
     if (itemShape === "plain") {
-      var input = document.createElement("input");
-      input.type = "text";
-      input.value = draft[name][index];
+      var input = textControl(draft[name][index], false);
       input.addEventListener("input", function () {
         draft[name][index] = input.value;
         scheduleSave();
@@ -227,10 +264,8 @@
       inputs.push(input);
     } else {
       Object.keys(itemShape).forEach(function (key) {
-        var part = document.createElement("input");
-        part.type = "text";
+        var part = textControl(draft[name][index][key], true);
         part.placeholder = labelFor(kind, name + "." + key) || key;
-        part.value = draft[name][index][key];
         part.addEventListener("input", function () {
           draft[name][index][key] = part.value;
           scheduleSave();
@@ -404,8 +439,9 @@
   document
     .querySelector(".julkaise-button")
     .addEventListener("click", function () {
-      // A pending autosave must land before the publish reads the drafts.
-      var pending = saveTimer ? save() : Promise.resolve();
+      // A pending autosave — still debounced, or already in flight —
+      // must land before the publish reads the drafts.
+      var pending = saveTimer ? save() : saveInFlight || Promise.resolve();
       pending.then(publishNow);
     });
 

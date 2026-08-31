@@ -201,6 +201,12 @@ body {
   outline: 2px solid var(--accent);
   outline-offset: 0;
 }
+/* Newline-preserving plain controls: edit.js grows them one row per
+   line, so no manual resize and no inner scrollbar. */
+.section-form textarea {
+  resize: none;
+  overflow: hidden;
+}
 .field-counter {
   font-size: 0.78rem;
   color: var(--muted);
@@ -229,7 +235,8 @@ body {
   align-items: flex-start;
   margin-bottom: 0.5rem;
 }
-.list-row input {
+.list-row input,
+.list-row textarea {
   flex: 1;
   font: inherit;
   color: var(--ink);
