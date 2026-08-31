@@ -15,6 +15,8 @@ from .messages import bp as messages_bp
 from .sanitize import sanitize_rich
 from .sections import visible_sections
 from .seed import seed_if_empty
+from .wizard import bp as wizard_bp
+from .wizard import login_target
 
 # One generic failure string: wrong password and unknown username answer
 # byte-identically, so the response never reveals whether a username exists.
@@ -43,6 +45,7 @@ def create_app(instance_path=None):
 
     app.register_blueprint(edit_bp)
     app.register_blueprint(messages_bp)
+    app.register_blueprint(wizard_bp)
 
     @app.template_filter("render_rich")
     def render_rich(value):
@@ -101,7 +104,7 @@ def create_app(instance_path=None):
             if ok:
                 auth.audit(conn, f"login ok username={username}")
                 token = auth.mint_session(conn, remember)
-                response = redirect(url_for("page"))
+                response = redirect(login_target(conn))
                 # Secure is omitted deliberately: the site is served over
                 # plain HTTP, and a Secure cookie would never come back.
                 response.set_cookie(

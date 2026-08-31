@@ -161,3 +161,47 @@ def set_section_state(app, kind, state):
         c.commit()
     finally:
         c.close()
+
+
+def publish_something(app, admin):
+    """Turn the app's database into a *configured* one — a publish that
+    really lands — through the real routes, with `admin` an already
+    logged-in client.
+
+    THE TRAP this helper exists for: POST /api/publish on a freshly seeded
+    database publishes nothing at all. seed_if_empty writes draft ==
+    published on every row, and publish_dirty updates only the rows whose
+    draft text differs from their published text, so a bare publish
+    affects ZERO rows, leaves previous_published NULL everywhere, and
+    leaves wizard.is_first_run True. A "configured database" test built on
+    a bare publish would therefore pass for the wrong reason (or fail
+    surprisingly). So this dirties a draft first and publishes after, and
+    asserts the publish reported the row it dirtied.
+
+    Returns the list of published section ids.
+    """
+    c = database.connect(app.config["DATABASE"])
+    try:
+        row = c.execute(
+            "SELECT id, draft FROM sections WHERE kind = 'hero'"
+        ).fetchone()
+        section_id = row["id"]
+        payload = json.loads(row["draft"])
+    finally:
+        c.close()
+
+    # A whole-payload write, as PUT /api/sections/<id>/draft requires:
+    # the stored draft with exactly one field changed.
+    payload["title"] = "Anna V. Virtanen"
+    json_accept = {"Accept": "application/json"}
+    response = admin.put(
+        f"/api/sections/{section_id}/draft", json=payload, headers=json_accept
+    )
+    assert response.status_code == 200, response.get_data(as_text=True)
+    assert response.get_json()["badge"] == "Luonnos"  # the draft really is dirty
+
+    response = admin.post("/api/publish", headers=json_accept)
+    assert response.status_code == 200
+    published = response.get_json()["published"]
+    assert published == [section_id], published  # the publish really landed
+    return published

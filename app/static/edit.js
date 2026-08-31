@@ -1,8 +1,9 @@
 /* Edit-mode controller (LLM-COP-4).
  *
- * The panel form is generated per section kind from the bootstrapped
- * field schema (app/fields.py) — no per-section form is hand-built here.
- * Drafts autosave two seconds after the last change; Tallenna saves at
+ * The panel form is drawn by the shared schema-driven form builder
+ * (section-form.js) from the bootstrapped field schema (app/fields.py)
+ * — no per-section form is hand-built here. Drafts autosave through the
+ * shared debounce (autosave.js) after the last change; Tallenna saves at
  * once; Peruuta restores the last-saved draft; Julkaise publishes every
  * dirty section. The preview iframe renders /muokkaa/esikatselu (the
  * real page from drafts) and reloads after each successful save.
@@ -19,8 +20,6 @@
   var NAMES = bootstrap.section_names;
   var ANCHORS = bootstrap.anchors;
 
-  var AUTOSAVE_DELAY = 2000;
-
   var form = document.querySelector(".section-form");
   var sectionName = document.querySelector(".section-name");
   var sectionPosition = document.querySelector(".section-position");
@@ -35,7 +34,6 @@
   var current = 0;
   var draft = null; // the working payload
   var lastSaved = null; // the payload as last saved (or loaded)
-  var saveTimer = null;
   var saveInFlight = null; // the last save()'s PUT, until it settles
   var peruutaTimer = null;
 
@@ -49,9 +47,15 @@
 
   /* ---- saving ---- */
 
-  function scheduleSave() {
-    if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(save, AUTOSAVE_DELAY);
+  // The debounce is the shared module's; only the in-flight PUT above is
+  // this panel's own. save is a hoisted declaration, so it is safe here.
+  var autosave = window.createAutosave(
+    window.createAutosave.DELAY,
+    save
+  );
+
+  function scheduleAutosave() {
+    autosave.schedule();
   }
 
   function showErrors(errors) {
@@ -83,10 +87,8 @@
   }
 
   function save() {
-    if (saveTimer) {
-      clearTimeout(saveTimer);
-      saveTimer = null;
-    }
+    // A save now settles whatever the debounce had queued.
+    autosave.cancel();
     var section = sections[current];
     var payload = deepCopy(draft);
     var request = fetch("/api/sections/" + section.id + "/draft", {
@@ -132,10 +134,6 @@
     return request;
   }
 
-  function saveIfPending() {
-    if (saveTimer) save();
-  }
-
   /* ---- preview ---- */
 
   function reloadPreview() {
@@ -159,194 +157,16 @@
 
   /* ---- form generation (schema-driven) ---- */
 
-  function fieldHead(label) {
-    var head = document.createElement("div");
-    head.className = "field-head";
-    var span = document.createElement("span");
-    span.className = "field-label";
-    span.textContent = label;
-    var tag = document.createElement("span");
-    tag.className = "muokataan-tag";
-    tag.textContent = "Muokataan";
-    tag.hidden = true;
-    head.appendChild(span);
-    head.appendChild(tag);
-    return head;
-  }
-
-  function wireMuokataan(field) {
-    var tag = field.querySelector(".muokataan-tag");
-    field.addEventListener("focusin", function () {
-      tag.hidden = false;
-    });
-    field.addEventListener("focusout", function () {
-      tag.hidden = true;
-    });
-  }
-
-  function fitRows(area) {
-    area.rows = area.value.split("\n").length;
-  }
-
-  function textControl(value, alwaysArea) {
-    // An <input type="text"> drops "\n" on assignment, flattening a
-    // value the page renders with white-space: pre-line (the hero fact
-    // values). Such values get a textarea instead, auto-grown one row
-    // per line — always for list-item parts, where they live, so a
-    // line break survives the round trip byte-exact.
-    var control;
-    if (alwaysArea || value.indexOf("\n") !== -1) {
-      control = document.createElement("textarea");
-      control.addEventListener("input", function () {
-        fitRows(control);
-      });
-    } else {
-      control = document.createElement("input");
-      control.type = "text";
-    }
-    control.value = value;
-    if (control.tagName === "TEXTAREA") fitRows(control);
-    return control;
-  }
-
-  function plainField(kind, name, descriptor) {
-    var field = document.createElement("div");
-    field.className = "field";
-    field.appendChild(fieldHead(labelFor(kind, name)));
-    var input = textControl(draft[name], false);
-    var counter = null;
-    if (descriptor.cap) {
-      input.maxLength = descriptor.cap;
-      counter = document.createElement("div");
-      counter.className = "field-counter";
-    }
-    function updateCounter() {
-      if (counter) {
-        counter.textContent =
-          input.value.length + " / " + descriptor.cap + " merkkiä";
-      }
-    }
-    input.addEventListener("input", function () {
-      draft[name] = input.value;
-      updateCounter();
-      scheduleSave();
-    });
-    updateCounter();
-    field.appendChild(input);
-    if (counter) field.appendChild(counter);
-    wireMuokataan(field);
-    return field;
-  }
-
-  function richField(kind, name) {
-    var field = document.createElement("div");
-    field.className = "field";
-    field.appendChild(fieldHead(labelFor(kind, name)));
-    var editor = window.createRichEditor(field, {
-      onInput: function () {
-        draft[name] = editor.getHTML();
-        scheduleSave();
-      }
-    });
-    editor.setHTML(draft[name]);
-    wireMuokataan(field);
-    return field;
-  }
-
-  function listRowInputs(kind, name, itemShape, index) {
-    var inputs = [];
-    if (itemShape === "plain") {
-      var input = textControl(draft[name][index], false);
-      input.addEventListener("input", function () {
-        draft[name][index] = input.value;
-        scheduleSave();
-      });
-      inputs.push(input);
-    } else {
-      Object.keys(itemShape).forEach(function (key) {
-        var part = textControl(draft[name][index][key], true);
-        part.placeholder = labelFor(kind, name + "." + key) || key;
-        part.addEventListener("input", function () {
-          draft[name][index][key] = part.value;
-          scheduleSave();
-        });
-        inputs.push(part);
-      });
-    }
-    return inputs;
-  }
-
-  function listField(kind, name, descriptor) {
-    var field = document.createElement("div");
-    field.className = "field";
-    field.appendChild(fieldHead(labelFor(kind, name)));
-    var rows = document.createElement("div");
-    field.appendChild(rows);
-
-    function buildRows() {
-      rows.textContent = "";
-      draft[name].forEach(function (item, index) {
-        var row = document.createElement("div");
-        row.className = "list-row";
-        listRowInputs(kind, name, descriptor.item, index).forEach(
-          function (input) {
-            row.appendChild(input);
-          }
-        );
-        var remove = document.createElement("button");
-        remove.type = "button";
-        remove.className = "list-remove";
-        remove.textContent = "×";
-        remove.title = "Poista";
-        remove.addEventListener("click", function () {
-          draft[name].splice(index, 1);
-          buildRows();
-          scheduleSave();
-        });
-        row.appendChild(remove);
-        rows.appendChild(row);
-      });
-    }
-
-    var add = document.createElement("button");
-    add.type = "button";
-    add.className = "list-add";
-    add.textContent = "+ Lisää";
-    add.addEventListener("click", function () {
-      if (descriptor.item === "plain") {
-        draft[name].push("");
-      } else {
-        var item = {};
-        Object.keys(descriptor.item).forEach(function (key) {
-          item[key] = "";
-        });
-        draft[name].push(item);
-      }
-      buildRows();
-      scheduleSave();
-    });
-
-    buildRows();
-    field.appendChild(add);
-    wireMuokataan(field);
-    return field;
-  }
-
+  // The controls themselves live in the shared builder (section-form.js),
+  // which the wizard draws the same fields with; the panel supplies the
+  // open section's schema slice and routes every edit into the debounce.
   function buildForm() {
-    var kind = sections[current].kind;
-    form.textContent = "";
-    Object.keys(FIELDS[kind]).forEach(function (name) {
-      // A field with no label is not drawn (hero.portrait — the
-      // Muotokuva row stands for it); its value rides in the payload.
-      if (!labelFor(kind, name)) return;
-      var descriptor = FIELDS[kind][name];
-      if (descriptor.type === "plain") {
-        form.appendChild(plainField(kind, name, descriptor));
-      } else if (descriptor.type === "rich") {
-        form.appendChild(richField(kind, name));
-      } else {
-        form.appendChild(listField(kind, name, descriptor));
-      }
+    window.createSectionForm(form, {
+      kind: sections[current].kind,
+      draft: draft,
+      fields: FIELDS,
+      labels: LABELS,
+      onChange: scheduleAutosave
     });
   }
 
@@ -377,7 +197,7 @@
   }
 
   function openSection(index) {
-    saveIfPending();
+    autosave.flush();
     current = index;
     var section = sections[index];
     draft = deepCopy(section.payload);
@@ -420,10 +240,7 @@
   document
     .querySelector(".peruuta-button")
     .addEventListener("click", function () {
-      if (saveTimer) {
-        clearTimeout(saveTimer);
-        saveTimer = null;
-      }
+      autosave.cancel();
       draft = deepCopy(lastSaved);
       clearErrors();
       buildForm();
@@ -441,7 +258,7 @@
     .addEventListener("click", function () {
       // A pending autosave — still debounced, or already in flight —
       // must land before the publish reads the drafts.
-      var pending = saveTimer ? save() : saveInFlight || Promise.resolve();
+      var pending = autosave.flush() || saveInFlight || Promise.resolve();
       pending.then(publishNow);
     });
 
