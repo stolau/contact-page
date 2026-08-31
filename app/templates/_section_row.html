@@ -1,0 +1,83 @@
+{#
+  One section row of the admin section list (spec cp-section-row), whole:
+  the collapsed head, and the expanded editor that lives inside the same
+  <li> server-rendered and hidden.
+
+  section_row(section) takes exactly one argument and no macro here takes
+  the row's index or the list's length. That is what makes the row in the
+  page document byte-identical to the row the fragment route serves — and
+  it is why the fragment route can carry the expanded editor's assertions
+  on a one-row document, where "the first .exp-title" is unambiguous.
+
+  The preview card's body is the public page's own macro, reached through
+  the dynamic subscript public[section.kind]. page.html is therefore the
+  only place section markup exists, here as everywhere else.
+
+  Importing page.html with context executes its module body, which
+  iterates `sections` and dereferences `nav_labels[...]` while doing it.
+  Neither name is ever bound in the context this template is rendered
+  with — the row list is `rows` — so the module body's loops find an
+  undefined iterable, produce nothing, and their output is discarded.
+  `anchors` must be bound: every public macro dereferences it.
+#}
+{% import "page.html" as public with context %}
+
+{% macro row_head(section) -%}
+<div class="row-head">
+  <span class="row-drag-handle" tabindex="0" role="button" aria-label="Siirrä osiota" title="Vedä tai käytä nuolinäppäimiä">&#8942;&#8942;</span>
+  <span class="row-title">{{ section_names[section.kind] }}</span>
+  <span class="row-summary">{{ section.summary }}</span>
+  <span class="row-status-badge">{{ section.badge }}</span>
+  <button type="button" class="button secondary row-edit-button" data-action="edit">Muokkaa</button>
+  <div class="row-menu">
+    <button type="button" class="row-menu-toggle" data-action="menu" aria-label="Osion toiminnot">&#8943;</button>
+    <div class="row-menu-items" hidden>
+      <button type="button" class="row-menu-item" data-action="hide"{% if section.state != 'published' %} disabled{% endif %}>Piilota osio</button>
+      <button type="button" class="row-menu-item" data-action="show"{% if section.state == 'published' or not section.can_show %} disabled{% endif %}>Näytä osio</button>
+      {% if not section.can_show %}<span class="row-menu-reason">{{ section.show_reason }}</span>{% endif %}
+    </div>
+  </div>
+</div>
+{%- endmacro %}
+
+{% macro esikatselu_card(section) -%}
+<div class="esikatselu-card">
+  <p class="esikatselu-kicker">{{ section_names[section.kind]|upper }}</p>
+  {{ public[section.kind](section.payload) }}
+</div>
+{%- endmacro %}
+
+{% macro expanded_editor(section) -%}
+<div class="expanded-editor" hidden>
+  <div class="exp-head">
+    <h3 class="exp-title">{{ section_names[section.kind] }}</h3>
+    <span class="exp-muokataan">Muokataan</span>
+    <span class="exp-spacer"></span>
+    <button type="button" class="exp-sulje" data-action="close">Sulje</button>
+  </div>
+  <div class="exp-body">
+    {# The factory (section-form.js) fills this in on first expand; it is
+       server-rendered empty because the form is generated from the same
+       field schema in both of its placements. #}
+    <form class="section-form"></form>
+    <div class="esikatselu-panel">
+      <p class="esikatselu-label">ESIKATSELU</p>
+      {{ esikatselu_card(section) }}
+      <p class="esikatselu-disclaimer">Muutokset näkyvät julkisella sivulla vasta julkaisun jälkeen.</p>
+    </div>
+  </div>
+  <div class="exp-footer">
+    <span class="exp-autosave">Automaattitallennus <time class="exp-autosave-time"></time> · <button type="button" class="exp-restore" data-action="restore"{% if not section.can_restore %} disabled{% endif %}>Palauta edellinen versio</button></span>
+    <span class="exp-spacer"></span>
+    <button type="button" class="button secondary exp-peruuta" data-action="cancel">Peruuta</button>
+    <button type="button" class="button primary exp-tallenna" data-action="save">Tallenna osio</button>
+  </div>
+</div>
+{%- endmacro %}
+
+{% macro section_row(section) -%}
+<li class="section-row" data-section-id="{{ section.id }}" data-kind="{{ section.kind }}">
+  {{ row_head(section) }}
+  {{ expanded_editor(section) }}
+</li>
+{%- endmacro %}

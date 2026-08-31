@@ -205,3 +205,34 @@ def publish_something(app, admin):
     published = response.get_json()["published"]
     assert published == [section_id], published  # the publish really landed
     return published
+
+
+def section_rows(app):
+    """Every section row straight from the app's own DB file, in page
+    order — what the store holds, not what a route says it holds."""
+    c = database.connect(app.config["DATABASE"])
+    try:
+        return [
+            dict(row)
+            for row in c.execute(
+                "SELECT id, kind, position, state, draft, published,"
+                " previous_published FROM sections ORDER BY position"
+            ).fetchall()
+        ]
+    finally:
+        c.close()
+
+
+def delete_section(app, kind):
+    """Remove one seeded section, so a kind is genuinely absent.
+
+    seed_if_empty inserts all six kinds, so on a seeded database there is
+    no kind left to add; a test of the add path has to make one missing
+    first, and it makes it missing in the real store.
+    """
+    c = database.connect(app.config["DATABASE"])
+    try:
+        c.execute("DELETE FROM sections WHERE kind = ?", (kind,))
+        c.commit()
+    finally:
+        c.close()

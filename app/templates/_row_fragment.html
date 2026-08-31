@@ -1,0 +1,5 @@
+{# One row on its own, for GET /muokkaa/osiot/rivi/<id> and for the
+   POST /api/sections response — the same macro the page's list loop
+   calls, with the same single argument, so the two are byte-identical. #}
+{% import "_section_row.html" as row with context %}
+{{ row.section_row(section) }}
