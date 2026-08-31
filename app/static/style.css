@@ -1,0 +1,244 @@
+/* Public contact page — single stylesheet, one breakpoint. */
+
+:root {
+  --ink: #22333b;
+  --muted: #5f6c72;
+  --accent: #1f6f5c;
+  --accent-dark: #17594a;
+  --paper: #faf7f2;
+  --card: #ffffff;
+  --line: #e4ddd3;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: "Georgia", "Times New Roman", serif;
+  color: var(--ink);
+  background: var(--paper);
+  line-height: 1.55;
+}
+
+/* Layout toggles: one responsive document, two renderings. */
+.phone-only { display: none; }
+
+a { color: var(--accent); }
+
+.button {
+  display: inline-block;
+  padding: 0.65rem 1.4rem;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  font: inherit;
+  font-size: 0.95rem;
+  cursor: pointer;
+  text-decoration: none;
+}
+.button.primary { background: var(--accent); color: #fff; }
+.button.primary:hover { background: var(--accent-dark); }
+.button.secondary { background: transparent; color: var(--accent); }
+
+/* Header */
+.site-header {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0.9rem 3rem;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+}
+.brand { font-weight: bold; font-size: 1.1rem; margin-right: auto; }
+.brand-avatar {
+  width: 2rem; height: 2rem;
+  border-radius: 50%;
+  background: var(--accent); color: #fff;
+  font-size: 0.8rem;
+  align-items: center; justify-content: center;
+  margin-right: 0.5rem;
+}
+.nav-links { display: flex; gap: 1.4rem; }
+.nav-links a { color: var(--ink); text-decoration: none; font-size: 0.95rem; }
+.nav-links a:hover { color: var(--accent); }
+.menu-toggle {
+  background: none; border: none; font-size: 1.3rem;
+  cursor: pointer; color: var(--ink);
+}
+
+/* Sections */
+main section { padding: 3.5rem 3rem; max-width: 1100px; margin: 0 auto; }
+.section-kicker {
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  font-size: 0.78rem;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+  margin: 0 0 1.2rem;
+}
+
+/* Hero */
+.hero { text-align: center; }
+.portrait {
+  width: 10.5rem; height: 10.5rem;
+  margin: 0 auto 1.5rem;
+  border: 2px dashed var(--line);
+  border-radius: 50%;
+  background: var(--card);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 0.15rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.portrait-icon { font-size: 1.6rem; }
+.portrait-browse { color: var(--accent); text-decoration: underline; cursor: pointer; }
+.kicker {
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  font-size: 0.8rem; letter-spacing: 0.14em;
+  color: var(--muted);
+  margin: 0 0 0.5rem;
+}
+.main-heading { font-size: 3rem; margin: 0 0 0.4rem; }
+.subtitle { color: var(--muted); margin: 0 0 1rem; }
+.intro { max-width: 42rem; margin: 0 auto 2rem; font-size: 1.1rem; }
+
+.fact-cards {
+  list-style: none;
+  padding: 0;
+  margin: 0 auto 2.2rem;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  max-width: 60rem;
+}
+.fact-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--accent);
+  border-radius: 0.5rem;
+  padding: 0.9rem 1rem;
+  text-align: left;
+}
+.fact-card:nth-child(2) { border-top-color: #b6894a; }
+.fact-card:nth-child(3) { border-top-color: #7a5ea8; }
+.fact-card:nth-child(4) { border-top-color: #476f9e; }
+.fact-label {
+  display: block;
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  font-size: 0.7rem; letter-spacing: 0.12em;
+  color: var(--muted);
+  margin-bottom: 0.3rem;
+}
+.fact-value { display: block; white-space: pre-line; font-size: 0.95rem; }
+
+.cta-row { display: flex; gap: 1rem; justify-content: center; margin-bottom: 2rem; }
+.credentials { font-size: 0.85rem; color: var(--muted); }
+
+/* Tietoa */
+.about {
+  border-top: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 2rem;
+}
+.about-columns { max-width: 44rem; }
+.about-lead { font-size: 1.35rem; margin: 0 0 1.2rem; }
+.about-body { color: var(--muted); margin-bottom: 1.4rem; }
+.about-facts { font-size: 0.9rem; color: var(--muted); }
+
+/* Palvelut */
+.services { border-top: 1px solid var(--line); }
+.service-cards {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1.2rem;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+}
+.service-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--accent);
+  border-radius: 0.5rem;
+  padding: 0.9rem 1rem;
+}
+.service-card:nth-child(2) { border-top-color: #b6894a; }
+.service-card:nth-child(3) { border-top-color: #7a5ea8; }
+.all-services { font-size: 0.95rem; }
+
+/* Vastaanottoajat */
+.hours-section { border-top: 1px solid var(--line); }
+.hours { max-width: 30rem; margin-bottom: 1.2rem; }
+.hours-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.booking-note { color: var(--muted); font-size: 0.95rem; max-width: 34rem; }
+
+/* Yhteydenotto */
+.contact { border-top: 1px solid var(--line); }
+.contact-form { max-width: 30rem; display: flex; flex-direction: column; gap: 0.9rem; }
+.contact-form label {
+  display: flex; flex-direction: column; gap: 0.3rem;
+  font-size: 0.9rem; color: var(--muted);
+}
+.contact-form input,
+.contact-form textarea {
+  font: inherit;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  background: var(--card);
+  color: var(--ink);
+}
+.contact-form .button { align-self: flex-start; }
+
+/* Sijainti */
+.location { border-top: 1px solid var(--line); }
+.address { max-width: 34rem; }
+
+/* Footer */
+.site-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.2rem 3rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+/* Phone rendering */
+@media (max-width: 720px) {
+  .desktop-only { display: none; }
+  .phone-only { display: revert; }
+
+  .site-header { padding: 0.8rem 1.2rem; }
+  .brand { display: flex; align-items: center; }
+  .brand-avatar { display: inline-flex; }
+
+  main section { padding: 2.2rem 1.2rem; }
+
+  .hero { text-align: center; }
+  .portrait { width: 7.5rem; height: 7.5rem; }
+  .main-heading { font-size: 2.1rem; }
+
+  .fact-cards { grid-template-columns: repeat(2, 1fr); }
+
+  .about { display: block; }
+
+  .cta-row { flex-direction: column; }
+  .cta-row .button { width: 100%; }
+  .service-arrow { display: inline; color: var(--muted); }
+
+  .service-cards { grid-template-columns: 1fr; }
+
+  .site-footer { padding: 1rem 1.2rem; }
+}
