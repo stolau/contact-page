@@ -312,6 +312,24 @@ def test_window_expiry_lets_the_next_arrival_through(app, client, clock):
     assert len(stored(app)) == messages.RATE_LIMIT + 1
 
 
+def test_each_client_address_gets_its_own_window(app, client, monkeypatch):
+    """The default deployment keys on remote_addr, and that is the whole
+    point of the limiter: one visitor's five messages must not lock the
+    contact form for everyone else. A limiter keyed on a constant satisfies
+    every other rate-limit test in this file — including the expiry and both
+    proxy tests — and would shut the form for the entire internet after five
+    messages an hour."""
+    monkeypatch.delenv("TRUSTED_PROXY", raising=False)
+    first = {"REMOTE_ADDR": "203.0.113.1"}
+    second = {"REMOTE_ADDR": "198.51.100.9"}
+
+    for i in range(messages.RATE_LIMIT):
+        assert post(client, environ_base=first).status_code == 201, i
+    assert post(client, environ_base=first).status_code == 429
+
+    assert post(client, environ_base=second).status_code == 201
+
+
 def test_forwarded_for_is_ignored_when_no_proxy_is_trusted(app, client,
                                                            monkeypatch):
     """Without TRUSTED_PROXY the header is worthless: six arrivals with six
@@ -613,6 +631,26 @@ def test_inbox_escapes_a_script_payload_in_every_field(app, logged_in_admin):
 
     assert attack not in html
     assert "&lt;script&gt;" in html
+
+
+def test_inbox_renders_message_text_literally(app, logged_in_admin):
+    """Escaping, pinned past the <script> case.
+
+    A body rendered through the rich-text filter instead of plain
+    interpolation would survive the test above (sanitize_rich strips script
+    tags), but would turn a visitor's typed <b> into markup and silently eat
+    their angle brackets and ampersands. The inbox shows what was written.
+    """
+    insert_message(
+        app, "Maria", "5 < 6 & <b>bold</b>", "maria@esimerkki.fi", None,
+        1_700_000_000,
+    )
+
+    html = logged_in_admin.get(INBOX).get_data(as_text=True)
+
+    assert "&lt;b&gt;bold&lt;/b&gt;" in html
+    assert "<b>bold</b>" not in html
+    assert "5 &lt; 6 &amp;" in html
 
 
 def test_delete_removes_exactly_that_message_and_returns_to_the_inbox(
@@ -933,6 +971,93 @@ def test_the_endpoint_is_named_once_and_only_inside_the_dialog_script(
     end = page_html.index("</script>", start)
 
     assert start < page_html.index("/api/messages") < end
+
+
+# --- the Ota yhteyttä buttons actually open the dialog -----------------------
+
+
+class _Buttons(HTMLParser):
+    """(attrs, text) for every <button> in the document."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.buttons = []
+        self._attrs = None
+        self._parts = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "button":
+            self._attrs = dict(attrs)
+            self._parts = []
+
+    def handle_endtag(self, tag):
+        if tag == "button" and self._attrs is not None:
+            self.buttons.append((self._attrs, "".join(self._parts)))
+            self._attrs = None
+
+    def handle_data(self, data):
+        if self._attrs is not None:
+            self._parts.append(data)
+
+
+def buttons(html):
+    parser = _Buttons()
+    parser.feed(html)
+    return parser.buttons
+
+
+def dialog_script(html):
+    """The source inside <script id="contact-dialog-script">."""
+    opening = re.search(r'<script[^>]*id="contact-dialog-script"[^>]*>', html)
+    assert opening is not None, 'no <script id="contact-dialog-script">'
+    return html[opening.end():html.index("</script>", opening.end())]
+
+
+def opener_classes(html):
+    """The class tokens the dialog script binds its open handler to.
+
+    Read out of the script rather than assumed, so a selector that no longer
+    names anything real is caught rather than quietly believed.
+    """
+    match = re.search(
+        r'querySelectorAll\(\s*"([^"]+)"\s*\)', dialog_script(html)
+    )
+    assert match is not None, "the dialog script names no opener selector"
+    tokens = [part.strip() for part in match.group(1).split(",")]
+    assert tokens and all(tokens), match.group(1)
+    for token in tokens:
+        # Simple class selectors only: past that this test cannot honestly
+        # claim to know what the selector matches.
+        assert re.fullmatch(r"\.[A-Za-z][\w-]*", token), token
+    return [token.lstrip(".") for token in tokens]
+
+
+def test_every_opener_selector_matches_a_real_element(page_html):
+    """The ASK's first step: pressing Ota yhteyttä opens the dialog.
+
+    A selector naming a class no element carries binds no handler and throws
+    no error — the dialog simply never opens. Nothing else in this suite
+    notices, because the markup and the script are each fine on their own.
+    """
+    tokens = opener_classes(page_html)
+    for token in tokens:
+        assert class_count(page_html, token) >= 1, token
+
+
+def test_every_ota_yhteytta_button_opens_the_dialog(page_html):
+    """The converse: it is not enough that the selector matches *something*.
+    Every button whose label is the contact call to action must be among what
+    it matches, or one of the two entry points is dead."""
+    openers = set(opener_classes(page_html))
+    labelled = [
+        (attrs, text)
+        for attrs, text in buttons(page_html)
+        if text.strip() == "Ota yhteyttä"
+    ]
+    assert len(labelled) >= 2, [text for _, text in buttons(page_html)]
+    for attrs, _ in labelled:
+        classes = set((attrs.get("class") or "").split())
+        assert classes & openers, sorted(classes)
 
 
 def test_the_dialog_script_sits_outside_the_dialog_element(page_html):
