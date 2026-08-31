@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="fi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Viestit – Puheterapia Anna Virtanen</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+{# Admin inbox (LLM-COP-3). Every message field is rendered with plain
+   interpolation, never render_rich: this is visitor-supplied text, so it is
+   escaped, not trusted as markup. #}
+<header class="site-header">
+  <span class="brand">Viestit</span>
+  <a class="button secondary" href="{{ url_for('page') }}">Etusivulle</a>
+</header>
+
+<main>
+  <section class="inbox">
+    {% if not messages %}
+    <p class="inbox-empty">Ei viestejä.</p>
+    {% endif %}
+    {% for message in messages %}
+    <article class="inbox-message">
+      <div class="inbox-head">
+        <span class="inbox-name">{{ message.name }}</span>
+        <span class="inbox-time">{{ message.created_at }}</span>
+      </div>
+      <p class="inbox-body">{{ message.body }}</p>
+      <p class="inbox-contact">
+        <span class="inbox-email">{{ message.email }}</span>
+        <span class="inbox-phone">{{ message.phone or '' }}</span>
+      </p>
+      <form class="inbox-delete" method="post"
+            action="{{ url_for('messages.poista_viesti', message_id=message.id) }}">
+        <button type="submit" class="button secondary">Poista</button>
+      </form>
+    </article>
+    {% endfor %}
+  </section>
+</main>
+
+</body>
+</html>

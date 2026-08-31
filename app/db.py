@@ -62,7 +62,27 @@ def _migration_2(conn):
     )
 
 
-MIGRATIONS = [_migration_1, _migration_2]
+def _migration_3(conn):
+    # Contact messages (LLM-COP-3). consented_at and created_at are integer
+    # Unix epochs in seconds, the same representation migration 2 uses.
+    # body holds the visitor's free description (the "message" field of the
+    # dialog); phone is the one optional column.
+    conn.execute(
+        """
+        CREATE TABLE messages (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            body TEXT NOT NULL,
+            email TEXT NOT NULL,
+            phone TEXT,
+            consented_at INTEGER NOT NULL,
+            created_at INTEGER NOT NULL
+        )
+        """
+    )
+
+
+MIGRATIONS = [_migration_1, _migration_2, _migration_3]
 
 
 def migrate(conn):
