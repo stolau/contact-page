@@ -1,0 +1,14 @@
+# SpecWeaver binding and agent files — local tooling, not part of the public product
+.claude/
+CLAUDE.md
+SPECWEAVER.md
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Local data
+*.sqlite3
+*.db
+instance/
