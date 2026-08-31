@@ -50,6 +50,26 @@ body.direct-edit { padding: 3.4rem 0 4.4rem; }
   font-family: "Helvetica Neue", Arial, sans-serif;
   font-size: 0.9rem;
 }
+
+/* The first rule here to name a public-page selector, and the exception is
+   the point. .site-header is `position: sticky; top: 0` (style.css:43-52)
+   with no z-index anywhere in style.css, so it loses to the top bar's
+   z-index: 30. Measured in Chrome 142 at 1280 wide: once scrolled, 65 of
+   its 76px are clipped and it stops hit-testing to itself — the centre of
+   .header-contact resolves to BUTTON.direct-poistu, and that header link is
+   deliberately live in edit mode (direct-edit.js:340-341), so an owner
+   aiming at "Ota yhteyttä" is thrown out of edit mode instead.
+
+   Body padding cannot reach this: `top` is a viewport offset and padding
+   does not move a sticky one. Only the header's own `top` does. The rule
+   stays scoped to body.direct-edit, which nothing outside /muokkaa/sivu
+   carries, so the containment this file opens with still holds. 65px is the
+   top bar's measured height; at phone widths the bar is 94 and the rule
+   still helps rather than hurts (clipped 39 -> 29, and the header hit-tests
+   to itself again), so it ships with no media wrapper. Like the 175px
+   below it is a content-dependent literal — see there. */
+body.direct-edit .site-header { top: 65px; }
+
 .direct-dot {
   width: 0.55rem;
   height: 0.55rem;
@@ -169,4 +189,35 @@ body.direct-edit { padding: 3.4rem 0 4.4rem; }
 @media (max-width: 720px) {
   .direct-topbar, .direct-publishbar { flex-wrap: wrap; gap: 0.4rem; }
   .direct-hint { display: none; }
+
+  /* The 4.4rem reserved above was set against the publish bar's IDLE
+     height, and the bar has two. direct_edit_chrome.html:53-55 ships
+     .direct-changes, .direct-autosave and .direct-errors hidden;
+     direct-edit.js:110-115 unhides them on the first change, and here the
+     bar wraps and grows. Measured dirty in Chrome 142: 175px at 320 and
+     340, 154 at 360-414, 113 at 430, 85 at 500, 95 at 600-720 — every width
+     inside this block exceeds the 70.4px reserved, and at 375, dirty,
+     scrolled to the document end, 83px of the site footer sits under the
+     bar with no scroll position that frees it. 175 is the worst case across
+     320-720, so one literal covers the block; above it the bar is
+     structurally one row at 54px and 70.4 already over-reserves, which is
+     why this stays inside the media query.
+
+     Only the bottom edge moves, deliberately. Raising padding-top instead
+     is a measured regression: it shifts the whole document down and slides
+     the hero CTA into the fixed publish bar's band at viewport heights 900
+     and 905 that are clickable today. Bottom padding extends where the
+     document ends without moving anything above it — .cta-contact's
+     document offset is 877 before and after — which is exactly why this
+     edge is safe to touch and the top one is not.
+
+     The honest limit: 175, and the 65 above it, are content-dependent
+     literals. The top bar renders `{{ owner_name }} · ylläpitäjä`
+     (direct_edit_chrome.html:21) and .direct-errors can populate at
+     runtime, so a long name or a live error changes both heights. The
+     robust version measures the bars at runtime and sets custom properties
+     from JS — that is direct-edit.js, which this unit's lane forbids, so it
+     stays deferred under LLM-COP-11 with these measurements rather than
+     being claimed by an artifact that does not cover it. */
+  body.direct-edit { padding-bottom: 175px; }
 }
