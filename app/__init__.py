@@ -17,6 +17,12 @@ from .seed import seed_if_empty
 # byte-identically, so the response never reveals whether a username exists.
 LOGIN_ERROR = "Väärä käyttäjätunnus tai salasana."
 
+# Verified against when the username is unknown, so both failure paths pay
+# the same hashing cost — skipping check_password_hash for unknown usernames
+# answers measurably faster and leaks user existence through response timing
+# (timing-based user enumeration). Generated once at import.
+_DUMMY_HASH = generate_password_hash("dummy")
+
 
 def create_app(instance_path=None):
     app = Flask(__name__, instance_path=instance_path)
@@ -82,9 +88,11 @@ def create_app(instance_path=None):
             user = conn.execute(
                 "SELECT * FROM admin_user WHERE username = ?", (username,)
             ).fetchone()
-            if user is not None and check_password_hash(
-                user["password_hash"], password
-            ):
+            # Hash-check even for an unknown username (against _DUMMY_HASH)
+            # so both failure paths take the same time; see _DUMMY_HASH.
+            stored = user["password_hash"] if user is not None else _DUMMY_HASH
+            ok = check_password_hash(stored, password) and user is not None
+            if ok:
                 auth.audit(conn, f"login ok username={username}")
                 token = auth.mint_session(conn, remember)
                 response = redirect(url_for("page"))

@@ -387,6 +387,30 @@ def test_wrong_password_and_unknown_username_answer_byte_identically(tmp_path):
     )
 
 
+def test_unknown_username_still_runs_the_hash_check(
+    admin_client, monkeypatch
+):
+    # The unknown-username path must pay the same hashing cost as a wrong
+    # password (against app._DUMMY_HASH) — skipping check_password_hash
+    # would answer measurably faster and leak user existence through
+    # response timing. The assertion is on the mechanism, not wall-clock.
+    import app as app_module
+
+    calls = []
+    real = app_module.check_password_hash
+
+    def counting(stored, password):
+        calls.append(stored)
+        return real(stored, password)
+
+    monkeypatch.setattr(app_module, "check_password_hash", counting)
+
+    response = login(admin_client, username="ei.ketaan", password="väärä")
+
+    assert response.status_code == 200
+    assert calls == [app_module._DUMMY_HASH]
+
+
 def test_one_failure_of_each_kind_leaves_both_audit_rows(
     admin_app, admin_client
 ):
