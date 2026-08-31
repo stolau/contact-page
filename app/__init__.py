@@ -14,6 +14,7 @@ from .edit import bp as edit_bp
 from .fields import ANCHORS, NAV_LABELS
 from .messages import bp as messages_bp
 from .sanitize import sanitize_rich
+from .sectionlist import bp as sectionlist_bp
 from .sections import visible_sections
 from .seed import seed_if_empty
 from .wizard import bp as wizard_bp
@@ -46,6 +47,7 @@ def create_app(instance_path=None):
 
     app.register_blueprint(edit_bp)
     app.register_blueprint(messages_bp)
+    app.register_blueprint(sectionlist_bp)
     app.register_blueprint(wizard_bp)
     app.register_blueprint(direct_edit_bp)
 

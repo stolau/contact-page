@@ -1,0 +1,262 @@
+/* Section-list mode (LLM-COP-5) — the rules the row list needs on top of
+   edit.css. edit.css carries the tokens, the reset and .button, and the
+   generated form's own classes (.field, .list-row, .form-errors) come
+   from it too, because the inline editor is the same form component the
+   /muokkaa panel uses. style.css is deliberately not linked here: it is
+   the public page's stylesheet and would restyle this chrome — except
+   inside the preview card, where the public markup is shown small and
+   unstyled on purpose (the card is content-faithful, not pixel-faithful). */
+
+.jarjesta-link {
+  color: var(--accent);
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+.jarjesta-link:hover { text-decoration: underline; }
+
+.sections-main {
+  flex: 1;
+  overflow: auto;
+  padding: 1.5rem;
+  max-width: 68rem;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.sections-list {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+}
+
+.section-row {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+.sections-list.reordering .section-row { cursor: grab; }
+.sections-list.reordering .row-drag-handle {
+  color: var(--accent);
+  background: var(--paper);
+}
+
+.row-head {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.7rem 0.9rem;
+}
+.row-drag-handle {
+  color: var(--line);
+  letter-spacing: -0.25em;
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.3rem;
+  cursor: grab;
+}
+.row-drag-handle:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}
+.row-title { font-weight: bold; min-width: 10rem; }
+.row-summary { color: var(--muted); flex: 1; }
+.row-status-badge {
+  font-size: 0.78rem;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.05rem 0.6rem;
+}
+
+/* An author `display:` beats the UA sheet's [hidden] { display: none }
+   whatever its specificity, so every dropdown below that sets one has to
+   give the attribute back its meaning. Without this line the row menus and
+   the add menu are drawn permanently open, each covering the right-hand
+   end of the row beneath it — the Muokkaa and ⋯ buttons of five of the six
+   rows become unclickable, and toggling `hidden` from JavaScript changes
+   nothing on screen. */
+.row-menu-items[hidden],
+.add-section-menu[hidden] { display: none; }
+
+.row-menu { position: relative; }
+.row-menu-toggle {
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+}
+.row-menu-items {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 12rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  padding: 0.3rem;
+}
+.row-menu-item {
+  border: none;
+  background: none;
+  font: inherit;
+  text-align: left;
+  padding: 0.4rem 0.5rem;
+  border-radius: 0.3rem;
+  cursor: pointer;
+  color: var(--ink);
+}
+.row-menu-item:hover:not(:disabled) { background: var(--paper); }
+.row-menu-item:disabled { color: var(--muted); cursor: default; }
+.row-menu-reason {
+  font-size: 0.78rem;
+  color: var(--muted);
+  padding: 0 0.5rem 0.3rem;
+}
+
+/* The expanded row editor */
+.expanded-editor { border-top: 1px solid var(--line); }
+.exp-head {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.8rem 0.9rem 0;
+}
+.exp-title { margin: 0; font-size: 1.05rem; }
+.exp-muokataan {
+  font-size: 0.75rem;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 0 0.5rem;
+}
+.exp-spacer { flex: 1; }
+.exp-sulje {
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.exp-body {
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+  padding: 0.9rem;
+}
+.exp-body .section-form { flex: 1; min-width: 0; }
+
+.esikatselu-panel { width: 20rem; flex-shrink: 0; }
+.esikatselu-label {
+  margin: 0 0 0.4rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.esikatselu-card {
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  padding: 0.7rem 0.8rem;
+  background: var(--paper);
+  font-size: 0.8rem;
+  /* The public markup renders here unstyled and at card scale — a
+     truthful abstraction of the section, not a pixel preview. */
+  max-height: 14rem;
+  overflow: hidden;
+}
+.esikatselu-kicker {
+  margin: 0 0 0.4rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.esikatselu-card section { margin: 0; }
+.esikatselu-card ul { list-style: none; margin: 0.3rem 0; padding: 0; }
+.esikatselu-card p { margin: 0.3rem 0; }
+.esikatselu-disclaimer {
+  margin: 0.5rem 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.exp-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.7rem 0.9rem;
+  border-top: 1px solid var(--line);
+}
+.exp-autosave { font-size: 0.85rem; color: var(--muted); }
+.exp-restore {
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+.exp-restore:disabled {
+  color: var(--muted);
+  cursor: default;
+  text-decoration: none;
+}
+
+/* + Lisää osio */
+.add-section { position: relative; }
+.add-section-button {
+  width: 100%;
+  border: 1px dashed var(--line);
+  background: none;
+  color: var(--accent);
+  border-radius: 0.5rem;
+  font: inherit;
+  cursor: pointer;
+  padding: 0.7rem;
+}
+.add-section-button:disabled { color: var(--muted); cursor: default; }
+.add-section-reason {
+  display: block;
+  text-align: center;
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-top: 0.4rem;
+}
+/* Rendered on every page and hidden while a kind is still offerable, so
+   the `display: block` above has to give the attribute back its meaning —
+   without this line the reason sits under the button contradicting it. */
+.add-section-reason[hidden] { display: none; }
+.add-section-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  padding: 0.3rem;
+  margin-bottom: 0.3rem;
+}
+.add-section-item {
+  border: none;
+  background: none;
+  font: inherit;
+  text-align: left;
+  padding: 0.4rem 0.5rem;
+  border-radius: 0.3rem;
+  cursor: pointer;
+  color: var(--ink);
+}
+.add-section-item:hover { background: var(--paper); }

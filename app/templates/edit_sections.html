@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="fi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Muokkaustila · osiot – Puheterapia Anna Virtanen</title>
+{# edit.css is the self-contained admin shell and the inline form's markup
+   comes from the same factory the /muokkaa panel uses, so its .field /
+   .list-row / .form-errors rules are required here, not optional. Its
+   /muokkaa-specific classes are simply unused. style.css is deliberately
+   not linked: it is the public page's stylesheet and would restyle this
+   chrome. #}
+<link rel="stylesheet" href="{{ url_for('static', filename='edit.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='sections.css') }}">
+</head>
+<body>
+
+{% import "_section_row.html" as row with context %}
+{% set present = rows|map(attribute='kind')|list %}
+{% set offerable = section_names|reject('in', present)|list %}
+
+<header class="edit-topbar">
+  <span class="topbar-mode">Muokkaustila · osiot</span>
+  {# The count and its plural come from app.sectionlist.page_label: adding a
+     section changes them without a reload, so the add response carries the
+     same string and one rule renders both. #}
+  <span class="topbar-page">{{ page_label }}</span>
+  <a class="jarjesta-link" href="#">Järjestä osiot</a>
+  <a class="button secondary esikatsele-button" href="{{ url_for('edit.esikatselu') }}" target="_blank" rel="noopener">Esikatsele</a>
+  <button type="button" class="button primary julkaise-button">Julkaise</button>
+</header>
+
+<main class="sections-main">
+  <ul class="sections-list">
+    {% for section in rows %}{{ row.section_row(section) }}{% endfor %}
+  </ul>
+
+  <div class="add-section">
+    <button type="button" class="add-section-button"{% if not offerable %} disabled{% endif %}>+ Lisää osio</button>
+    {% if offerable %}
+    <div class="add-section-menu" hidden>
+      {% for kind in offerable %}
+      <button type="button" class="add-section-item" data-kind="{{ kind }}">{{ section_names[kind] }}</button>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {# Every kind is on the page and no section can be deleted yet, so the
+       button has nothing to offer on any seeded install. It is rendered
+       and disabled with the reason shown rather than hidden.
+
+       The reason is rendered whether or not it applies, and hidden while a
+       kind is still offerable: taking the last one closes the menu without
+       a reload, and the string the screen then needs has to already be on
+       it. sectionlist.js unhides this span rather than writing the
+       sentence — one place the sentence exists, as with the summary and
+       the badge. sections.css gives it back the meaning of `hidden`. #}
+    <span class="add-section-reason"{% if offerable %} hidden{% endif %}>Kaikki osiotyypit ovat jo sivulla</span>
+  </div>
+</main>
+
+<script id="bootstrap" type="application/json">{{ bootstrap|tojson }}</script>
+{# All four are required: expanding a row calls window.createSectionForm,
+   which reaches for window.createRichEditor (editor.js) on a rich field,
+   and the row's debounce comes from window.createAutosave. They are
+   listed dependencies-first, the order edit.html and the wizard use. #}
+<script src="{{ url_for('static', filename='editor.js') }}"></script>
+<script src="{{ url_for('static', filename='autosave.js') }}"></script>
+<script src="{{ url_for('static', filename='section-form.js') }}"></script>
+<script src="{{ url_for('static', filename='sectionlist.js') }}"></script>
+
+</body>
+</html>
