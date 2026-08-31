@@ -64,3 +64,23 @@ entirely, so a forged `X-Forwarded-For` cannot win a fresh window.
 .venv/bin/ruff check .
 .venv/bin/pytest
 ```
+
+`.venv/bin/pytest` is the whole gate. It runs the Python tests and, through
+`tests/test_js_suite.py`, the JavaScript suite under `tests/js/` on Node's
+built-in test runner — so a JavaScript failure fails pytest. The suite has no
+third-party dependency and no `node_modules`; the modules under `app/static/`
+are loaded into a `vm` sandbox straight from disk.
+
+**Node 22.x must be on `PATH`.** 22.x specifically: the suite uses
+`mock.timers`, which is experimental, and newer is the untested direction. The
+runner also pins `--test-reporter=tap`, because Node 23 changed the default
+reporter and the gate reads TAP counters. The gate resolves `node` from `PATH`
+and **fails rather than skips** when it is absent — a skip would be false
+assurance — so an nvm-only install that your login shell can see is not a gate
+for a cron or container shell.
+
+The inner loop, without pytest in the way:
+
+```sh
+node --test tests/js/*.test.js
+```

@@ -1,3 +1,6 @@
 -r requirements.txt
 pytest==9.1.1
 ruff==0.16.5
+# The JavaScript half of the gate (tests/js/, run by tests/test_js_suite.py)
+# needs Node 22.x on PATH. It is not a pip package and cannot be pinned here;
+# it has no npm dependencies either. See README, Develop.
