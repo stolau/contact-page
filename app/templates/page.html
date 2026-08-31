@@ -133,6 +133,7 @@
 </footer>
 
 {% if login_dialog %}{% include "login_dialog.html" %}{% endif %}
+{% if preview %}<script src="{{ url_for('static', filename='preview.js') }}"></script>{% endif %}
 
 </body>
 </html>

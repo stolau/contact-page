@@ -9,7 +9,9 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from . import auth
 from . import db as database
+from .edit import bp as edit_bp
 from .fields import ANCHORS, NAV_LABELS
+from .sanitize import sanitize_rich
 from .sections import visible_sections
 from .seed import seed_if_empty
 
@@ -38,12 +40,14 @@ def create_app(instance_path=None):
     finally:
         conn.close()
 
+    app.register_blueprint(edit_bp)
+
     @app.template_filter("render_rich")
     def render_rich(value):
-        # The one place rich fields become markup. Today the only writer is
-        # the trusted seed; the sanitizer plugs in here with the first
-        # untrusted write path (LLM-COP-4/6).
-        return Markup(value)
+        # The one place rich fields become markup. Drafts are sanitized on
+        # write (app/edit.py) — that stays primary; sanitizing again here
+        # is defense in depth for anything already in the store.
+        return Markup(sanitize_rich(value))
 
     def render_page(**dialog):
         """The public page, optionally with the login dialog overlaid."""

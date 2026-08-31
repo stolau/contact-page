@@ -8,9 +8,13 @@ import json
 from html.parser import HTMLParser
 
 import pytest
+from werkzeug.security import generate_password_hash
 
 from app import create_app
 from app import db as database
+
+ADMIN_USERNAME = "anna.virtanen"
+ADMIN_PASSWORD = "oikea salasana 123"
 
 
 @pytest.fixture
@@ -32,6 +36,40 @@ def app(tmp_path):
 @pytest.fixture
 def client(app):
     return app.test_client()
+
+
+def create_admin(app, username=ADMIN_USERNAME, password=ADMIN_PASSWORD):
+    """Insert the admin row with a real werkzeug hash — the same primitive
+    the CLI uses, which the CLI tests in test_auth prove independently."""
+    c = database.connect(app.config["DATABASE"])
+    try:
+        c.execute(
+            "INSERT INTO admin_user (username, password_hash) VALUES (?, ?)",
+            (username, generate_password_hash(password)),
+        )
+        c.commit()
+    finally:
+        c.close()
+
+
+def login(client, username=ADMIN_USERNAME, password=ADMIN_PASSWORD,
+          remember=False):
+    data = {"kayttajatunnus": username, "salasana": password}
+    if remember:
+        data["pysy"] = "1"
+    return client.post("/yllapito/kirjaudu", data=data)
+
+
+@pytest.fixture
+def logged_in_admin(app):
+    """A test client holding a real admin session: create_admin run against
+    the app's DB and login() posted and asserted — an admin *session*, not
+    just an admin account."""
+    create_admin(app)
+    admin = app.test_client()
+    response = login(admin)
+    assert response.status_code == 302
+    return admin
 
 
 @pytest.fixture(scope="session")

@@ -18,42 +18,27 @@ from http.cookies import SimpleCookie
 from urllib.parse import urlparse
 
 import pytest
-from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.security import check_password_hash
 
 from app import LOGIN_ERROR, auth, create_app
 from app import db as database
-from tests.conftest import element_text
-
-USERNAME = "anna.virtanen"
-PASSWORD = "oikea salasana 123"
-
+from tests.conftest import (
+    ADMIN_PASSWORD as PASSWORD,
+)
+from tests.conftest import (
+    ADMIN_USERNAME as USERNAME,
+)
+from tests.conftest import (
+    create_admin,
+    element_text,
+    login,
+)
 
 # --- helpers -----------------------------------------------------------------
 
 
 def app_conn(app):
     return database.connect(app.config["DATABASE"])
-
-
-def create_admin(app, username=USERNAME, password=PASSWORD):
-    """Insert the admin row with a real werkzeug hash — the same primitive
-    the CLI uses, which the CLI tests below prove independently."""
-    c = app_conn(app)
-    try:
-        c.execute(
-            "INSERT INTO admin_user (username, password_hash) VALUES (?, ?)",
-            (username, generate_password_hash(password)),
-        )
-        c.commit()
-    finally:
-        c.close()
-
-
-def login(client, username=USERNAME, password=PASSWORD, remember=False):
-    data = {"kayttajatunnus": username, "salasana": password}
-    if remember:
-        data["pysy"] = "1"
-    return client.post("/yllapito/kirjaudu", data=data)
 
 
 def session_lookup(app, conn, token):
