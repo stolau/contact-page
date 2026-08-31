@@ -214,6 +214,13 @@ def test_optional_phone_is_stored_when_given(app, client):
     [
         ("consent false", payload(consent=False)),
         ("consent absent", {k: v for k, v in VALID.items() if k != "consent"}),
+        # Consent must be the boolean True, not merely something truthy: a
+        # checkbox serialized as "on" or 1 is a client that never sent the
+        # boolean the contract asks for, and consent is the one field where
+        # "close enough" is not good enough.
+        ("consent is the string on", payload(consent="on")),
+        ("consent is 1", payload(consent=1)),
+        ("consent is null", payload(consent=None)),
     ],
 )
 def test_without_consent_nothing_is_stored(app, client, case, body):
@@ -492,6 +499,16 @@ def assert_no_sentinel_logged(caplog):
         assert sentinel not in caplog.text
 
 
+def assert_warning_captured(caplog):
+    """Guard against a vacuous pass: on the two paths that are supposed to
+    warn, caplog must actually be seeing the app's logger. Without this, a
+    caplog that captured nothing at all would satisfy every assertion in
+    assert_no_sentinel_logged."""
+    assert any(
+        record.levelno >= logging.WARNING for record in caplog.records
+    ), "no warning was captured — the never-log assertions would prove nothing"
+
+
 def test_the_success_path_logs_no_field_values(app, client, caplog):
     caplog.set_level(logging.DEBUG)
 
@@ -513,6 +530,7 @@ def test_the_send_failure_path_logs_no_field_values(app, client, caplog,
     assert post(client, sentinel_payload()).status_code == 201
 
     assert stored(app)[0]["body"] == SENTINEL_BODY
+    assert_warning_captured(caplog)
     assert_no_sentinel_logged(caplog)
 
 
@@ -525,6 +543,7 @@ def test_the_missing_recipient_warning_is_field_free(app, client, caplog,
 
     assert post(client, sentinel_payload()).status_code == 201
 
+    assert_warning_captured(caplog)
     assert_no_sentinel_logged(caplog)
 
 
@@ -925,6 +944,23 @@ def test_the_dialog_script_sits_outside_the_dialog_element(page_html):
     assert "contact-dialog-script" not in ids
 
 
-def test_the_thanks_copy_is_served_with_the_page(page_html):
-    """The confirmation the visitor sees after a successful send."""
-    assert "Kiitos viestistäsi! Otan yhteyttä lähipäivinä." in page_html
+def test_the_thanks_copy_is_served_hidden_in_its_own_element(page_html):
+    """The confirmation the visitor sees after a successful send.
+
+    Scoped like every other string here rather than checked against the whole
+    document, and required to start hidden — copy that ships visible would
+    thank a visitor who has not sent anything.
+    """
+    assert class_count(page_html, "cd-thanks") == 1
+    scoped = cd_text(page_html, "cd-thanks")
+    assert scoped is not None
+    assert "Kiitos viestistäsi! Otan yhteyttä lähipäivinä." in scoped
+
+    _, descendants = dialog_scope(page_html)
+    thanks = [
+        attrs
+        for _, attrs in descendants
+        if "cd-thanks" in (attrs.get("class") or "").split()
+    ]
+    assert len(thanks) == 1, "the thanks copy is not inside the dialog"
+    assert "hidden" in thanks[0]
