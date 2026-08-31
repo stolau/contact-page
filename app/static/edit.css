@@ -1,0 +1,303 @@
+/* Edit mode shell (LLM-COP-4) — self-contained; style.css stays the
+   public page's stylesheet and is untouched. Tokens mirror style.css. */
+
+:root {
+  --ink: #22333b;
+  --muted: #5f6c72;
+  --accent: #1f6f5c;
+  --accent-dark: #17594a;
+  --paper: #faf7f2;
+  --card: #ffffff;
+  --line: #e4ddd3;
+  --highlight: #b8860b;
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  font-size: 0.95rem;
+  color: var(--ink);
+  background: var(--paper);
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+}
+
+.button {
+  display: inline-block;
+  padding: 0.45rem 1.1rem;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  text-decoration: none;
+}
+.button.primary { background: var(--accent); color: #fff; }
+.button.primary:hover { background: var(--accent-dark); }
+.button.secondary { background: transparent; color: var(--accent); }
+.button:disabled { opacity: 0.5; cursor: default; }
+
+/* Top bar */
+.edit-topbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.6rem 1.5rem;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+}
+.topbar-mode { font-weight: bold; }
+.topbar-page { color: var(--muted); margin-right: auto; }
+.viewport-toggle {
+  display: flex;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.viewport-button {
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.35rem 0.9rem;
+  cursor: pointer;
+  color: var(--muted);
+}
+.viewport-button.active { background: var(--accent); color: #fff; }
+
+/* Two panes */
+.edit-main {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+.preview-pane {
+  flex: 1;
+  overflow: auto;
+  padding: 1.5rem;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+.preview-frame {
+  width: 100%;
+  height: 100%;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+.preview-frame.mobile { width: 390px; }
+.preview-frame .preview {
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+/* Panel */
+.editor-panel {
+  width: 24rem;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border-left: 1px solid var(--line);
+  min-height: 0;
+}
+.panel-tabs {
+  display: flex;
+  gap: 1.2rem;
+  padding: 0 1.25rem;
+  border-bottom: 1px solid var(--line);
+}
+.panel-tab {
+  border: none;
+  background: none;
+  font: inherit;
+  padding: 0.7rem 0;
+  cursor: pointer;
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+}
+.panel-tab.active {
+  color: var(--ink);
+  font-weight: bold;
+  border-bottom-color: var(--accent);
+}
+.panel-tab:disabled { cursor: default; opacity: 0.5; }
+
+.panel-body {
+  flex: 1;
+  overflow: auto;
+  padding: 1rem 1.25rem;
+}
+
+.section-title-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 0.8rem;
+}
+.section-name { margin: 0; font-size: 1.15rem; }
+.section-position { color: var(--muted); font-size: 0.85rem; }
+
+.muotokuva-row {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  margin-bottom: 1.2rem;
+}
+.muotokuva-icon {
+  width: 2.4rem; height: 2.4rem;
+  border: 2px dashed var(--line);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+.muotokuva-text { flex: 1; }
+.muotokuva-detail { color: var(--muted); font-size: 0.85rem; }
+
+/* Generated form */
+.section-form { display: block; }
+.field { margin-bottom: 1rem; }
+.field-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 0.3rem;
+}
+.field-label { font-size: 0.85rem; color: var(--muted); }
+.muokataan-tag {
+  font-size: 0.75rem;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 0 0.5rem;
+}
+.field input[type="text"],
+.field textarea,
+.field .rich-editor {
+  width: 100%;
+  font: inherit;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  padding: 0.5rem 0.6rem;
+}
+.field input:focus,
+.field textarea:focus,
+.field .rich-editor:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}
+/* Newline-preserving plain controls: edit.js grows them one row per
+   line, so no manual resize and no inner scrollbar. */
+.section-form textarea {
+  resize: none;
+  overflow: hidden;
+}
+.field-counter {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-top: 0.25rem;
+}
+.field-pair { display: flex; gap: 0.8rem; }
+.field-pair .field { flex: 1; }
+
+.rich-toolbar { display: flex; gap: 0.3rem; margin-bottom: 0.3rem; }
+.rich-toolbar button {
+  border: 1px solid var(--line);
+  background: var(--card);
+  border-radius: 0.3rem;
+  font: inherit;
+  font-size: 0.8rem;
+  width: 1.8rem;
+  height: 1.6rem;
+  cursor: pointer;
+}
+.rich-editor { min-height: 4.5rem; }
+
+/* List fields */
+.list-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  margin-bottom: 0.5rem;
+}
+.list-row input,
+.list-row textarea {
+  flex: 1;
+  font: inherit;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  padding: 0.4rem 0.6rem;
+  min-width: 0;
+}
+.list-remove {
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--muted);
+  border-radius: 0.3rem;
+  font: inherit;
+  cursor: pointer;
+  padding: 0.3rem 0.55rem;
+}
+.list-add {
+  border: 1px dashed var(--line);
+  background: none;
+  color: var(--accent);
+  border-radius: 0.4rem;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 0.35rem 0.8rem;
+}
+
+.form-errors { color: #a33; font-size: 0.85rem; margin-bottom: 0.8rem; }
+
+/* Muut osiot */
+.muut-osiot { margin-top: 1.5rem; }
+.muut-osiot-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+.muut-osiot-list { list-style: none; margin: 0; padding: 0; }
+.muut-osiot-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.2rem;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+.muut-osiot-list li:hover { color: var(--accent); }
+.muut-osiot-name { flex: 1; }
+.muut-osiot-badge { font-size: 0.78rem; color: var(--muted); }
+.muut-osiot-chevron { color: var(--muted); }
+
+/* Footer */
+.panel-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.7rem 1.25rem;
+  border-top: 1px solid var(--line);
+}
+.draft-saved-note, .peruuta-note { font-size: 0.85rem; color: var(--muted); }
+.footer-spacer { flex: 1; }

@@ -49,6 +49,63 @@ FIELDS = {
     },
 }
 
+# The edit panel's Finnish names (LLM-COP-4). Section names follow the
+# cp-main-edit mockup (Aloitusosio, Tietoa minusta, …); field labels the
+# spec names are byte-exact (Yläotsikko, Pääotsikko, Ingressi, Painike 1,
+# Painike 2), the rest are data. Dotted keys label the parts of a
+# list-of-objects row. A field with no label here (hero.portrait) is not
+# drawn in the generated form — the mockup's Muotokuva row stands for it —
+# but its value still rides along in the whole-payload draft.
+SECTION_NAMES = {
+    "hero": "Aloitusosio",
+    "tietoa": "Tietoa minusta",
+    "palvelut": "Palvelut",
+    "vastaanottoajat": "Vastaanottoajat",
+    "yhteydenotto": "Yhteydenottolomake",
+    "sijainti": "Sijainti",
+}
+
+FIELD_LABELS = {
+    "hero": {
+        "kicker": "Yläotsikko",
+        "title": "Pääotsikko",
+        "subtitle": "Alaotsikko",
+        "ingress": "Ingressi",
+        "ingress_mobile": "Ingressi (mobiili)",
+        "facts": "Faktakortit",
+        "facts.label": "Otsikko",
+        "facts.value": "Teksti",
+        "credentials": "Yritystiedot",
+        "contact_label": "Painike 1",
+        "services_label": "Painike 2",
+    },
+    "tietoa": {
+        "nostolause": "Nostolause",
+        "leipäteksti": "Leipäteksti",
+        "facts": "Faktat",
+    },
+    "palvelut": {
+        "services": "Palvelut",
+        "more_label": "Linkkiteksti",
+    },
+    "vastaanottoajat": {
+        "days": "Vastaanottoajat",
+        "days.label": "Päivät",
+        "days.hours": "Ajat",
+        "booking_note": "Varausohje",
+    },
+    "yhteydenotto": {
+        "name_label": "Nimikentän otsikko",
+        "email_label": "Sähköpostikentän otsikko",
+        "message_label": "Viestikentän otsikko",
+        "send_label": "Lähetä-painike",
+        "thanks": "Kiitosviesti",
+    },
+    "sijainti": {
+        "address": "Osoite",
+    },
+}
+
 # Nav is generated from data: a visible section whose kind maps to a label
 # gets a link; None means the section never appears in the nav.
 NAV_LABELS = {

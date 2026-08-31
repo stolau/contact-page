@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="fi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Muokkaustila – Puheterapia Anna Virtanen</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='edit.css') }}">
+</head>
+<body>
+
+<header class="edit-topbar">
+  <span class="topbar-mode">Muokkaustila</span>
+  <span class="topbar-page">Etusivu</span>
+  <div class="viewport-toggle" role="group" aria-label="Esikatselun leveys">
+    <button type="button" class="viewport-button active" data-viewport="desktop">Työpöytä</button>
+    <button type="button" class="viewport-button" data-viewport="mobile">Mobiili</button>
+  </div>
+  <a class="button secondary esikatsele-button" href="{{ url_for('edit.esikatselu') }}" target="_blank" rel="noopener">Esikatsele</a>
+  <button type="button" class="button primary julkaise-button">Julkaise</button>
+</header>
+
+<div class="edit-main">
+  <div class="preview-pane">
+    <div class="preview-frame desktop">
+      <iframe class="preview" src="{{ url_for('edit.esikatselu') }}" title="Esikatselu"></iframe>
+    </div>
+  </div>
+
+  <aside class="editor-panel">
+    <nav class="panel-tabs">
+      <button type="button" class="panel-tab active">Sisältö</button>
+      <button type="button" class="panel-tab" disabled>Ulkoasu</button>
+      <button type="button" class="panel-tab" disabled>SEO</button>
+    </nav>
+
+    <div class="panel-body">
+      <div class="section-title-row">
+        <h2 class="section-name">{{ section_names[sections[0].kind] }}</h2>
+        <span class="section-position">Osio 1 / {{ sections|length }}</span>
+      </div>
+
+      <div class="muotokuva-row">
+        <span class="muotokuva-icon" aria-hidden="true">&#128100;</span>
+        <span class="muotokuva-text">Muotokuva<br><span class="muotokuva-detail">Pyöreä rajaus</span></span>
+        <button type="button" class="button secondary vaihda-button" disabled>Vaihda</button>
+      </div>
+
+      <form class="section-form"></form>
+
+      <div class="muut-osiot">
+        <h3 class="muut-osiot-title">Muut osiot</h3>
+        <ul class="muut-osiot-list"></ul>
+      </div>
+    </div>
+
+    <footer class="panel-footer">
+      <span class="draft-saved-note" hidden>Luonnos tallennettu <span class="saved-time"></span></span>
+      <span class="peruuta-note" hidden>Muutokset peruttu</span>
+      <span class="footer-spacer"></span>
+      <button type="button" class="button secondary peruuta-button">Peruuta</button>
+      <button type="button" class="button primary tallenna-button">Tallenna</button>
+    </footer>
+  </aside>
+</div>
+
+<script id="bootstrap" type="application/json">{{ bootstrap|tojson }}</script>
+<script src="{{ url_for('static', filename='editor.js') }}"></script>
+<script src="{{ url_for('static', filename='edit.js') }}"></script>
+
+</body>
+</html>
