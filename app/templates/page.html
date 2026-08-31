@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Puheterapia Anna Virtanen</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+{% if direct_edit %}<link rel="stylesheet" href="{{ url_for('static', filename='direct-edit.css') }}">{% endif %}
 </head>
 <body>
 
@@ -22,53 +23,53 @@
 </li>
 {%- endmacro %}
 
-{% macro hero(p) -%}
-<section id="{{ anchors['hero'] }}" class="hero">
+{% macro hero(p, sid='') -%}
+<section id="{{ anchors['hero'] }}" class="hero" data-section="{{ sid }}" data-kind="hero">
   <div class="portrait">
     <span class="portrait-icon" aria-hidden="true">&#128100;</span>
     <span class="portrait-label desktop-only">Muotokuva</span>
     <span class="portrait-label phone-only">Kuva</span>
     <span class="portrait-browse">or browse files</span>
   </div>
-  <p class="kicker">{{ p.kicker }}</p>
-  <h1 class="main-heading">{{ p.title }}</h1>
-  <p class="subtitle">{{ p.subtitle }}</p>
-  <p class="intro desktop-only">{{ p.ingress|render_rich }}</p>
-  <p class="intro phone-only">{{ p.ingress_mobile|render_rich }}</p>
+  <p class="kicker" data-section="{{ sid }}" data-field="kicker">{{ p.kicker }}</p>
+  <h1 class="main-heading" data-section="{{ sid }}" data-field="title">{{ p.title }}</h1>
+  <p class="subtitle" data-section="{{ sid }}" data-field="subtitle">{{ p.subtitle }}</p>
+  <p class="intro desktop-only" data-section="{{ sid }}" data-field="ingress">{{ p.ingress|render_rich }}</p>
+  <p class="intro phone-only" data-section="{{ sid }}" data-field="ingress_mobile">{{ p.ingress_mobile|render_rich }}</p>
   <ul class="fact-cards">
     {% for fact in p.facts %}{{ fact_card(fact) }}{% endfor %}
   </ul>
   <div class="cta-row">
-    <button type="button" class="button primary cta-contact">{{ p.contact_label }}</button>
-    <a class="button secondary cta-services" href="#{{ anchors['palvelut'] }}">{{ p.services_label }}</a>
+    <button type="button" class="button primary cta-contact" data-section="{{ sid }}" data-field="contact_label">{{ p.contact_label }}</button>
+    <a class="button secondary cta-services" href="#{{ anchors['palvelut'] }}" data-section="{{ sid }}" data-field="services_label">{{ p.services_label }}</a>
   </div>
-  <p class="credentials">{{ p.credentials }}</p>
+  <p class="credentials" data-section="{{ sid }}" data-field="credentials">{{ p.credentials }}</p>
 </section>
 {%- endmacro %}
 
-{% macro tietoa(p) -%}
-<section id="{{ anchors['tietoa'] }}" class="about">
+{% macro tietoa(p, sid='') -%}
+<section id="{{ anchors['tietoa'] }}" class="about" data-section="{{ sid }}" data-kind="tietoa">
   <p class="section-kicker about-kicker">NÄIN TYÖSKENTELEN</p>
   <div class="about-columns">
-    <p class="about-lead">{{ p.nostolause }}</p>
-    <div class="about-body">{{ p['leipäteksti']|render_rich }}</div>
+    <p class="about-lead" data-section="{{ sid }}" data-field="nostolause">{{ p.nostolause }}</p>
+    <div class="about-body" data-section="{{ sid }}" data-field="leipäteksti">{{ p['leipäteksti']|render_rich }}</div>
     <p class="about-facts">{{ p.facts|join(' · ') }}</p>
   </div>
 </section>
 {%- endmacro %}
 
-{% macro palvelut(p) -%}
-<section id="{{ anchors['palvelut'] }}" class="services">
+{% macro palvelut(p, sid='') -%}
+<section id="{{ anchors['palvelut'] }}" class="services" data-section="{{ sid }}" data-kind="palvelut">
   <p class="section-kicker">PALVELUT</p>
   <ul class="service-cards">
     {% for name in p.services %}{{ service_card(name) }}{% endfor %}
   </ul>
-  <a class="all-services" href="#{{ anchors['palvelut'] }}">{{ p.more_label }}</a>
+  <a class="all-services" href="#{{ anchors['palvelut'] }}" data-section="{{ sid }}" data-field="more_label">{{ p.more_label }}</a>
 </section>
 {%- endmacro %}
 
-{% macro vastaanottoajat(p) -%}
-<section id="{{ anchors['vastaanottoajat'] }}" class="hours-section">
+{% macro vastaanottoajat(p, sid='') -%}
+<section id="{{ anchors['vastaanottoajat'] }}" class="hours-section" data-section="{{ sid }}" data-kind="vastaanottoajat">
   <p class="section-kicker">VASTAANOTTOAJAT</p>
   <div class="hours">
     {% for day in p.days %}
@@ -78,26 +79,26 @@
     </div>
     {% endfor %}
   </div>
-  <p class="booking-note">{{ p.booking_note }}</p>
+  <p class="booking-note" data-section="{{ sid }}" data-field="booking_note">{{ p.booking_note }}</p>
 </section>
 {%- endmacro %}
 
-{% macro yhteydenotto(p) -%}
-<section id="{{ anchors['yhteydenotto'] }}" class="contact">
+{% macro yhteydenotto(p, sid='') -%}
+<section id="{{ anchors['yhteydenotto'] }}" class="contact" data-section="{{ sid }}" data-kind="yhteydenotto">
   <p class="section-kicker">YHTEYDENOTTO</p>
   <form class="contact-form">
     <label>{{ p.name_label }}<input type="text" name="name"></label>
     <label>{{ p.email_label }}<input type="text" name="email"></label>
     <label>{{ p.message_label }}<textarea name="message" rows="4"></textarea></label>
-    <button type="button" class="button primary">{{ p.send_label }}</button>
+    <button type="button" class="button primary" data-section="{{ sid }}" data-field="send_label">{{ p.send_label }}</button>
   </form>
 </section>
 {%- endmacro %}
 
-{% macro sijainti(p) -%}
-<section id="{{ anchors['sijainti'] }}" class="location">
+{% macro sijainti(p, sid='') -%}
+<section id="{{ anchors['sijainti'] }}" class="location" data-section="{{ sid }}" data-kind="sijainti">
   <p class="section-kicker">SIJAINTI</p>
-  <p class="address">{{ p.address }}</p>
+  <p class="address" data-section="{{ sid }}" data-field="address">{{ p.address }}</p>
 </section>
 {%- endmacro %}
 
@@ -117,12 +118,12 @@
 
 <main>
   {% for section in sections %}
-    {% if section.kind == 'hero' %}{{ hero(section.payload) }}
-    {% elif section.kind == 'tietoa' %}{{ tietoa(section.payload) }}
-    {% elif section.kind == 'palvelut' %}{{ palvelut(section.payload) }}
-    {% elif section.kind == 'vastaanottoajat' %}{{ vastaanottoajat(section.payload) }}
-    {% elif section.kind == 'yhteydenotto' %}{{ yhteydenotto(section.payload) }}
-    {% elif section.kind == 'sijainti' %}{{ sijainti(section.payload) }}
+    {% if section.kind == 'hero' %}{{ hero(section.payload, section.id) }}
+    {% elif section.kind == 'tietoa' %}{{ tietoa(section.payload, section.id) }}
+    {% elif section.kind == 'palvelut' %}{{ palvelut(section.payload, section.id) }}
+    {% elif section.kind == 'vastaanottoajat' %}{{ vastaanottoajat(section.payload, section.id) }}
+    {% elif section.kind == 'yhteydenotto' %}{{ yhteydenotto(section.payload, section.id) }}
+    {% elif section.kind == 'sijainti' %}{{ sijainti(section.payload, section.id) }}
     {% endif %}
   {% endfor %}
 </main>
@@ -135,6 +136,7 @@
 {% if login_dialog %}{% include "login_dialog.html" %}{% endif %}
 {% include "contact_dialog.html" %}
 {% if preview %}<script src="{{ url_for('static', filename='preview.js') }}"></script>{% endif %}
+{% if direct_edit %}{% include "direct_edit_chrome.html" %}{% endif %}
 
 </body>
 </html>

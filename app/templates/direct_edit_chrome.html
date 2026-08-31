@@ -1,0 +1,66 @@
+{#
+  Direct edit chrome (LLM-COP-6) — included by page.html only when the
+  route passes direct_edit=True, so nothing here reaches the public page
+  or the draft preview.
+
+  Every asserted string is server-rendered, the way the /muokkaa shell
+  renders its own: pytest can read chrome in the document but cannot see
+  a button JS made. What JS adds is placement, visibility and values —
+  the field tag's text (a per-field label) and the counter's "14 / 60"
+  are the only strings that cannot be here, and they are named as
+  browser-only in the plan.
+
+  page.html must not be restructured, so the per-section name strip
+  ships here hidden and direct-edit.js moves each name into its band.
+#}
+<div class="direct-chrome">
+
+  <header class="direct-topbar">
+    <span class="direct-dot" aria-hidden="true"></span>
+    <span class="direct-mode">Muokkaustila</span>
+    <span class="direct-breadcrumb">{{ owner_name }} · ylläpitäjä</span>
+    <span class="direct-topbar-spacer"></span>
+    <a class="direct-esikatsele" href="{{ url_for('edit.esikatselu') }}">Esikatsele</a>
+    <button type="button" class="button secondary direct-poistu">Poistu</button>
+  </header>
+
+  <span class="direct-hint">Klikkaa tekstiä muokataksesi</span>
+
+  {# The active field's three floating pieces; direct-edit.js places each
+     against the focused element's box and unhides it. #}
+  <span class="direct-field-tag" hidden></span>
+  <span class="direct-counter" hidden><span class="direct-counter-value"></span> merkkiä</span>
+
+  <div class="direct-toolbar" role="toolbar" aria-label="Muotoilu" hidden>
+    <button type="button" class="direct-command" data-command="bold" title="Lihavoi">B</button>
+    <button type="button" class="direct-command" data-command="italic" title="Kursivoi">I</button>
+    <button type="button" class="direct-command direct-link" data-command="link" title="Lisää linkki">Linkki</button>
+    <button type="button" class="direct-list" disabled title="Listat muokataan sivupaneelissa">Lista</button>
+    <button type="button" class="direct-undo" title="Kumoa viimeisin muutos">Kumoa</button>
+  </div>
+
+  {# Rule D: the portrait slot's function (image upload) is out of this
+     unit's lane, so the control ships rendered, disabled and saying why.
+     direct-edit.js anchors it under the portrait circle. #}
+  <button type="button" class="button secondary direct-portrait-pill" disabled
+          title="Kuvan vaihto tulee myöhemmin">Vaihda kuva</button>
+
+  <div class="direct-section-names" hidden>
+    {% for section in sections %}<span data-kind="{{ section.kind }}">{{ section_names[section.kind] }}</span>{% endfor %}
+  </div>
+
+  <footer class="direct-publishbar">
+    <span class="direct-changes" hidden><span class="direct-changes-count"></span> muutosta</span>
+    <span class="direct-autosave" hidden>Tallentamattomia muutoksia · viimeksi tallennettu <span class="direct-saved-time"></span></span>
+    <span class="direct-errors" hidden></span>
+    <span class="direct-publishbar-spacer"></span>
+    <button type="button" class="button secondary direct-hylkaa">Hylkää</button>
+    <button type="button" class="button secondary direct-tallenna">Tallenna luonnos</button>
+    <button type="button" class="button primary direct-julkaise">Julkaise muutokset</button>
+  </footer>
+
+</div>
+
+<script id="direct-bootstrap" type="application/json">{{ bootstrap|tojson }}</script>
+<script src="{{ url_for('static', filename='editor.js') }}"></script>
+<script src="{{ url_for('static', filename='direct-edit.js') }}"></script>

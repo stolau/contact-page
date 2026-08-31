@@ -9,6 +9,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from . import auth
 from . import db as database
+from .direct_edit import bp as direct_edit_bp
 from .edit import bp as edit_bp
 from .fields import ANCHORS, NAV_LABELS
 from .messages import bp as messages_bp
@@ -46,6 +47,7 @@ def create_app(instance_path=None):
     app.register_blueprint(edit_bp)
     app.register_blueprint(messages_bp)
     app.register_blueprint(wizard_bp)
+    app.register_blueprint(direct_edit_bp)
 
     @app.template_filter("render_rich")
     def render_rich(value):
