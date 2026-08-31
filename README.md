@@ -29,6 +29,34 @@ Both commands open the database file directly through the app factory, so
 they work whether or not the server is running. Sign in at `/yllapito`
 (the Ylläpito link in the page footer).
 
+## Contact messages
+
+The page's Ota yhteyttä dialog posts to `/api/messages`; every message is
+stored in the database and read at `/yllapito/viestit` (admin only), newest
+first, where each one can be deleted.
+
+A mail notification is sent only when both `SMTP_HOST` and `MAIL_TO` are
+set — with `SMTP_HOST` set and `MAIL_TO` missing, nothing is sent and a
+warning is logged. The message is always stored first, so a mail failure
+never loses it.
+
+| Variable | Meaning |
+| --- | --- |
+| `SMTP_HOST` | Mail server host. Unset means no notifications. |
+| `SMTP_PORT` | Port, default `25`. |
+| `SMTP_USER`, `SMTP_PASSWORD` | Optional; a login is attempted only when both are set. |
+| `MAIL_TO` | Recipient. Unset means no notifications. |
+| `MAIL_FROM` | Sender, defaults to `MAIL_TO`. |
+| `TRUSTED_PROXY` | See below. |
+
+Posting is rate limited to 5 messages per hour per client. The limiter
+assumes the app is reached directly (as `flask --app app run` above serves
+it) and keys on the client address; the windows live in the process, so a
+restart clears them. Behind a reverse proxy, set `TRUSTED_PROXY` to any
+non-empty value and the key becomes the rightmost `X-Forwarded-For` entry —
+the one the proxy itself appended. Left unset, the header is ignored
+entirely, so a forged `X-Forwarded-For` cannot win a fresh window.
+
 ## Develop
 
 ```sh

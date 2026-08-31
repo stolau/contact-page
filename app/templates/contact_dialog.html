@@ -1,0 +1,75 @@
+{# Contact dialog (spec cp-contact-dialog), opened by Ota yhteyttä over the
+   dimmed public page. Copy is byte-exact per the spec's contains-text
+   criteria, and every criterion has its own cd- class so each one is
+   falsifiable on its own element. Message data is never rendered here —
+   this document only carries the empty form. #}
+<div class="contact-dialog" hidden>
+  <div class="dialog-backdrop">
+    <div class="contact-panel" role="dialog" aria-labelledby="contact-title">
+      <div class="contact-head">
+        <div>
+          <h2 class="cd-title" id="contact-title">Kerro, mitä etsit</h2>
+          <p class="cd-subtitle">Vastaan kahden arkipäivän kuluessa</p>
+        </div>
+        <button type="button" id="contact-close" class="cd-close" aria-label="Sulje">&times;</button>
+      </div>
+      <form class="contact-dialog-form">
+        <label class="cd-name-label" for="cd-name">Nimi</label>
+        <input type="text" id="cd-name" name="name" autocomplete="name">
+        <div class="cd-message-head">
+          <label class="cd-message-label" for="cd-message">Mitä etsit?</label>
+          <span class="cd-message-hint">Vapaa kuvaus</span>
+        </div>
+        <textarea id="cd-message" name="message" rows="5"></textarea>
+        <p class="cd-message-helper">Kerro kenelle terapiaa haetaan ja mikä huolettaa.</p>
+        <p class="cd-contact-label">Yhteystiedot</p>
+        <div class="cd-contact-row">
+          <input type="text" name="email" autocomplete="email" aria-label="Sähköposti">
+          <input type="text" name="phone" autocomplete="tel" placeholder="Puhelin (valinnainen)" aria-label="Puhelin">
+        </div>
+        <label class="cd-consent"><input type="checkbox" name="consent" value="1"> Hyväksyn, että viestini käsitellään tietosuojaselosteen mukaisesti. En lähetä arkaluonteisia terveystietoja.</label>
+        <div class="cd-actions">
+          <button type="button" id="contact-cancel" class="cd-cancel">Peruuta</button>
+          <button type="submit" class="button primary cd-submit">Lähetä viesti</button>
+        </div>
+      </form>
+      <p id="contact-thanks" class="cd-thanks" hidden>Kiitos viestistäsi! Otan yhteyttä lähipäivinä.</p>
+    </div>
+  </div>
+</div>
+<script id="contact-dialog-script">
+  // Open, close, and send. Plain DOM and fetch, no library — the same
+  // shape as the login dialog's inline script.
+  (function () {
+    var dialog = document.querySelector(".contact-dialog");
+    var form = dialog.querySelector(".contact-dialog-form");
+    var thanks = document.getElementById("contact-thanks");
+    var openers = document.querySelectorAll(".header-contact, .cta-contact");
+    function close() { dialog.hidden = true; }
+    Array.prototype.forEach.call(openers, function (button) {
+      button.addEventListener("click", function () { dialog.hidden = false; });
+    });
+    document.getElementById("contact-cancel").addEventListener("click", close);
+    document.getElementById("contact-close").addEventListener("click", close);
+    form.addEventListener("submit", function (event) {
+      event.preventDefault();
+      var data = new FormData(form);
+      fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: data.get("name") || "",
+          message: data.get("message") || "",
+          email: data.get("email") || "",
+          phone: data.get("phone") || "",
+          consent: form.querySelector("[name=consent]").checked
+        })
+      }).then(function (response) {
+        if (response.status === 201) {
+          form.hidden = true;
+          thanks.hidden = false;
+        }
+      });
+    });
+  })();
+</script>

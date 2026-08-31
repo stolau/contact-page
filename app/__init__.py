@@ -11,6 +11,7 @@ from . import auth
 from . import db as database
 from .edit import bp as edit_bp
 from .fields import ANCHORS, NAV_LABELS
+from .messages import bp as messages_bp
 from .sanitize import sanitize_rich
 from .sections import visible_sections
 from .seed import seed_if_empty
@@ -41,6 +42,7 @@ def create_app(instance_path=None):
         conn.close()
 
     app.register_blueprint(edit_bp)
+    app.register_blueprint(messages_bp)
 
     @app.template_filter("render_rich")
     def render_rich(value):

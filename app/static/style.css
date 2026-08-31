@@ -305,3 +305,90 @@ main section { padding: 3.5rem 3rem; max-width: 1100px; margin: 0 auto; }
 
   .site-footer { padding: 1rem 1.2rem; }
 }
+
+/* Contact dialog (LLM-COP-3) — same backdrop as the login dialog */
+.contact-panel {
+  background: var(--card);
+  border-radius: 0.6rem;
+  padding: 1.6rem 1.8rem;
+  width: 100%;
+  max-width: 32rem;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 1rem 2.5rem rgba(34, 51, 59, 0.35);
+}
+.contact-head { display: flex; justify-content: space-between; align-items: flex-start; }
+.cd-title { margin: 0 0 0.2rem; font-size: 1.35rem; }
+.cd-subtitle { margin: 0 0 1.2rem; color: var(--muted); font-size: 0.95rem; }
+.cd-close {
+  background: none; border: none;
+  color: var(--muted);
+  font: inherit; font-size: 1.3rem; line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+.contact-dialog-form { display: flex; flex-direction: column; gap: 0.4rem; }
+.contact-dialog-form input[type="text"],
+.contact-dialog-form textarea {
+  font: inherit;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  background: var(--card);
+  color: var(--ink);
+  width: 100%;
+}
+.cd-name-label,
+.cd-message-label,
+.cd-contact-label {
+  font-size: 0.9rem;
+  color: var(--muted);
+  margin: 0.8rem 0 0;
+}
+.cd-message-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-top: 0.8rem;
+}
+.cd-message-head .cd-message-label { margin: 0; }
+.cd-message-hint { font-size: 0.85rem; color: var(--muted); }
+.cd-message-helper { font-size: 0.85rem; color: var(--muted); margin: 0.2rem 0 0; }
+.cd-contact-row { display: flex; gap: 0.8rem; }
+.cd-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-top: 1rem;
+}
+.cd-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 1.2rem;
+}
+.cd-cancel {
+  background: none; border: none;
+  font: inherit; font-size: 0.95rem;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+}
+.cd-thanks { margin: 1rem 0 0; }
+
+/* Admin inbox */
+.inbox { padding: 2rem 3rem; display: flex; flex-direction: column; gap: 1rem; }
+.inbox-message {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  padding: 1rem 1.2rem;
+}
+.inbox-head { display: flex; justify-content: space-between; align-items: baseline; }
+.inbox-name { font-weight: bold; }
+.inbox-time { color: var(--muted); font-size: 0.9rem; }
+.inbox-body { white-space: pre-wrap; }
+.inbox-contact { color: var(--muted); font-size: 0.9rem; display: flex; gap: 1rem; }
+.inbox-empty { padding: 2rem 3rem; color: var(--muted); }

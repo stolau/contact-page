@@ -33,7 +33,13 @@ def test_migration_2_creates_the_auth_tables(tmp_path):
     c = database.connect(str(tmp_path / "auth.sqlite3"))
     database.migrate(c)
     (version,) = c.execute("PRAGMA user_version").fetchone()
-    assert version == 2
+    # >= 2, not == 2: migrate() stamps len(MIGRATIONS), so pinning the exact
+    # number here breaks on every migration added after this one. No coverage
+    # is lost — the version-independent form (version == len(MIGRATIONS)) is
+    # asserted in test_migrate_creates_sections_and_stamps_user_version, and
+    # the exact stamp for migration 3 is asserted in tests/test_messages.py.
+    # This test's real content is the three auth-table column checks below.
+    assert version >= 2
 
     def columns(table):
         return {row["name"] for row in c.execute(f"PRAGMA table_info({table})")}
