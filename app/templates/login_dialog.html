@@ -1,0 +1,48 @@
+{# Admin login dialog (spec cp-admin-login), overlaid on the dimmed public
+   page. Copy is byte-exact per the spec's contains-text criteria. #}
+<div class="dialog-backdrop">
+  <div class="login-dialog" role="dialog" aria-labelledby="login-title">
+    <div class="login-head">
+      <div>
+        <h2 class="login-title" id="login-title">Ylläpitäjän kirjautuminen</h2>
+        <p class="login-subtitle">Sivun sisällön muokkaus</p>
+      </div>
+      <a class="login-close" href="{{ url_for('page') }}" aria-label="Sulje">&times;</a>
+    </div>
+    {% if login_error %}<p class="login-error">{{ login_error }}</p>{% endif %}
+    {% if forgot %}
+    <p class="login-note">Salasana palautetaan palvelimen komentorivillä:
+      <code>flask --app app admin-reset-password</code></p>
+    {% endif %}
+    <form class="login-form" method="post" action="{{ url_for('kirjaudu') }}">
+      <label>Käyttäjätunnus
+        <input type="text" name="kayttajatunnus" autocomplete="username"
+               value="{{ login_username or '' }}">
+      </label>
+      <label>Salasana
+        <span class="password-row">
+          <input type="password" name="salasana" id="login-password"
+                 autocomplete="current-password">
+          <button type="button" class="password-show" id="password-show">Näytä</button>
+        </span>
+      </label>
+      <div class="login-options">
+        <label class="login-remember">
+          <input type="checkbox" name="pysy" value="1"> Pysy kirjautuneena
+        </label>
+        <a href="{{ url_for('yllapito', unohtui=1) }}">Unohtuiko salasana?</a>
+      </div>
+      <button type="submit" class="button primary login-submit">Kirjaudu sisään</button>
+      <p class="login-footnote">Kirjautuminen kirjataan lokiin. Istunto päättyy 30 min käyttämättömyyden jälkeen.</p>
+    </form>
+  </div>
+</div>
+<script>
+  // The Näytä toggle: reveal or re-mask the password. Plain DOM, no library.
+  (function () {
+    var input = document.getElementById("login-password");
+    document.getElementById("password-show").addEventListener("click", function () {
+      input.type = input.type === "password" ? "text" : "password";
+    });
+  })();
+</script>

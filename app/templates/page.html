@@ -129,8 +129,10 @@
 
 <footer class="site-footer">
   <p class="copyright">© 2026 Puheterapia Anna Virtanen · toiminimi</p>
-  <a class="yllapito" href="#">Ylläpito</a>
+  <a class="yllapito" href="{{ url_for('yllapito') }}">Ylläpito</a>
 </footer>
+
+{% if login_dialog %}{% include "login_dialog.html" %}{% endif %}
 
 </body>
 </html>

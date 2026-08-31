@@ -15,6 +15,20 @@ python3 -m venv .venv
 Open http://127.0.0.1:5000/. The database is created at `instance/site.sqlite3`
 on the first start.
 
+## Admin account
+
+The site has a single admin account, created and reset only from the server
+command line (there is no email reset flow):
+
+```sh
+.venv/bin/flask --app app admin-create <username>   # prompts for the password
+.venv/bin/flask --app app admin-reset-password      # prompts for a new one
+```
+
+Both commands open the database file directly through the app factory, so
+they work whether or not the server is running. Sign in at `/yllapito`
+(the Ylläpito link in the page footer).
+
 ## Develop
 
 ```sh

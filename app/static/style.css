@@ -215,6 +215,69 @@ main section { padding: 3.5rem 3rem; max-width: 1100px; margin: 0 auto; }
   color: var(--muted);
 }
 
+/* Admin login dialog — overlaid on the dimmed public page */
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(34, 51, 59, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.2rem;
+}
+.login-dialog {
+  background: var(--card);
+  border-radius: 0.6rem;
+  padding: 1.6rem 1.8rem;
+  width: 100%;
+  max-width: 26rem;
+  box-shadow: 0 1rem 2.5rem rgba(34, 51, 59, 0.35);
+}
+.login-head { display: flex; justify-content: space-between; align-items: flex-start; }
+.login-title { margin: 0 0 0.2rem; font-size: 1.35rem; }
+.login-subtitle { margin: 0 0 1rem; color: var(--muted); font-size: 0.95rem; }
+.login-close {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 1.3rem;
+  line-height: 1;
+}
+.login-error { color: #a03123; font-size: 0.9rem; margin: 0 0 0.8rem; }
+.login-note { color: var(--muted); font-size: 0.9rem; margin: 0 0 0.8rem; }
+.login-form { display: flex; flex-direction: column; gap: 0.9rem; }
+.login-form > label {
+  display: flex; flex-direction: column; gap: 0.3rem;
+  font-size: 0.9rem; color: var(--muted);
+}
+.login-form input[type="text"],
+.login-form input[type="password"] {
+  font: inherit;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  background: var(--card);
+  color: var(--ink);
+  width: 100%;
+}
+.password-row { display: flex; align-items: center; gap: 0.5rem; }
+.password-show {
+  background: none; border: none;
+  font: inherit; font-size: 0.85rem;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+}
+.login-options {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.9rem;
+}
+.login-remember { display: flex; align-items: center; gap: 0.4rem; }
+.login-options a { font-size: 0.9rem; }
+.login-submit { width: 100%; }
+.login-footnote { color: var(--muted); font-size: 0.85rem; text-align: center; margin: 0; }
+
 /* Phone rendering */
 @media (max-width: 720px) {
   .desktop-only { display: none; }
