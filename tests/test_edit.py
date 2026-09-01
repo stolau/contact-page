@@ -58,9 +58,22 @@ def all_rows(app):
 
 
 def put_draft(admin, app, kind, payload):
+    """PUT a draft with the caller's key order ON THE WIRE.
+
+    Build the dict in the order you mean: `json=` would serialise through
+    the app's JSON provider (sort_keys True) and put an ALPHABETICAL body
+    on the wire whatever the literal says.
+
+    The wire's ensure_ascii is provably irrelevant -- the route re-encodes
+    with json.dumps(clean, ensure_ascii=False) at app/edit.py:92 before
+    storing -- so no test may claim the wire's encoding matters.
+    """
     row = section_row(app, kind)
     return admin.put(
-        f"/api/sections/{row['id']}/draft", json=payload, headers=JSON_ACCEPT
+        f"/api/sections/{row['id']}/draft",
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        content_type="application/json",
+        headers=JSON_ACCEPT,
     )
 
 
@@ -160,10 +173,21 @@ def test_publish_touches_exactly_the_dirty_rows(logged_in_admin, app):
 def test_noop_put_of_the_seeded_hero_payload_stays_julkaistu(
     logged_in_admin, app
 ):
-    # The serialization-convention trap: the seeded payload contains "ä"
-    # (and "·"), so this fails if the PUT serializes with ensure_ascii=True
-    # or in a different key order than the seed's.
+    # Two claims, each with its own falsifier (LLM-COP-16):
+    # (a) ORDER. The payload is put on the wire ALPHABETISED -- deliberately
+    #     not FIELDS["hero"]'s order. validate_payload rebuilds `clean` by
+    #     iterating the schema (app/sanitize.py:168, returned at :196), so
+    #     storage is byte-identical and the badge stays Julkaistu. A
+    #     validate_payload that kept the wire's order would flip it to
+    #     Luonnos. put_draft sends the literal's order, so this is real.
+    # (b) ENCODING. The seed holds "ä" and "·", and the route re-encodes
+    #     with ensure_ascii=False (app/edit.py:92) to match the seed's own
+    #     dump (app/seed.py:118). A route that escaped where the seed does
+    #     not would rewrite the stored bytes. The WIRE's encoding is NOT
+    #     what is guarded here -- the route re-encodes, so it cannot matter.
     payload = hero_payload()
+    payload = {name: payload[name] for name in sorted(payload)}
+    assert list(payload) != list(FIELDS["hero"])
     assert "ä" in payload["ingress"]
     before = section_row(app, "hero")
     assert before["draft"] == before["published"]
@@ -434,8 +458,8 @@ def test_draft_put_of_a_reordered_payload_is_byte_identical(
 
     The panel writes the payload whole, and nothing guarantees a client's
     key order; validate_payload rebuilds `clean` by iterating
-    FIELDS[kind] (app/sanitize.py:168), so edit.py:90's json.dumps output
-    is stable. Without that, a save that changed nothing would rewrite
+    FIELDS[kind] (app/sanitize.py:168), so app/edit.py:92's json.dumps
+    output is stable. Without that, a save that changed nothing would rewrite
     the stored text in a new key order, and badge() in app/sections.py —
     a raw *text* comparison of draft against published — would flip
     Julkaistu to Luonnos and mark an untouched section dirty for publish.
@@ -446,7 +470,9 @@ def test_draft_put_of_a_reordered_payload_is_byte_identical(
     So `json=` would put an ALPHABETICAL body on the wire whatever order
     the dict literal has, the reordering this test exists to exercise
     would never reach the route, and the test would pass without proving
-    anything. Do not "simplify" this back to json= or put_draft.
+    anything. Do not "simplify" this back to json=. put_draft (LLM-COP-16)
+    now sends the literal's order too, but this test builds its own bytes
+    so it can assert the wire order before sending them.
     """
     before = section_row(app, "hero")
     stored = json.loads(before["draft"])
