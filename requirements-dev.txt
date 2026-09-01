@@ -4,3 +4,11 @@ ruff==0.16.5
 # The JavaScript half of the gate (tests/js/, run by tests/test_js_suite.py)
 # needs Node 22.x on PATH. It is not a pip package and cannot be pinned here;
 # it has no npm dependencies either. See README, Develop.
+playwright==1.62.0
+# The browser half of the gate (tests/browser/). `playwright install` is
+# DELIBERATELY not part of setup: the bundled Chromium is a separate ~150 MB
+# download this suite never launches, because tests/browser/conftest.py passes
+# executable_path and resolves it itself. What is required instead is a system
+# Google Chrome, on PATH as `google-chrome` or `google-chrome-stable`, or named
+# by $CONTACT_PAGE_CHROME. A missing browser fails the gate rather than
+# skipping it. See README, Develop.

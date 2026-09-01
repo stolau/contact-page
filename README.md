@@ -81,8 +81,24 @@ and **fails rather than skips** when it is absent — a skip would be false
 assurance — so an nvm-only install that your login shell can see is not a gate
 for a cron or container shell.
 
-The inner loop, without pytest in the way:
+The same command also runs the browser suite under `tests/browser/`, which
+drives the three client state machines — the first-run wizard, direct
+in-place edit and the side panel — in real Google Chrome through Playwright,
+against the real app on a real port with a fresh database per test.
+
+**Google Chrome must be on `PATH`**, as `google-chrome` or
+`google-chrome-stable`, or named by `$CONTACT_PAGE_CHROME` (which wins when
+set, and fails rather than falling back when it points at nothing runnable).
+`playwright install` is **not** part of setup: the bundled Chromium is a
+separate ~150 MB download this suite never launches, because the fixtures pass
+an explicit `executable_path`. Like the Node half, the browser half **fails
+rather than skips** when the package or the browser is absent — a skip would
+be false assurance — so `pip install -r requirements-dev.txt` plus a system
+Chrome is the whole story.
+
+The inner loops, without the rest of the gate in the way:
 
 ```sh
 node --test tests/js/*.test.js
+.venv/bin/pytest tests/browser/
 ```
