@@ -59,6 +59,26 @@ non-empty value and the key becomes the rightmost `X-Forwarded-For` entry —
 the one the proxy itself appended. Left unset, the header is ignored
 entirely, so a forged `X-Forwarded-For` cannot win a fresh window.
 
+## Uploaded images
+
+The portrait is uploaded from the side panel's Vaihda button. The bytes are
+validated structurally (PNG and JPEG only, no other format, no decoder and
+no image dependency), stored under `instance/uploads/` named by the SHA-256
+of the bytes we stored, and served from `/kuvat/<digest>`. The section
+payload carries only that digest, so drafts and publishes stay small.
+
+Three things about that storage are worth knowing before you rely on it:
+
+- **`instance/` is gitignored and is not backed up, so uploads are lost on
+  redeploy** — exactly as the database already is.
+- **An upload is permanent and world-readable from the moment it lands,
+  before any publish.** There is no delete route and no garbage collection:
+  every picture the owner ever previewed stays on disk at a stable public
+  URL, even one that was never published.
+- **Poista removes the picture from the page, not from disk.** A real delete
+  needs refcounting a digest across the draft *and* published payloads of
+  every section, plus a decision about what a rollback means.
+
 ## Develop
 
 ```sh

@@ -410,10 +410,11 @@ def test_direct_cta_services_is_the_hero_link_and_is_bound(direct_html):
 # below, so a field added to app/fields.py cannot go silently unbound.
 EXCLUDED_SCALARS = {
     ("hero", "portrait"): (
-        "not text — it names an image slot and nothing in this unit uploads"
-        " one; its affordance is the disabled 'Vaihda kuva' pill (Rule D)."
-        " It has no FIELD_LABELS entry either, so it is reachable in neither"
-        " editor today."
+        "not text — it names an image slot. Uploading one now exists"
+        " (LLM-COP-21: Vaihda/Poista in the side panel), but editing an"
+        " image slot in place is still out of scope, so the direct-edit"
+        " affordance stays the disabled 'Vaihda kuva' pill (Rule D). It has"
+        " no FIELD_LABELS entry either, so it is not a form field anywhere."
     ),
     ("yhteydenotto", "name_label"): (
         "a bare text node directly inside <label> in page.html; binding it"

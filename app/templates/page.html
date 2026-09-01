@@ -24,12 +24,21 @@
 {%- endmacro %}
 
 {% macro hero(p, sid='') -%}
+{# portrait holds a stored image reference; image_url answers a URL only for
+   a real digest, so anything else falls through to the placeholder. alt is
+   empty because there is no alt-text field yet and site_brand is unbound in
+   the macro-module context this file is imported into (app/sections.py). #}
+{% set portrait_src = p.portrait|image_url %}
 <section id="{{ anchors['hero'] }}" class="hero" data-section="{{ sid }}" data-kind="hero">
-  <div class="portrait">
+  <div class="portrait{% if portrait_src %} has-image{% endif %}">
+    {% if portrait_src %}
+    <img class="portrait-image" src="{{ portrait_src }}" alt="">
+    {% else %}
     <span class="portrait-icon" aria-hidden="true">&#128100;</span>
     <span class="portrait-label desktop-only">Muotokuva</span>
     <span class="portrait-label phone-only">Kuva</span>
     <span class="portrait-browse">or browse files</span>
+    {% endif %}
   </div>
   <p class="kicker" data-section="{{ sid }}" data-field="kicker">{{ p.kicker }}</p>
   <h1 class="main-heading" data-section="{{ sid }}" data-field="title">{{ p.title }}</h1>

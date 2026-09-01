@@ -224,6 +224,45 @@ def _migration_5(conn):
                 (new_text, section_id),
             )
 
+def _migration_6(conn):
+    # Uploaded images (LLM-COP-21). One row per stored file, addressed by
+    # the SHA-256 of the bytes we stored, so the same picture uploaded twice
+    # is one row and one file.
+    #
+    # RENUMBERED, and this is no longer hypothetical: this was written as
+    # migration 5, LLM-COP-20's tietoa.facts reshape landed on main first and
+    # took that number, and moving this function later in MIGRATIONS was the
+    # whole of the change. That is what it was shaped for — it reads no row,
+    # writes no payload, and nothing depends on it.
+    #
+    # IF NOT EXISTS is what makes the renumber safe rather than merely
+    # tidy, and it is now load-bearing: a developer whose database ran this
+    # as 5 before the rebase is stamped at user_version 5, so migrate() runs
+    # it again as 6. Without IF NOT EXISTS that is "table uploads already
+    # exists" on startup — the app dead in the water on the machine of
+    # whoever tested the branch early.
+    #
+    # created_at is an integer Unix epoch in seconds, the representation
+    # migrations 2 and 3 use. byte_size is the length of the bytes we
+    # STORED, which for a JPEG carrying an appendix is shorter than the
+    # request body — see app/imagecheck.py on canonicalisation. width and
+    # height are the dimensions the validator read out of IHDR or SOF and
+    # bounded; they make that bound auditable after the fact.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS uploads (
+            id           INTEGER PRIMARY KEY,
+            digest       TEXT NOT NULL UNIQUE,
+            stored_name  TEXT NOT NULL,
+            content_type TEXT NOT NULL,
+            byte_size    INTEGER NOT NULL,
+            width        INTEGER NOT NULL,
+            height       INTEGER NOT NULL,
+            created_at   INTEGER NOT NULL
+        )
+        """
+    )
+
 
 MIGRATIONS = [
     _migration_1,
@@ -231,6 +270,7 @@ MIGRATIONS = [
     _migration_3,
     _migration_4,
     _migration_5,
+    _migration_6,
 ]
 
 
