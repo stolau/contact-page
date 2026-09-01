@@ -344,9 +344,17 @@
   function setStyle(value) {
     var hero = heroSection();
     if (!hero) return;
-    // Whatever is already queued or in flight lands first: the hero's
-    // payload is refreshed only on a successful PUT, so writing on top of a
-    // stale copy would drop the edits that PUT is carrying.
+    // Wait for the queued save if there is one, otherwise for the in-flight
+    // one: the hero's payload is refreshed only on a successful PUT, so
+    // writing on top of a stale copy would drop the edits that PUT carries.
+    //
+    // This NARROWS the window, it does not close it. `||` short-circuits, so
+    // when a save is queued AND a hero PUT is already in flight, saveInFlight
+    // is never awaited and the stale copy is still possible. saveInFlight
+    // holds one promise rather than one per section, which is the actual
+    // cause; julkaise below ships the same weakness on the same line. Closing
+    // it means per-section write tracking, which changes a shipped path, so
+    // it is filed rather than fixed here.
     var pending = autosave.flush() || saveInFlight || Promise.resolve();
     return pending.then(function () {
       if (sections[current] === hero) {

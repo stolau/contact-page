@@ -717,9 +717,19 @@ def test_migration_7_is_idempotent_byte_for_byte(tmp_path):
     migrate() twice is a no-op by PRAGMA user_version alone, so running it
     again proves nothing about what the migration does to a row it has already
     rewritten — which is exactly the branch that has to be byte-stable if a
-    store ever migrates on a newer build's data. The `if new_text == text:
-    continue` guard is what makes it byte-stable by construction rather than
-    by luck, and this is the test that can notice it going.
+    store ever migrates on a newer build's data.
+
+    What this pins is that the rewrite APPENDS via setdefault rather than
+    assigning: an assignment would still be byte-stable here, but it would
+    overwrite a style an owner had chosen, and the key-order assertions
+    below are what catch that.
+
+    It does NOT pin the `if new_text == text: continue` guard, and no
+    behavioural test can: when the texts are equal the UPDATE writes
+    identical bytes, so deleting the guard leaves the whole suite green.
+    That guard is a redundant-write optimisation, not a behaviour, and
+    asserting it would mean counting UPDATE statements — testing the
+    implementation rather than what it does.
     """
     c = _v6_database(
         tmp_path / "twice.sqlite3",

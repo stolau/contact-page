@@ -109,12 +109,25 @@ def test_template_for_resolves_every_input():
     that lost that default would hand None straight through; `None in dict`
     is a lookup, not an error, so the fallback covers it — and this is the
     test that says so out loud.
+
+    THE UNHASHABLE CASES ARE THE POINT. A dict and a list are not merely
+    unknown styles, they are wrongly TYPED ones, and they take a different
+    path: `in` on a dict hashes its operand, so before resolve_style tested
+    isinstance these raised TypeError instead of falling through, and
+    GET / answered 500 for every visitor. An unknown string could never
+    have caught that — the whole resolution table passed while the public
+    page was one stored object away from going down. Drop the isinstance
+    guard and the two lines below are what go red.
     """
     assert template_for("v1") == V1_TEMPLATE
     assert template_for("v2") == V2_TEMPLATE
     assert template_for("") == V1_TEMPLATE
     assert template_for("banana") == V1_TEMPLATE
     assert template_for(None) == V1_TEMPLATE
+    assert template_for(7) == V1_TEMPLATE
+    assert template_for({}) == V1_TEMPLATE
+    assert template_for({"v1": True}) == V1_TEMPLATE
+    assert template_for(["v2"]) == V1_TEMPLATE
 
     # The seam the resolution rides on, stated once: the default has to name
     # a template the mapping actually holds, or every unknown style 500s.
@@ -167,6 +180,31 @@ def test_an_unknown_stored_style_renders_the_default_template_and_still_200s(
 
     assert response.status_code == 200
     assert rendered == [V1_TEMPLATE]
+
+
+def test_a_wrongly_typed_stored_style_still_serves_the_public_page(app, client):
+    """The hazard at the route, not just at the function.
+
+    A style that is a JSON object or array is not merely unknown, it is
+    wrongly TYPED, and it used to take a different path: `in` on a dict
+    hashes its operand, so resolve_style raised TypeError before any
+    fallback and GET / answered 500 for every visitor. The whole unknown-
+    STRING table passed while the page was one stored object away from
+    going down, which is why this asserts the response and not the mapping.
+
+    Written straight into the store because validate_payload admits only a
+    str for a plain field — that is the point: the app cannot write this,
+    and the store is not the app's alone. A hand-edited row, a restored
+    backup, or a future writer is enough.
+    """
+    for stored in ({}, {"v1": True}, ["v2"], 7):
+        set_hero_style_everywhere(app, stored)
+
+        with captured_templates(app) as rendered:
+            response = client.get("/")
+
+        assert response.status_code == 200, stored
+        assert rendered == [V1_TEMPLATE], stored
 
 
 def test_a_stored_v2_style_selects_the_v2_template_on_the_public_page(
