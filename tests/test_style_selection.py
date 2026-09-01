@@ -117,7 +117,8 @@ def test_template_for_resolves_every_input():
     GET / answered 500 for every visitor. An unknown string could never
     have caught that — the whole resolution table passed while the public
     page was one stored object away from going down. Drop the isinstance
-    guard and the two lines below are what go red.
+    guard and the UNHASHABLE lines below are what go red — the number
+    stays green, since 7 is hashable and simply misses the mapping.
     """
     assert template_for("v1") == V1_TEMPLATE
     assert template_for("v2") == V2_TEMPLATE

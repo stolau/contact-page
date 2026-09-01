@@ -720,9 +720,11 @@ def test_migration_7_is_idempotent_byte_for_byte(tmp_path):
     store ever migrates on a newer build's data.
 
     What this pins is that the rewrite APPENDS via setdefault rather than
-    assigning: an assignment would still be byte-stable here, but it would
-    overwrite a style an owner had chosen, and the key-order assertions
-    below are what catch that.
+    assigning. Byte-stability alone cannot tell the two apart — on a row
+    whose style is still "" an assignment writes the same bytes — so the
+    last block below plants a CHOSEN style on the migrated row and re-runs.
+    setdefault leaves it; an assignment silently resets it to "", which is
+    an owner's skin quietly reverting on an upgrade.
 
     It does NOT pin the `if new_text == text: continue` guard, and no
     behavioural test can: when the texts are equal the UPDATE writes
@@ -745,6 +747,17 @@ def test_migration_7_is_idempotent_byte_for_byte(tmp_path):
     database._migration_7(c)
 
     assert tuple(_hero_row(c)) == first
+
+    # And a style the owner has CHOSEN survives a re-run: setdefault leaves
+    # it alone, an assignment would silently reset it to "".
+    chosen = dict(json.loads(first[1]), style="v2")
+    c.execute(
+        "UPDATE sections SET draft = ? WHERE kind = 'hero'",
+        (json.dumps(chosen, ensure_ascii=False),),
+    )
+    c.commit()
+    database._migration_7(c)
+    assert json.loads(_hero_row(c)["draft"])["style"] == "v2"
     c.close()
 
 
