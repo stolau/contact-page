@@ -43,7 +43,13 @@
       <div class="muotokuva-row">
         <span class="muotokuva-icon" aria-hidden="true">&#128100;</span>
         <span class="muotokuva-text">Muotokuva<br><span class="muotokuva-detail">Pyöreä rajaus</span></span>
-        <button type="button" class="button secondary vaihda-button" disabled>Vaihda</button>
+        <button type="button" class="button secondary vaihda-button">Vaihda</button>
+        <button type="button" class="button secondary poista-button" hidden>Poista</button>
+        {# accept is a convenience filter for the file chooser only. The
+           server trusts it for nothing: /api/kuvat validates the bytes and
+           reads neither the filename nor the asserted content type. #}
+        <input type="file" class="vaihda-input" accept="image/png,image/jpeg" hidden>
+        <span class="muotokuva-error" role="alert" hidden></span>
       </div>
 
       <form class="section-form"></form>

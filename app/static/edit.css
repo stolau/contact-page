@@ -42,6 +42,15 @@ body {
 .button.secondary { background: transparent; color: var(--accent); }
 .button:disabled { opacity: 0.5; cursor: default; }
 
+/* An author `display:` beats the UA sheet's [hidden] { display: none }
+   whatever its specificity, so a .button that toggles `hidden` from
+   JavaScript has to be given the attribute's meaning back. Without this
+   line Poista is drawn permanently — including for a section that has no
+   picture, where pressing it would clear a portrait that is already empty.
+   The same collision is solved the same way at sections.css:71-79 and
+   wizard.css:12-18. */
+.button[hidden] { display: none; }
+
 /* Top bar */
 .edit-topbar {
   display: flex;
@@ -149,6 +158,7 @@ body {
 .muotokuva-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.8rem;
   padding: 0.7rem 0.9rem;
   border: 1px solid var(--line);
@@ -166,6 +176,16 @@ body {
 }
 .muotokuva-text { flex: 1; }
 .muotokuva-detail { color: var(--muted); font-size: 0.85rem; }
+/* The upload refusal the server sends back (an unreadable file, a picture
+   over the cap or past the dimension bound). flex-basis: 100% with the
+   row's flex-wrap puts it on its own line under the button rather than
+   squeezing it between the label and Vaihda, where a full Finnish sentence
+   wraps to one word per line. */
+.muotokuva-error {
+  flex-basis: 100%;
+  color: var(--error, #b3261e);
+  font-size: 0.85rem;
+}
 
 /* Generated form */
 .section-form { display: block; }

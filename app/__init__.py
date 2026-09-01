@@ -12,6 +12,8 @@ from . import db as database
 from .direct_edit import bp as direct_edit_bp
 from .edit import bp as edit_bp
 from .fields import ANCHORS, NAV_LABELS
+from .images import bp as images_bp
+from .images import image_url
 from .messages import bp as messages_bp
 from .sanitize import sanitize_rich
 from .sectionlist import bp as sectionlist_bp
@@ -48,6 +50,15 @@ def create_app(instance_path=None):
     app.config.setdefault(
         "DATABASE", os.path.join(app.instance_path, "site.sqlite3")
     )
+    # Uploaded images live beside the database, under the instance
+    # directory: gitignored, and lost on redeploy exactly as the database
+    # is (README.md says so out loud). No app-wide MAX_CONTENT_LENGTH —
+    # the upload cap is per-request in app/images.py, so no other route's
+    # behaviour changes.
+    app.config.setdefault(
+        "UPLOAD_DIR", os.path.join(app.instance_path, "uploads")
+    )
+    os.makedirs(app.config["UPLOAD_DIR"], exist_ok=True)
 
     conn = database.connect(app.config["DATABASE"])
     try:
@@ -61,6 +72,11 @@ def create_app(instance_path=None):
     app.register_blueprint(sectionlist_bp)
     app.register_blueprint(wizard_bp)
     app.register_blueprint(direct_edit_bp)
+    app.register_blueprint(images_bp)
+
+    # A stored reference to a URL, or None. Registered as a filter so the
+    # public template can ask for one without importing anything.
+    app.add_template_filter(image_url, "image_url")
 
     @app.template_filter("render_rich")
     def render_rich(value):
