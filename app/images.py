@@ -68,6 +68,22 @@ from .imagecheck import sniff_image
 
 bp = Blueprint("images", __name__)
 
+
+def _umask():
+    """This process's umask.
+
+    There is no way to read it without setting it, so it is read once here at
+    import — single-threaded, before any request — and restored immediately.
+    Doing this per upload would race: another thread creating a file in the
+    window would take the temporarily-set mask.
+    """
+    value = os.umask(0o022)
+    os.umask(value)
+    return value
+
+
+_UMASK = _umask()
+
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 
 # A stored reference is exactly a SHA-256 hex digest. Nothing else ever
@@ -160,6 +176,13 @@ def upload():
         try:
             with os.fdopen(handle_fd, "wb") as handle:
                 handle.write(facts.data)
+            # mkstemp creates at 0600; a plain open() would have taken the
+            # umask. Put the umask's mode back rather than letting the
+            # tempfile detail decide the permissions of a published file —
+            # these are pictures meant to be served, and a deployment that
+            # ever let a web server read the directory would find 0600 files
+            # it could not open, for no reason anybody wrote down.
+            os.chmod(temp, 0o666 & ~_UMASK)
             os.replace(temp, path)
         except BaseException:
             # Never leave a .part behind on a failed write.
