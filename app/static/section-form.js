@@ -15,22 +15,19 @@
  *   fields          the whole FIELDS map (kind -> name -> descriptor)
  *   labels          the whole FIELD_LABELS map; dotted keys
  *                   ("days.label") name the parts of a list row
- *   labelOverrides  per-field label, winning over `labels` — how the
- *                   wizard says Otsikko where the panel says Pääotsikko
  *   helpers         per-field helper text, shown before the counter
  *   only            an explicit ordered field subset; the whole kind in
  *                   declaration order when null
- *   counterText     (length, cap) -> the counter's text
  *   onChange        called after every edit
  *
- * A field with no label — and no override — is not drawn (hero.portrait
- * is the standing case); its value still rides along in the payload,
- * which both hosts write whole.
+ * A field with no label is not drawn (hero.portrait is the standing
+ * case); its value still rides along in the payload, which both hosts
+ * write whole.
  */
 (function () {
   "use strict";
 
-  function defaultCounterText(length, cap) {
+  function counterText(length, cap) {
     return length + " / " + cap + " merkkiä";
   }
 
@@ -39,14 +36,11 @@
     var draft = options.draft;
     var fields = options.fields;
     var labels = options.labels;
-    var labelOverrides = options.labelOverrides || {};
     var helpers = options.helpers || {};
     var only = options.only || null;
-    var counterText = options.counterText || defaultCounterText;
     var onChange = options.onChange;
 
     function labelFor(name) {
-      if (labelOverrides[name] !== undefined) return labelOverrides[name];
       return (labels[kind] || {})[name];
     }
 

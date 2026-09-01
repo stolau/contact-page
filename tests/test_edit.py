@@ -394,7 +394,7 @@ def test_bootstrap_fields_keep_declaration_order(logged_in_admin):
     """The served bootstrap lists every kind's fields in app/fields.py
     declaration order, not alphabetically.
 
-    This pins the *input* to section-form.js:233, which draws
+    This pins the *input* to section-form.js:227, which draws
     `(only || Object.keys(fields[kind]))` — edit.js passes no `only`, so
     the panel's draw order IS the shipped JSON's key order, and an
     alphabetised bootstrap silently reorders the form (the owner met
@@ -418,8 +418,8 @@ def test_panel_draw_order_for_hero_matches_the_mockup(logged_in_admin):
     """The hero panel's fields, in the order the browser draws them.
 
     This encodes section-form.js's draw rule in Python — Object.keys of
-    the bootstrapped schema (:233), minus every field with no
-    FIELD_LABELS entry, which `if (!labelFor(name)) return;` (:236) skips
+    the bootstrapped schema (:227), minus every field with no
+    FIELD_LABELS entry, which `if (!labelFor(name)) return;` (:230) skips
     (hero.portrait: the Muotokuva row stands for it). It therefore
     CANNOT notice that JS file changing its rule; the live browser check
     covers that. What it does prove is that the served data, run through
