@@ -29,12 +29,12 @@
 
   <aside class="editor-panel">
     <nav class="panel-tabs">
-      <button type="button" class="panel-tab active">Sisältö</button>
-      <button type="button" class="panel-tab" disabled>Ulkoasu</button>
+      <button type="button" class="panel-tab active" data-tab="sisalto">Sisältö</button>
+      <button type="button" class="panel-tab" data-tab="ulkoasu">Ulkoasu</button>
       <button type="button" class="panel-tab" disabled>SEO</button>
     </nav>
 
-    <div class="panel-body">
+    <div class="panel-body" data-panel="sisalto">
       <div class="section-title-row">
         <h2 class="section-name">{{ section_names[sections[0].kind] }}</h2>
         <span class="section-position">Osio 1 / {{ sections|length }}</span>
@@ -58,6 +58,26 @@
         <h3 class="muut-osiot-title">Muut osiot</h3>
         <ul class="muut-osiot-list"></ul>
       </div>
+    </div>
+
+    {# Ulkoasu (LLM-COP-22): the site-wide style. hidden alone is enough —
+       .panel-body sets no display, so the UA rule wins, unlike .button.
+       Buttons rather than a <select> or radios: with one offered style a
+       change event could never fire, so the write path would be
+       unreachable. active_style is the RAW drafted value, so nothing is
+       marked until the owner has actually chosen. #}
+    <div class="panel-body" data-panel="ulkoasu" hidden>
+      {# Its own class, NOT .section-name: that one names the open section and
+         is located strictly by the browser suite, so a second element wearing
+         it fails every test that reads it. #}
+      <h2 class="tyyli-title">Ulkoasu</h2>
+      <ul class="tyyli-list">
+        {% for value, label in styles %}
+        <li>
+          <button type="button" class="tyyli-option{{ ' active' if value == active_style }}" data-style="{{ value }}">{{ label }}</button>
+        </li>
+        {% endfor %}
+      </ul>
     </div>
 
     <footer class="panel-footer">

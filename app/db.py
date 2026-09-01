@@ -264,6 +264,62 @@ def _migration_6(conn):
     )
 
 
+def _migration_7(conn):
+    # The site-wide style becomes stored data (LLM-COP-22): hero.style names
+    # which public template renders the page (app/styles.py). Existing rows
+    # have no such key, so without a backfill validate_payload's required-key
+    # check rejects the owner's first save — the same hazard _migration_4
+    # existed for, and this is that migration's shape applied again.
+    #
+    # The default is a FROZEN LITERAL and no app.fields or app.seed is
+    # imported, for the reason _migration_4 states: a migration that reads
+    # the live schema changes behaviour whenever the schema next changes,
+    # which is not a migration.
+    #
+    # "" is "no style chosen" and app/styles.py resolves it to the default
+    # template, so an upgraded install serves byte-identical bytes. "v1"
+    # would not be equivalent: app/sectionlist.py compares a published
+    # payload to blank_payload(kind) by value, and blank_payload gives "" for
+    # a plain field.
+    #
+    # setdefault APPENDS, so a backfilled row's key order still equals
+    # FIELDS["hero"] declaration order — style is last there — which is what
+    # keeps draft == published byte-equal and every badge where it was. All
+    # three columns are rewritten in ONE pass by ONE pure function of the
+    # stored text, so draft == published before implies it after and badge()
+    # cannot flip. The converse collapse _migration_5 documents cannot arise:
+    # appending one key with one constant value is injective on the set of
+    # stored texts. previous_published is backfilled too — restore copies it
+    # verbatim into draft (app/sectionlist.py), and a short payload there
+    # would 400 the next save.
+    defaults = {"style": ""}
+    columns = ("draft", "published", "previous_published")
+    rows = conn.execute(
+        "SELECT id, draft, published, previous_published FROM sections"
+        " WHERE kind = 'hero'"
+    ).fetchall()
+    for row in rows:
+        # Indexed positionally: a migration must not depend on the caller
+        # having set sqlite3.Row (app/db.py:110-113).
+        section_id = row[0]
+        for offset, column in enumerate(columns, start=1):
+            text = row[offset]
+            if not text:
+                continue
+            payload = json.loads(text)
+            for key, value in defaults.items():
+                payload.setdefault(key, value)
+            new_text = json.dumps(payload, ensure_ascii=False)
+            # _migration_5's convention: a row already carrying the key is
+            # byte-untouched by construction, not merely by luck.
+            if new_text == text:
+                continue
+            conn.execute(
+                f"UPDATE sections SET {column} = ? WHERE id = ?",
+                (new_text, section_id),
+            )
+
+
 MIGRATIONS = [
     _migration_1,
     _migration_2,
@@ -271,6 +327,7 @@ MIGRATIONS = [
     _migration_4,
     _migration_5,
     _migration_6,
+    _migration_7,
 ]
 
 

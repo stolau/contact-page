@@ -146,6 +146,29 @@ body {
   padding: 1rem 1.25rem;
 }
 
+/* Ulkoasu (LLM-COP-22): the style list. The option copies .viewport-button's
+   idiom — a button carrying .active — because the mark has to survive a
+   failed write, which a checked radio does not. */
+.tyyli-title { margin: 0; font-size: 1.15rem; }
+.tyyli-list { list-style: none; margin: 0.8rem 0 0; padding: 0; }
+.tyyli-list li { margin-bottom: 0.5rem; }
+.tyyli-option {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: none;
+  color: var(--ink);
+  cursor: pointer;
+}
+.tyyli-option.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: bold;
+}
+
 .section-title-row {
   display: flex;
   align-items: baseline;

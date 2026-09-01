@@ -19,6 +19,7 @@ from . import auth
 from . import db as database
 from .fields import ANCHORS, FIELD_LABELS, FIELDS, NAV_LABELS, SECTION_NAMES
 from .sections import draft_sections, site_chrome
+from .styles import template_for
 
 bp = Blueprint("direct_edit", __name__)
 
@@ -48,7 +49,9 @@ def sivu():
         "anchors": ANCHORS,
     }
     return render_template(
-        "page.html",
+        # The DRAFT style, the same column the content comes from: direct
+        # mode edits the drafted page, skin included (LLM-COP-22).
+        template_for(chrome["site_style"]),
         sections=sections,
         nav_labels=NAV_LABELS,
         anchors=ANCHORS,

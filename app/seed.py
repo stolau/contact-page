@@ -48,6 +48,12 @@ SEED_SECTIONS = [
             "brand": "Yrityksen nimi",
             "page_title": "Yrityksen nimi",
             "footer": "© 2026 Yrityksen nimi",
+            # No style chosen (LLM-COP-22). "" rather than "v1": blank_payload
+            # gives "" for every plain field and app/sectionlist.py compares a
+            # published payload to blank_payload(kind) BY VALUE, so seeding
+            # "v1" would quietly drop the BLANK_PUBLISHED refusal from a blank
+            # hero's Näytä osio. app/styles.py resolves "" to the default.
+            "style": "",
         },
     ),
     (

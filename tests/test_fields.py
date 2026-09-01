@@ -8,7 +8,7 @@ value's shape must match the declared structure. This enforces the brief's
 
 import pytest
 
-from app.fields import ANCHORS, FIELDS, NAV_LABELS
+from app.fields import ANCHORS, FIELD_LABELS, FIELDS, NAV_LABELS
 from app.seed import SEED_SECTIONS
 
 
@@ -34,6 +34,25 @@ def test_tietoa_facts_is_a_list_of_label_value_pairs():
     fact = FIELDS["tietoa"]["facts"]
     assert fact["type"] == "list"
     assert fact["item"] == {"label": "plain", "value": "plain"}
+
+
+def test_style_carries_no_field_label():
+    """hero.style is declared, and deliberately has no FIELD_LABELS entry.
+
+    That absence is the whole mechanism keeping it out of the panel form: the
+    form is generated from FIELDS + FIELD_LABELS and section-form.js skips
+    every field with no label, the hero.portrait precedent. The style's editor
+    is the panel's Ulkoasu tab, not a text input the owner could type "banana"
+    into.
+
+    Both halves are asserted. Without the first, deleting the field would pass
+    this test; without the second, giving it a label would.
+    """
+    assert FIELDS["hero"]["style"] == {"type": "plain"}
+    assert FIELD_LABELS["hero"].get("style") is None
+    # The precedent, named so the shape is recognisable rather than a
+    # one-off: portrait is the other declared-but-unlabelled hero field.
+    assert FIELD_LABELS["hero"].get("portrait") is None
 
 
 def test_nav_label_map():

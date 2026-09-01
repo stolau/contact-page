@@ -136,18 +136,28 @@ def test_stored_json_carries_the_trap_typography_byte_exact(conn):
     assert HOURS in blob
 
 
-def test_hero_carries_the_three_site_chrome_keys_last(conn):
-    """LLM-COP-10: brand, page_title and footer are seeded, non-empty, and
-    LAST in hero's key order. Order is load-bearing — validate_payload rebuilds
-    a payload in FIELDS declaration order, so a key stored out of order makes
-    the first no-op save rewrite the row and flip its badge to Luonnos."""
+def test_hero_carries_the_site_wide_keys_last(conn):
+    """The site-wide keys are seeded and LAST in hero's key order, in the
+    order they were introduced: LLM-COP-10's brand/page_title/footer, then
+    LLM-COP-22's style. The newest is last; nothing is ever inserted
+    mid-list. Order is load-bearing — validate_payload rebuilds a payload in
+    FIELDS declaration order, so a key stored out of order makes the first
+    no-op save rewrite the row and flip its badge to Luonnos.
+
+    The tail is named WHOLE on purpose: the next site-wide key has to extend
+    this list deliberately rather than slip past a suffix check. The same
+    goes for tests/test_sections.py's site_chrome dict equality.
+    """
     seed_if_empty(conn)
     (published,) = conn.execute(
         "SELECT published FROM sections WHERE kind = 'hero'"
     ).fetchone()
     payload = json.loads(published)
-    assert list(payload)[-3:] == ["brand", "page_title", "footer"]
+    assert list(payload)[-4:] == ["brand", "page_title", "footer", "style"]
     assert all(payload[key].strip() for key in ("brand", "page_title", "footer"))
+    # style is the one site-wide key seeded EMPTY: "" means "no style
+    # chosen", which app/styles.py resolves to the default template.
+    assert payload["style"] == ""
     assert list(payload) == list(FIELDS["hero"])
 
 

@@ -34,6 +34,9 @@
   var peruutaNote = document.querySelector(".peruuta-note");
   var previewFrame = document.querySelector(".preview-frame");
   var preview = document.querySelector(".preview");
+  var panelTabs = document.querySelectorAll(".panel-tab[data-tab]");
+  var panelBodies = document.querySelectorAll(".panel-body[data-panel]");
+  var tyyliOptions = document.querySelectorAll(".tyyli-option");
 
   var current = 0;
   var draft = null; // the working payload
@@ -90,11 +93,17 @@
     savedNote.hidden = false;
   }
 
-  function save() {
-    // A save now settles whatever the debounce had queued.
-    autosave.cancel();
-    var section = sections[current];
-    var payload = deepCopy(draft);
+  // The whole write path, for ANY section — not only the open one. The
+  // Ulkoasu tab writes the hero's drafted style while some other section is
+  // open (LLM-COP-22), which is why this takes its section and payload as
+  // arguments rather than reading `current` and `draft`.
+  //
+  // saveInFlight and its settle pair live HERE, not in save(): a background
+  // style write must be visible to Julkaise, whose
+  // `autosave.flush() || saveInFlight` (below) is what makes it wait for a
+  // write it did not start. Leaving them in save() would make style writes
+  // invisible to publish and introduce a race.
+  function putDraft(section, payload) {
     var request = fetch("/api/sections/" + section.id + "/draft", {
       method: "PUT",
       headers: {
@@ -136,6 +145,12 @@
       }
     );
     return request;
+  }
+
+  function save() {
+    // A save now settles whatever the debounce had queued.
+    autosave.cancel();
+    return putDraft(sections[current], deepCopy(draft));
   }
 
   /* ---- preview ---- */
@@ -211,6 +226,10 @@
       "Osio " + (index + 1) + " / " + sections.length;
     muotokuvaRow.hidden = section.kind !== "hero";
     refreshMuotokuva();
+    // The style mark's SOURCE changes with the open section — `draft` when
+    // the hero is open, hero.payload otherwise — so switching sections owes
+    // it a refresh even though the stored value did not move.
+    refreshStyleOptions();
     clearErrors();
     buildForm();
     buildMuutOsiot();
@@ -294,6 +313,88 @@
     setPortrait("");
   });
 
+  /* ---- ulkoasu: the site-wide style (LLM-COP-22) ---- */
+
+  // The style is a field on the HERO payload, so it follows draft and
+  // publish like any other content — but its control sits outside the
+  // section form and is reachable while another section is open. Hence two
+  // branches everywhere below: the hero open (the value lives in `draft`)
+  // and the hero not open (it lives in that section's `payload`).
+
+  function heroSection() {
+    for (var index = 0; index < sections.length; index++) {
+      if (sections[index].kind === "hero") return sections[index];
+    }
+    return undefined;
+  }
+
+  function styleNow() {
+    var hero = heroSection();
+    if (!hero) return "";
+    return (sections[current] === hero ? draft : hero.payload).style || "";
+  }
+
+  function refreshStyleOptions() {
+    var active = styleNow();
+    tyyliOptions.forEach(function (option) {
+      option.classList.toggle("active", option.dataset.style === active);
+    });
+  }
+
+  function setStyle(value) {
+    var hero = heroSection();
+    if (!hero) return;
+    // Wait for the queued save if there is one, otherwise for the in-flight
+    // one: the hero's payload is refreshed only on a successful PUT, so
+    // writing on top of a stale copy would drop the edits that PUT carries.
+    //
+    // This NARROWS the window, it does not close it. `||` short-circuits, so
+    // when a save is queued AND a hero PUT is already in flight, saveInFlight
+    // is never awaited and the stale copy is still possible. saveInFlight
+    // holds one promise rather than one per section, which is the actual
+    // cause; julkaise below ships the same weakness on the same line. Closing
+    // it means per-section write tracking, which changes a shipped path, so
+    // it is filed rather than fixed here.
+    var pending = autosave.flush() || saveInFlight || Promise.resolve();
+    return pending.then(function () {
+      if (sections[current] === hero) {
+        // Hero open: the value goes into `draft` and the mark is set
+        // optimistically, exactly as every other field in the panel behaves
+        // on a failed save — the value stays, showErrors explains, Peruuta
+        // reverts it.
+        draft.style = value;
+        refreshStyleOptions();
+        return save().then(refreshStyleOptions, refreshStyleOptions);
+      }
+      // Hero not open: nothing is marked on the click. The mark comes from
+      // hero.payload, which advances only on a successful PUT, so an
+      // aborted fetch or a 400 leaves it exactly where it was.
+      var payload = deepCopy(hero.payload);
+      payload.style = value;
+      return putDraft(hero, payload).then(
+        refreshStyleOptions,
+        refreshStyleOptions
+      );
+    });
+  }
+
+  tyyliOptions.forEach(function (option) {
+    option.addEventListener("click", function () {
+      setStyle(option.dataset.style);
+    });
+  });
+
+  panelTabs.forEach(function (tab) {
+    tab.addEventListener("click", function () {
+      panelTabs.forEach(function (other) {
+        other.classList.toggle("active", other === tab);
+      });
+      panelBodies.forEach(function (body) {
+        body.hidden = body.dataset.panel !== tab.dataset.tab;
+      });
+    });
+  });
+
   /* ---- chrome wiring ---- */
 
   document.querySelectorAll(".viewport-button").forEach(function (button) {
@@ -332,6 +433,10 @@
       // back on the page but its Poista button is not, and the only way
       // back is to leave the section and return.
       refreshMuotokuva();
+      // Same debt for the style: Peruuta is a writer of draft.style too,
+      // through the hero-open branch of setStyle, so an optimistic mark left
+      // by a failed style write has to go back with the rest of the draft.
+      refreshStyleOptions();
       reloadPreview();
       savedNote.hidden = true;
       peruutaNote.hidden = false;

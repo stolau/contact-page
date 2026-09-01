@@ -67,7 +67,8 @@ def initials(brand):
 
 def site_chrome(conn, column="published"):
     """The page-wide chrome the templates render — brand, browser title and
-    footer — plus the avatar initials derived from the brand (LLM-COP-10).
+    footer — plus the avatar initials derived from the brand (LLM-COP-10),
+    and the site-wide style the caller picks a template with (LLM-COP-22).
 
     Read from the hero row by kind and *ignoring state*, so hiding the
     Aloitusosio does not blank the header and the tab title. A missing row or
@@ -96,6 +97,12 @@ def site_chrome(conn, column="published"):
         "site_title": payload.get("page_title", ""),
         "site_footer": payload.get("footer", ""),
         "site_initials": initials(brand),
+        # The RAW stored value, not app/styles.py's resolution of it: the
+        # panel marks the active option from it and has to tell "" (nothing
+        # chosen) apart from "v1" (chosen). Callers that render a page pass
+        # it through template_for; a missing row or key gives "", which
+        # resolves to the default rather than raising.
+        "site_style": payload.get("style", ""),
     }
 
 
