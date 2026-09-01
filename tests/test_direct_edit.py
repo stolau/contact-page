@@ -594,7 +594,8 @@ def test_chrome_strings_do_not_leak(leaky_documents, chrome):
 
 
 @pytest.mark.parametrize(
-    "leak", ["direct-edit.css", "direct-edit.js", "direct-bootstrap"]
+    "leak",
+    ["direct-edit.css", "direct-edit.js", "direct-bootstrap", "save-queue.js"],
 )
 def test_direct_mode_assets_do_not_leak(leaky_documents, leak):
     for where, html in leaky_documents.items():

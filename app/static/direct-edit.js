@@ -10,7 +10,11 @@
  * nothing can leak into the public page or the draft preview. Saving
  * goes through the side panel's own routes: PUT /api/sections/<id>/draft
  * with the whole payload (that route validates the whole payload) and
- * POST /api/publish. No second write path, no second sanitizer.
+ * POST /api/publish. No second write path, no second sanitizer. Both save
+ * buttons go through the one save queue (app/static/save-queue.js), so a
+ * second click never starts a draft PUT while the first is still in
+ * flight — that route is last-write-wins, and overlapping writes to one
+ * section would be decided by arrival order.
  *
  * data-field is bound at boot, not per click: a <button> or an <a href>
  * that becomes an editing host only on focus is a different, unmeasured
@@ -490,12 +494,33 @@
     });
   }
 
+  // One queue for the page, not one per button: the invariant is per
+  // section id and both buttons write the same rows. saveDrafts reads
+  // working[] and lastSaved[] in its own body, so a run that waits
+  // recomputes its dirty set when it starts — a queued save with nothing
+  // left to send issues no request.
+  var saveQueue = window.createSaveQueue();
+
+  function queueSave() {
+    return saveQueue.add(saveDrafts);
+  }
+
+  // Queued, a synchronous throw inside saveDrafts — the JSON.stringify in
+  // the dirty filter, the deepCopy snapshot — stops being an uncaught
+  // exception out of the click handler and becomes a rejected run promise
+  // instead. Left unchained that is worse than what it replaced: the
+  // click does nothing and says nothing. Deliberately unlabelled, like
+  // the safety net inside the run: this is not known to be reachable.
+  function reportSaveFailure() {
+    showMessages(["tallennus epäonnistui"]);
+  }
+
   query(".direct-tallenna").addEventListener("click", function () {
-    saveDrafts();
+    queueSave().catch(reportSaveFailure);
   });
 
   query(".direct-julkaise").addEventListener("click", function () {
-    saveDrafts().then(function (ok) {
+    queueSave().then(function (ok) {
       if (!ok) return;
       return fetch("/api/publish", {
         method: "POST",
@@ -524,7 +549,7 @@
         // dropped connection and a click that visibly does nothing.
         showMessages(["julkaisu epäonnistui (yhteysvirhe)"]);
       });
-    });
+    }).catch(reportSaveFailure);
   });
 
   query(".direct-hylkaa").addEventListener("click", function () {

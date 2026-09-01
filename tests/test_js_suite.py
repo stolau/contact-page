@@ -32,6 +32,7 @@ EXPECTED_MIN = {
     "undo-stack.test.js": 2,
     "autosave.test.js": 7,
     "editor-serialize.test.js": 8,
+    "save-queue.test.js": 9,
 }
 
 _COUNT = re.compile(

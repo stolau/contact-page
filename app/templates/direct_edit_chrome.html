@@ -63,4 +63,7 @@
 
 <script id="direct-bootstrap" type="application/json">{{ bootstrap|tojson }}</script>
 <script src="{{ url_for('static', filename='editor.js') }}"></script>
+{# Before direct-edit.js, which calls createSaveQueue() at boot: the other
+   order leaves it undefined and direct mode throws before anything binds. #}
+<script src="{{ url_for('static', filename='save-queue.js') }}"></script>
 <script src="{{ url_for('static', filename='direct-edit.js') }}"></script>
