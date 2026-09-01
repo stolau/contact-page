@@ -20,6 +20,7 @@ a test client executes no JavaScript.
 
 import copy
 import json
+import re
 import time
 from urllib.parse import urlparse
 
@@ -29,6 +30,7 @@ from app import db as database
 from app.fields import FIELD_LABELS, FIELDS
 from app.sections import badge, draft_sections
 from app.seed import SEED_SECTIONS
+from app.styles import STYLE_CHOICES, STYLE_TEMPLATES
 from tests.conftest import set_section_state
 
 SEED_BY_KIND = dict(SEED_SECTIONS)
@@ -543,3 +545,138 @@ def test_muokkaa_shows_the_section_position_over_the_real_count(muokkaa_html):
     # cp-main-edit...section-position: the spec's own note calls the count
     # data; six sections are seeded, so the truthful text is "Osio 1 / 6".
     assert "Osio 1 / 6" in muokkaa_html
+
+
+# --- the Ulkoasu tab (LLM-COP-22) -------------------------------------------
+#
+# The served half only. Whether clicking the tab shows the body, and whether
+# clicking an option writes the hero draft, are browser questions and
+# tests/browser/test_browser_panel.py asks them in a real Chrome.
+#
+# The spec's own note on cp-main-edit.editor-panel.panel-tabs says "Ulkoasu
+# and SEO contents are shown by no mockup", so the body below is governed by
+# no acceptance criterion. The three panel-tabs contains-text criteria in
+# SHELL_TEXT_CRITERIA above are unchanged and still green.
+
+
+def test_the_ulkoasu_tab_is_no_longer_disabled(muokkaa_html):
+    """Ulkoasu is reachable; SEO is still not.
+
+    Asserted as an ordered pair over the tab strip rather than by counting
+    `disabled` in the document, because the count is true of a page that
+    enabled the wrong tab. SEO is in here as the control: it is what proves
+    the assertion can distinguish the two, so "no tab is disabled any more"
+    fails instead of passing.
+    """
+    start = muokkaa_html.index('<nav class="panel-tabs">')
+    tabs = muokkaa_html[start : muokkaa_html.index("</nav>", start)]
+
+    ulkoasu = tabs[tabs.index("Ulkoasu") - 120 : tabs.index("Ulkoasu")]
+    assert "disabled" not in ulkoasu, ulkoasu
+    assert 'data-tab="ulkoasu"' in ulkoasu
+
+    seo = tabs[tabs.index("SEO") - 120 : tabs.index("SEO")]
+    assert "disabled" in seo, seo
+
+
+def test_the_ulkoasu_body_offers_exactly_the_declared_styles(muokkaa_html):
+    """The body is drawn from STYLE_CHOICES, not written into the template.
+
+    Both the values and the labels are compared to the constant, so adding a
+    style to app/styles.py is the whole change (LLM-COP-24 appends one tuple)
+    and a hand-written option in the template shows up here as an extra.
+    """
+    start = muokkaa_html.index('<div class="panel-body" data-panel="ulkoasu"')
+    body = muokkaa_html[start : muokkaa_html.index("</div>", start)]
+
+    assert re.findall(r'data-style="([^"]*)"', body) == [
+        value for value, _label in STYLE_CHOICES
+    ]
+    for _value, label in STYLE_CHOICES:
+        assert f">{label}</button>" in body, label
+    # hidden, so the Sisältö body is what the owner sees on arrival.
+    # .panel-body sets no display (app/static/edit.css), so the UA rule wins
+    # unaided — which is why the attribute alone is the whole mechanism.
+    assert "hidden" in muokkaa_html[start : start + 60]
+
+
+def test_the_panel_offers_only_the_default_style(muokkaa_html):
+    """What the owner is OFFERED is a strictly smaller set than what the
+    renderer can RESOLVE, and that gap is deliberate.
+
+    STYLE_TEMPLATES is the renderer's table; STYLE_CHOICES is the panel's
+    menu. V2 is renderable and not yet offered, which is what makes LLM-COP-24
+    an append of one tuple rather than a change to app/styles.py. If the two
+    were one constant, shipping a template would ship the menu entry with it,
+    unreviewed.
+    """
+    assert STYLE_CHOICES == [("v1", "Perus")]
+    assert [value for value, _ in STYLE_CHOICES] != list(STYLE_TEMPLATES)
+    assert {value for value, _ in STYLE_CHOICES} <= set(STYLE_TEMPLATES)
+    # ...and V2 is genuinely absent from the served menu, not merely absent
+    # from the constant.
+    assert 'data-style="v2"' not in muokkaa_html
+
+
+def test_no_style_option_is_marked_active_before_one_is_chosen(logged_in_admin):
+    """The server half of the rule that makes the write observable.
+
+    active_style is the RAW drafted style, deliberately NOT run through
+    resolve_style. resolve_style("") is "v1", so resolving here would mark
+    Perus active on a fresh install — before anything was ever written — and
+    the owner's first click would change nothing on screen. That is the exact
+    failure that would make the browser tests below unable to see the write.
+
+    Three states, and the third is the one a subset check would miss: a stored
+    style the panel does not OFFER marks nothing, because the mark says "this
+    is what is stored", not "this is what you may pick".
+    """
+    def options(html):
+        start = html.index('<div class="panel-body" data-panel="ulkoasu"')
+        body = html[start : html.index("</div>", start)]
+        return re.findall(r'class="tyyli-option([^"]*)" data-style="([^"]*)"', body)
+
+    fresh = options(logged_in_admin.get("/muokkaa").get_data(as_text=True))
+    assert fresh == [("", "v1")], fresh  # seeded "" — nothing marked
+
+    def draft_style(style):
+        conn = database.connect(
+            logged_in_admin.application.config["DATABASE"]
+        )
+        try:
+            row = conn.execute(
+                "SELECT id, draft FROM sections WHERE kind = 'hero'"
+            ).fetchone()
+            payload = json.loads(row["draft"])
+            payload["style"] = style
+            conn.execute(
+                "UPDATE sections SET draft = ? WHERE id = ?",
+                (json.dumps(payload, ensure_ascii=False), row["id"]),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        return options(logged_in_admin.get("/muokkaa").get_data(as_text=True))
+
+    assert draft_style("v1") == [(" active", "v1")]
+    # A style the renderer resolves but the panel does not offer: still
+    # nothing marked. Marking Perus here would tell the owner they had chosen
+    # something they had not.
+    assert draft_style("v2") == [("", "v1")]
+    # ...and the DRAFT column is the one it reads: publishing is not required
+    # for the mark to move, and the published column is still "".
+    assert draft_style("") == [("", "v1")]
+
+
+def test_the_ulkoasu_body_wears_its_own_heading_class(muokkaa_html):
+    """The Ulkoasu heading is .tyyli-title, never a second .section-name.
+
+    Not cosmetic. .section-name names the OPEN SECTION and the browser suite
+    locates it strictly (tests/browser/test_browser_panel.py asserts its
+    text), so a second element wearing that class fails every one of those
+    tests with a strict-mode violation — measured, when the body first carried
+    one. This is the guard that keeps the fix from being undone by somebody
+    mirroring the Sisältö body's markup.
+    """
+    assert 'class="tyyli-title"' in muokkaa_html
+    assert muokkaa_html.count('class="section-name"') == 1

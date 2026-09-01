@@ -95,11 +95,18 @@ def test_site_chrome_of_a_store_with_no_hero_row_is_empty_not_an_error(conn):
     _seeded(conn)
     conn.execute("DELETE FROM sections WHERE kind = 'hero'")
     conn.commit()
+    # A DICT EQUALITY on purpose, and it stays one: it names site_chrome's
+    # WHOLE return value, so the next chrome key must extend it deliberately
+    # — the same guard tests/test_seed.py's tail assertion is for
+    # FIELDS["hero"]. It is also the only test pinning the missing-hero
+    # branch of site_style: "" rather than absent, which is what keeps
+    # template_for(chrome["site_style"]) from a KeyError.
     assert site_chrome(conn) == {
         "site_brand": "",
         "site_title": "",
         "site_footer": "",
         "site_initials": "",
+        "site_style": "",
     }
 
 
@@ -117,3 +124,64 @@ def test_site_chrome_reads_the_draft_column_when_asked(conn):
     conn.commit()
     assert site_chrome(conn, "draft")["site_brand"] == "Luonnosnimi"
     assert site_chrome(conn)["site_brand"] != "Luonnosnimi"
+
+
+# --- the site-wide style (LLM-COP-22) ---------------------------------------
+
+
+def _set_hero_style(conn, style, column="published"):
+    row = conn.execute(
+        "SELECT id, draft, published FROM sections WHERE kind = 'hero'"
+    ).fetchone()
+    payload = json.loads(row[column])
+    payload["style"] = style
+    conn.execute(
+        f"UPDATE sections SET {column} = ? WHERE id = ?",
+        (json.dumps(payload, ensure_ascii=False), row["id"]),
+    )
+    conn.commit()
+
+
+def test_site_chrome_reports_the_stored_style(conn):
+    """The RAW stored value, passed through untouched.
+
+    "banana" rather than "v2" on purpose: site_chrome must not resolve, filter
+    or validate the style — app/styles.py does that at the render call, and
+    the panel needs the raw value to tell "" (nothing chosen) apart from a
+    style it does not offer. A site_chrome that resolved would mark Perus
+    active on a fresh install and make the owner's first click invisible.
+    """
+    _seeded(conn)
+    assert site_chrome(conn)["site_style"] == ""  # seeded: nothing chosen
+
+    _set_hero_style(conn, "banana")
+    assert site_chrome(conn)["site_style"] == "banana"
+
+
+def test_site_chrome_reads_the_style_from_the_requested_column(conn):
+    """Draft and published are separate answers, which is the whole reason the
+    style needs no route plumbing: the preview asks for "draft" and the public
+    page asks for "published", and the same function serves both."""
+    _seeded(conn)
+    _set_hero_style(conn, "v2", "draft")
+
+    assert site_chrome(conn, "draft")["site_style"] == "v2"
+    assert site_chrome(conn)["site_style"] == ""
+
+
+def test_site_chrome_returns_only_flat_scalars(conn):
+    """Every value is a str, and site_style is not special.
+
+    app/sections.py says the chrome is flat on purpose — the public templates
+    bind these names directly and app/__init__.py splats them into the render
+    context, so a nested dict would arrive as an unusable name in a template
+    nobody would notice was broken until the page rendered it. This is the
+    guard for the NEXT key, not this one.
+    """
+    _seeded(conn)
+    _set_hero_style(conn, "v2")
+    chrome = site_chrome(conn)
+
+    assert chrome  # not vacuously true over an empty dict
+    for name, value in chrome.items():
+        assert isinstance(value, str), (name, type(value).__name__)

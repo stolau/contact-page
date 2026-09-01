@@ -452,10 +452,17 @@ EXCLUDED_SCALARS = {
         "section shape as brand. Still editable in the side panel"
         " (Alatunniste)."
     ),
+    ("hero", "style"): (
+        "not content — it names which public template renders the page"
+        " (LLM-COP-22), so there is no element on either public page to bind"
+        " it to. It is not a form field either: no FIELD_LABELS entry, so the"
+        " schema-driven panel form never draws it, the same shape as"
+        " hero.portrait. Its editor is the panel's Ulkoasu tab."
+    ),
 }
 
 BOUND_SCALAR_COUNT = 14
-EXCLUDED_SCALAR_COUNT = 8
+EXCLUDED_SCALAR_COUNT = 9
 
 
 def test_every_scalar_field_is_bound_or_excluded(direct_html):

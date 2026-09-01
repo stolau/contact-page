@@ -19,6 +19,7 @@ from .sanitize import sanitize_rich
 from .sectionlist import bp as sectionlist_bp
 from .sections import site_chrome, visible_sections
 from .seed import seed_if_empty
+from .styles import template_for
 from .wizard import bp as wizard_bp
 from .wizard import login_target
 
@@ -93,8 +94,11 @@ def create_app(instance_path=None):
             chrome = site_chrome(conn)
         finally:
             conn.close()
+        # The PUBLISHED style picks the template (LLM-COP-22). Selection is a
+        # template-name choice in Python, never an {% if %} inside page.html,
+        # so V1's served bytes cannot move when no style is stored.
         return render_template(
-            "page.html",
+            template_for(chrome["site_style"]),
             sections=sections,
             nav_labels=NAV_LABELS,
             anchors=ANCHORS,

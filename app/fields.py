@@ -23,16 +23,36 @@ FIELDS = {
         "contact_label": {"type": "plain"},
         "services_label": {"type": "plain"},
         "portrait": {"type": "plain"},
-        # Site chrome (LLM-COP-10). These three are page-wide, not hero
-        # content, but they are parked on the hero payload rather than a
-        # settings table: the panel form, blank_payload and the bootstrap all
-        # derive from FIELDS, so declaring them here is the whole feature.
-        # They are appended LAST on purpose — validate_payload rebuilds a
-        # payload in declaration order, so a mid-list key would reorder the
-        # stored JSON on the first save and flip every badge to Luonnos.
+        # Site-wide keys (LLM-COP-10's chrome three, LLM-COP-22's style).
+        # These are page-wide, not hero content, but they are parked on the
+        # hero payload rather than a settings table: the panel form,
+        # blank_payload and the bootstrap all derive from FIELDS, so
+        # declaring them here is the whole feature.
+        #
+        # SITE-WIDE KEYS LIVE AT THE END OF THIS DICT, APPENDED IN THE ORDER
+        # THEY WERE INTRODUCED. The newest is last; nothing is ever inserted
+        # mid-list. Reason: validate_payload rebuilds a payload in
+        # declaration order (app/sanitize.py), so a mid-list key rewrites
+        # every stored hero payload on its first save and flips every hero
+        # badge to Luonnos.
+        #
+        # Every such key also owes: a backfill migration (_migration_4, now
+        # _migration_7); an entry in tests/test_direct_edit.py's
+        # EXCLUDED_SCALARS with a written reason, or a real binding in both
+        # public templates; and a line in tests/test_sections.py's
+        # site_chrome equality if it is surfaced as chrome. Enforcement:
+        # tests/test_seed.py's tail assertion names the WHOLE tail and
+        # tests/test_sections.py's dict equality names the WHOLE return
+        # value, so the next key must extend both — deliberate edits, never
+        # silent passes.
         "brand": {"type": "plain"},
         "page_title": {"type": "plain"},
         "footer": {"type": "plain"},
+        # Which public template renders the page (app/styles.py). No
+        # FIELD_LABELS entry on purpose — that is what keeps the
+        # schema-driven form builder from drawing it, the hero.portrait
+        # precedent; its editor is the panel's Ulkoasu tab.
+        "style": {"type": "plain"},
     },
     "tietoa": {
         "nostolause": {"type": "plain"},

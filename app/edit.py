@@ -18,6 +18,7 @@ from . import db as database
 from .fields import ANCHORS, FIELD_LABELS, FIELDS, NAV_LABELS, SECTION_NAMES
 from .sanitize import validate_payload
 from .sections import badge, draft_sections, publish_dirty, site_chrome
+from .styles import STYLE_CHOICES, template_for
 
 bp = Blueprint("edit", __name__)
 
@@ -34,6 +35,11 @@ def muokkaa():
     conn = _connect()
     try:
         sections = draft_sections(conn, include_hidden=True)
+        # The RAW drafted style, deliberately not resolve_style'd: the
+        # Ulkoasu tab marks an option active only when the owner has
+        # actually chosen one, and resolve_style("") would mark Perus on a
+        # fresh install before anything was ever written (LLM-COP-22).
+        active_style = site_chrome(conn, "draft")["site_style"]
     finally:
         conn.close()
     bootstrap = {
@@ -48,6 +54,8 @@ def muokkaa():
         sections=sections,
         section_names=SECTION_NAMES,
         bootstrap=bootstrap,
+        styles=STYLE_CHOICES,
+        active_style=active_style,
     )
 
 
@@ -63,7 +71,9 @@ def esikatselu():
     finally:
         conn.close()
     return render_template(
-        "page.html",
+        # The DRAFT style (LLM-COP-22). A preview that ignored the drafted
+        # skin would show the owner a page they are not about to publish.
+        template_for(chrome["site_style"]),
         sections=sections,
         nav_labels=NAV_LABELS,
         anchors=ANCHORS,
