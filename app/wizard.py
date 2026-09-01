@@ -27,14 +27,17 @@ bp = Blueprint("wizard", __name__)
 # has", because validate_payload takes whole payloads and steps 1 and 2
 # both write hero and so must own disjoint fields.
 #
-# Nav labels are the spec's, not SECTION_NAMES': cp-admin-wizard says
-# Yhteydenotto where app/fields.py says Yhteydenottolomake.
+# Nav labels are SECTION_NAMES' (app/fields.py) wherever a step is a
+# whole section, so a section is called the same thing in the wizard's
+# nav, the edit panel and the section list. Steps 1 and 2 are the one
+# exception: they split hero in two, so step 2 keeps hero's own
+# "Aloitusosio" and step 1 takes the invented "Perustiedot".
 #
 # Steps 1, 3, 4 and 5 have no designed contents anywhere in the spec —
 # their field lists and every step description below are inferred, and
-# the PR body says so. Only step 2 is designed, down to its label
-# overrides: the spec's Otsikko / Esittelyteksti are not the panel's
-# Pääotsikko / Ingressi, and the criteria are case-sensitive.
+# the PR body says so. Only step 2 is designed. No step names its own
+# labels or counter format: the browser draws what the panel draws,
+# straight from FIELD_LABELS.
 STEPS = [
     {
         "label": "Perustiedot",
@@ -45,10 +48,8 @@ STEPS = [
             "Voit muuttaa tekstejä myöhemmin milloin tahansa."
         ),
         "only": ["kicker", "subtitle", "credentials"],
-        "labels": {},
         "helpers": {},
         "muotokuva": False,
-        "counter": None,
     },
     {
         "label": "Aloitusosio",
@@ -59,15 +60,8 @@ STEPS = [
             "Voit muuttaa tekstejä myöhemmin milloin tahansa."
         ),
         "only": ["title", "ingress"],
-        "labels": {"title": "Otsikko", "ingress": "Esittelyteksti"},
         "helpers": {"title": "Nimi tai nimi + ammattinimike"},
         "muotokuva": True,
-        # The spec's helper reads "14/60", not the panel's
-        # "14 / 60 merkkiä"; one string cannot serve both surfaces, so
-        # this step passes the compact counter and the panel keeps the
-        # default. The number is live data — it counts whatever the stored
-        # title happens to be, so no fixed reading is promised here.
-        "counter": "compact",
     },
     {
         "label": "Palvelut",
@@ -78,10 +72,8 @@ STEPS = [
             "Voit muuttaa tekstejä myöhemmin milloin tahansa."
         ),
         "only": ["services", "more_label"],
-        "labels": {},
         "helpers": {},
         "muotokuva": False,
-        "counter": None,
     },
     {
         "label": "Vastaanottoajat",
@@ -92,15 +84,13 @@ STEPS = [
             "Voit muuttaa tekstejä myöhemmin milloin tahansa."
         ),
         "only": ["days", "booking_note"],
-        "labels": {},
         "helpers": {},
         "muotokuva": False,
-        "counter": None,
     },
     {
-        "label": "Yhteydenotto",
+        "label": "Yhteydenottolomake",
         "kind": "yhteydenotto",
-        "title": "Yhteydenotto",
+        "title": "Yhteydenottolomake",
         "description": (
             "Yhteydenottolomakkeen kentät ja kiitosviesti. "
             "Voit muuttaa tekstejä myöhemmin milloin tahansa."
@@ -112,10 +102,8 @@ STEPS = [
             "send_label",
             "thanks",
         ],
-        "labels": {},
         "helpers": {},
         "muotokuva": False,
-        "counter": None,
     },
 ]
 

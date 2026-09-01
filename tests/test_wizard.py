@@ -38,7 +38,7 @@ import pytest
 
 from app import create_app
 from app import db as database
-from app.fields import FIELDS
+from app.fields import FIELDS, SECTION_NAMES
 from app.sections import badge
 from app.seed import SEED_SECTIONS
 from app.wizard import STEPS, is_first_run, login_target
@@ -216,7 +216,12 @@ CRITERIA = [
     ),
     (
         "cp-admin-wizard.wizard.wizard-steps-4",
-        "li", "wizard-step", "Yhteydenotto",
+        # Tightened deliberately, not because it went red: test_contains_text
+        # asserts `expected in text`, so the old "Yhteydenotto" stayed
+        # vacuously green against the renamed "Yhteydenottolomake". It stays a
+        # substring assertion because element_texts reads the whole
+        # <li class="wizard-step">, which also carries the marker digit.
+        "li", "wizard-step", "Yhteydenottolomake",
     ),
     (
         "cp-admin-wizard.wizard.step-panel.step-title",
@@ -335,33 +340,56 @@ def test_five_step_panels_are_server_rendered(wizard_html):
 
 def test_step_titles_ship_in_step_order(wizard_html):
     """The panels are in step order, so the step-title assertion above reads
-    step 2's panel and not, say, a duplicate of step 1's."""
+    step 2's panel and not, say, a duplicate of step 1's.
+
+    Step 5's title moved to Yhteydenottolomake with the roster (LLM-COP-8:
+    fields.py's naming is authoritative). Reading the SERVED document, this is
+    also the proof that wizard.html picked the rename up without being edited
+    — the template renders {{ step.title }} and nothing else."""
     assert element_texts(wizard_html, "h2", "step-title") == [
         "Perustiedot",
         "Aloitusosio",
         "Palvelut",
         "Vastaanottoajat",
-        "Yhteydenotto",
+        "Yhteydenottolomake",
     ]
 
 
 # --- step 2's field strings: they SHIP (they render only in a browser) ------
 
 
-@pytest.mark.parametrize(
-    "expected",
-    ["Otsikko", "Esittelyteksti", "Nimi tai nimi + ammattinimike"],
-)
+@pytest.mark.parametrize("expected", ["Nimi tai nimi + ammattinimike"])
 def test_step_two_field_strings_ship_in_the_bootstrap(wizard_html, expected):
-    """HONEST SCOPE: cp-admin-wizard's otsikko-label, esittely-label and
-    otsikko-helper are drawn by section-form.js from this bootstrap, and a
-    test client runs no JavaScript. This proves the strings the browser will
-    draw are served — not that they are drawn. The run-for-real phase owns
-    that half, and no server-rendered duplicate is planted here to fake it."""
-    step = bootstrap_json(wizard_html)["steps"][1]
+    """HONEST SCOPE, unchanged: cp-admin-wizard's otsikko-label,
+    esittely-label and otsikko-helper are drawn by section-form.js from this
+    bootstrap, and a test client runs no JavaScript. This proves the strings
+    the browser will draw are served — not that they are drawn. The
+    run-for-real phase owns that half, and no server-rendered duplicate is
+    planted here to fake it.
+
+    THE SUBJECT MOVED (LLM-COP-8). The two label addresses used to be
+    satisfied by the roster's own per-step overrides — step["labels"] carried
+    Otsikko / Esittelyteksti. The author ruled the edit panel authoritative,
+    those overrides are deleted, and step["labels"] no longer exists. So the
+    labels the browser will now draw come from FIELD_LABELS alone, and this
+    test asserts them POSITIVELY where the browser really reads them: the
+    served bootstrap's field_labels, narrowed to the two fields step 2 owns.
+    Only the helper is per-step, which is why it is the only parametrized
+    case left. (The spec still says Otsikko / Esittelyteksti at those two
+    addresses; amending it is the supervisor's, not this unit's.)"""
+    bootstrap = bootstrap_json(wizard_html)
+    step = bootstrap["steps"][1]
     assert step["label"] == "Aloitusosio"
-    shipped = list(step["labels"].values()) + list(step["helpers"].values())
-    assert expected in shipped, shipped
+
+    # otsikko-label / esittely-label: the panel's names, from the bootstrap
+    # the browser receives, scoped to exactly the two fields step 2 draws.
+    assert step["only"] == ["title", "ingress"]
+    hero_labels = bootstrap["field_labels"]["hero"]
+    assert hero_labels["title"] == "Pääotsikko"
+    assert hero_labels["ingress"] == "Ingressi"
+
+    # otsikko-helper: still the roster's, and the ruling explicitly keeps it.
+    assert expected in list(step["helpers"].values()), step["helpers"]
 
 
 def test_bootstrap_ships_the_schema_and_drafts_the_forms_need(wizard_html):
@@ -388,11 +416,28 @@ def test_every_step_field_is_a_real_schema_key(index):
 
 
 @pytest.mark.parametrize("index", range(len(STEPS)))
-def test_step_label_overrides_and_helpers_name_owned_fields(index):
+def test_step_helpers_name_owned_fields(index):
+    """Half this test's subject was deleted (LLM-COP-8): there are no per-step
+    label overrides to check any more. The helpers half survives untouched and
+    still matters — a helper keyed on a field the step does not list in `only`
+    would never be drawn, so it would be a silently dead string."""
     step = STEPS[index]
-    owned = set(step["only"])
-    assert set(step["labels"]) <= owned
-    assert set(step["helpers"]) <= owned
+    assert set(step["helpers"]) <= set(step["only"])
+
+
+def test_the_roster_carries_no_label_or_counter_overrides():
+    """The falsifiable form of "the divergence machinery is gone", server
+    side. LLM-COP-8 ruled the edit panel's naming authoritative, so a step may
+    not name its own labels or its own counter format at all — not even an
+    empty {}, which is how the machinery would come back. Goes red the moment
+    anyone re-adds either key to any step."""
+    offenders = [
+        (step["label"], key)
+        for step in STEPS
+        for key in ("labels", "counter")
+        if key in step
+    ]
+    assert offenders == [], offenders
 
 
 def test_steps_one_and_two_own_disjoint_hero_fields():
@@ -403,16 +448,27 @@ def test_steps_one_and_two_own_disjoint_hero_fields():
     assert set(first["only"]).isdisjoint(second["only"])
 
 
-def test_the_step_roster_is_the_spec_s_five_labels():
-    """cp-admin-wizard.wizard.wizard-steps names all five, and says
-    Yhteydenotto where app.fields.SECTION_NAMES says Yhteydenottolomake."""
+def test_the_step_roster_follows_the_section_names_it_edits():
+    """cp-admin-wizard.wizard.wizard-steps names all five rows.
+
+    THE SUBJECT MOVED (LLM-COP-8). This test used to record the divergence as
+    correct — the spec said Yhteydenotto where app.fields.SECTION_NAMES says
+    Yhteydenottolomake, and the roster followed the spec. The author ruled the
+    panel/fields.py naming authoritative, so the roster now follows
+    SECTION_NAMES and the spec is the supervisor's to amend.
+
+    The second assertion is the point: a literal list alone would let the two
+    drift apart again silently, one edit at a time. Tying step 5's label to
+    SECTION_NAMES makes a rename of either side red until both move."""
     assert [step["label"] for step in STEPS] == [
         "Perustiedot",
         "Aloitusosio",
         "Palvelut",
         "Vastaanottoajat",
-        "Yhteydenotto",
+        "Yhteydenottolomake",
     ]
+    assert STEPS[4]["kind"] == "yhteydenotto"
+    assert STEPS[4]["label"] == SECTION_NAMES["yhteydenotto"]
 
 
 # --- the first-run predicate and the login offer ---------------------------
@@ -654,6 +710,28 @@ def test_the_hosts_consume_the_shared_delay():
         source = (STATIC / name).read_text(encoding="utf-8")
         assert "window.createAutosave(" in source, name
         assert "window.createAutosave.DELAY" in source, name
+
+
+def test_no_static_module_still_names_the_removed_form_options():
+    """The browser half of the "divergence machinery is gone" claim
+    (LLM-COP-8), and the one the roster guard cannot make: a deletion PR's
+    real failure mode is a HALF removal — the roster stops carrying the keys
+    while section-form.js still honours the options, leaving a documented
+    extension point the next reader will preserve.
+
+    Deliberately narrow on the third name. A module-level FUNCTION called
+    counterText survives in section-form.js and is the only formatter now, and
+    a comment there names it too; both are correct and must not trip this. So
+    what is asserted is that the OPTION is never passed — the object key
+    `counterText:` — not that the word is absent."""
+    forbidden = ("labelOverrides", "COUNTERS", "counterText:")
+    offenders = sorted(
+        (path.name, name)
+        for path in STATIC.glob("*.js")
+        for name in forbidden
+        if name in path.read_text(encoding="utf-8")
+    )
+    assert offenders == [], offenders
 
 
 def test_wizard_js_owns_no_timer_of_its_own():

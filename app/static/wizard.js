@@ -20,15 +20,6 @@
   var LABELS = bootstrap.field_labels;
   var STEPS = bootstrap.steps;
 
-  // The spec's helper reads "Nimi tai nimi + ammattinimike · 14/60",
-  // which the panel's "14 / 60 merkkiä" does not contain. The step
-  // roster names the format it wants; the panel keeps the default.
-  var COUNTERS = {
-    compact: function (length, cap) {
-      return length + "/" + cap;
-    }
-  };
-
   var FINISH = STEPS.length; // `current` when the finish panel is open
 
   var navRows = document.querySelectorAll(".wizard-step");
@@ -88,10 +79,9 @@
       form.insertBefore(box, form.firstChild);
     }
     var kind = STEPS[current].kind;
-    var overrides = STEPS[current].labels;
     box.textContent = Object.keys(errors)
       .map(function (name) {
-        var label = overrides[name] || (LABELS[kind] || {})[name] || name;
+        var label = (LABELS[kind] || {})[name] || name;
         return label + ": " + errors[name];
       })
       .join(" · ");
@@ -183,10 +173,8 @@
       draft: payloads[sectionFor(current).id],
       fields: FIELDS,
       labels: LABELS,
-      labelOverrides: step.labels,
       helpers: step.helpers,
       only: step.only,
-      counterText: COUNTERS[step.counter],
       onChange: function () {
         autosave.schedule();
       }

@@ -1400,7 +1400,7 @@ def statement_calls(source, name):
 
 
 def test_the_section_list_never_uses_a_return_value_from_the_form_builder():
-    """main's createSectionForm returns nothing (app/static/section-form.js:246
+    """main's createSectionForm returns nothing (app/static/section-form.js:240
     ends the function with no return). The factory this branch originally wrote
     returned a handle — payload(), setPayload(), showErrors(), clearErrors(),
     container — and code written against that handle reads perfectly and dies
