@@ -18,7 +18,7 @@ from flask import Blueprint, current_app, render_template
 from . import auth
 from . import db as database
 from .fields import ANCHORS, FIELD_LABELS, FIELDS, NAV_LABELS, SECTION_NAMES
-from .sections import draft_sections
+from .sections import draft_sections, site_chrome
 
 bp = Blueprint("direct_edit", __name__)
 
@@ -37,6 +37,7 @@ def sivu():
         # direct mode edits what the page shows, nothing invisible.
         sections = draft_sections(conn)
         owner = conn.execute("SELECT username FROM admin_user").fetchone()
+        chrome = site_chrome(conn, "draft")
     finally:
         conn.close()
     bootstrap = {
@@ -55,4 +56,5 @@ def sivu():
         owner_name=owner["username"] if owner is not None else "",
         section_names=SECTION_NAMES,
         bootstrap=bootstrap,
+        **chrome,
     )

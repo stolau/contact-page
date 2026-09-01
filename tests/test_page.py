@@ -14,107 +14,59 @@ en dash U+2013 and thin space U+2009 copied from the spec JSON).
 
 import pytest
 
+from app.sections import initials
+from app.seed import SEED_SECTIONS
 from tests.conftest import edit_published_payload, element_text, set_section_state
 from tests.test_seed import DAYS, DURATION, HOURS
 
+SEED_BY_KIND = dict(SEED_SECTIONS)
+
 # --- whole-document byte-exact contains-text criteria -----------------------
+#
+# LLM-COP-10 split the old 55-row table in two.
+#
+# Byte-exact below: strings the TEMPLATE owns, which no admin can edit, plus
+# the brief's explicit chrome carve-out ("Ota yhteyttä", "Lue palveluista") —
+# those two are payload fields, but the artifact names them as the product's
+# promise rather than the persona, so they stay pinned. That tension is
+# recorded in the spec delta, not resolved here.
+#
+# Everything else moved to SEEDED_RENDERS below: 36 criteria that pinned a
+# value the owner can change through the admin panel. Pinning those is the
+# defect this artifact was filed against — a data value promoted to a promise.
+# They now assert that the STORED value reaches the page, never what it says.
 
 DOCUMENT_CRITERIA = [
     ("cp-main.hero.portrait-placeholder-0", "Muotokuva"),
     ("cp-main.hero.portrait-placeholder-1", "browse files"),
-    ("cp-main.hero.kicker-0", "PUHETERAPEUTTI"),
-    ("cp-main.hero.kicker-1", "TURKU"),
-    ("cp-main.hero.kicker-2", "KELA-PALVELUNTUOTTAJA"),
-    ("cp-main.hero.main-heading", "Anna Virtanen"),
-    ("cp-main.hero.subtitle-0", "Puheterapeutti, FM"),
-    ("cp-main.hero.subtitle-1", "toiminimi vuodesta 2018"),
-    (
-        "cp-main.hero.intro-0",
-        (
-            "Puheterapiaa lapsille, nuorille ja aikuisille: arviointi,"
-            " kuntoutus ja ohjaus."
-        ),
-    ),
-    (
-        "cp-main.hero.intro-1",
-        "Vastaanotto Turun keskustassa, käynnit myös etäyhteydellä.",
-    ),
-    ("cp-main.hero.fact-cards.fact-card-koulutus.fact-label", "KOULUTUS"),
-    ("cp-main.hero.fact-cards.fact-card-koulutus.fact-value-0", "FM, logopedia"),
-    ("cp-main.hero.fact-cards.fact-card-koulutus.fact-value-1", "Turun yliopisto"),
-    # The remaining seeded cards (cp-main.hero.fact-cards notes' sample data).
-    ("cp-main.hero.fact-cards.kokemus-label", "KOKEMUS"),
-    ("cp-main.hero.fact-cards.kokemus-value", "15 vuotta kliinistä työtä"),
-    ("cp-main.hero.fact-cards.erityisosaaminen-label", "ERITYISOSAAMINEN"),
-    ("cp-main.hero.fact-cards.erityisosaaminen-value", "Änkytys ja afasiakuntoutus"),
-    ("cp-main.hero.fact-cards.asiakkaat-label", "ASIAKKAAT"),
-    ("cp-main.hero.fact-cards.asiakkaat-value", "Lapset, nuoret ja aikuiset"),
     ("cp-main.hero.cta-row.cta-contact", "Ota yhteyttä"),
     ("cp-main.hero.cta-row.cta-services", "Lue palveluista"),
-    ("cp-main.hero.credentials-row-0", "Toiminimi"),
-    ("cp-main.hero.credentials-row-1", "Y-tunnus 2938471-2"),
-    ("cp-main.hero.credentials-row-2", "Valvira-rekisteri 1093xxx"),
-    ("cp-main.hero.credentials-row-3", "Suomi"),
-    ("cp-main.hero.credentials-row-4", "English"),
     ("cp-main.about-section.about-kicker", "NÄIN TYÖSKENTELEN"),
-    (
-        "cp-main.about-section.about-lead-0",
-        (
-            "Työskentelin ensin keskussairaalassa ja vuodesta 2018 omalla"
-            " toiminimellä."
-        ),
-    ),
-    ("cp-main.about-section.about-lead-1", "jakso alkaa aina arvioinnista"),
-    (
-        "cp-main.about-section.about-body-0",
-        "Harjoitukset suunnitellaan yhdessä perheen tai asiakkaan kanssa",
-    ),
-    (
-        "cp-main.about-section.about-body-1",
-        "Tarvittaessa teen lausunnon neuvolalle, koululle tai Kelalle.",
-    ),
-    ("cp-main.about-section.about-facts-0", f"Käynnit {DURATION}"),
-    (
-        "cp-main.about-section.about-facts-1",
-        "Lausunnot neuvolalle, koululle ja Kelalle",
-    ),
-    ("cp-main.about-section.about-facts-2", "Etäkäynnit mahdollisia"),
     ("cp-main-phone.phone-hero.phone-portrait-0", "Kuva"),
     ("cp-main-phone.phone-hero.phone-portrait-1", "browse files"),
-    ("cp-main-phone.phone-hero.phone-kicker-0", "PUHETERAPEUTTI"),
-    ("cp-main-phone.phone-hero.phone-kicker-1", "TURKU"),
-    ("cp-main-phone.phone-hero.phone-title", "Anna Virtanen"),
-    ("cp-main-phone.phone-hero.phone-subtitle-0", "Puheterapeutti, FM"),
-    ("cp-main-phone.phone-hero.phone-subtitle-1", "toiminimi"),
-    (
-        "cp-main-phone.phone-hero.phone-intro-0",
-        "Arviointi, kuntoutus ja ohjaus lapsille, nuorille ja aikuisille.",
-    ),
-    (
-        "cp-main-phone.phone-hero.phone-intro-1",
-        "Vastaanotto Turun keskustassa tai etäyhteys.",
-    ),
-    ("cp-main-phone.phone-hero.phone-fact-grid.phone-fact-kokemus.fact-label", "KOKEMUS"),
-    ("cp-main-phone.phone-hero.phone-fact-grid.phone-fact-kokemus.fact-value", "15 vuotta"),
     ("cp-main-phone.phone-hero.phone-contact-button", "Ota yhteyttä"),
     ("cp-main-phone.phone-palvelut.phone-palvelut-label", "PALVELUT"),
-    (
-        "cp-main-phone.phone-palvelut.phone-services.phone-service-1.service-title",
-        "Puheen ja kielen arviointi",
-    ),
-    # The other two seeded services (cp-main-phone.phone-services notes).
-    ("cp-main-phone.phone-palvelut.phone-services.aanne", "Äännevirheiden kuntoutus"),
-    ("cp-main-phone.phone-palvelut.phone-services.ankytys", "Änkytyksen kuntoutus"),
-    ("cp-main-phone.phone-palvelut.phone-all-services", "Kaikki kuusi palvelua"),
     ("cp-main-phone.phone-vastaanotto.phone-vastaanotto-label", "VASTAANOTTOAJAT"),
+]
+
+# (address, kind, field) — the served page must carry the stored string.
+SEEDED_RENDERS = [
+    ("cp-main.hero.kicker", "hero", "kicker"),
+    ("cp-main.hero.main-heading", "hero", "title"),
+    ("cp-main.hero.subtitle", "hero", "subtitle"),
+    ("cp-main.hero.intro", "hero", "ingress"),
+    ("cp-main-phone.phone-hero.phone-intro", "hero", "ingress_mobile"),
+    ("cp-main.hero.credentials-row", "hero", "credentials"),
+    ("cp-main.about-section.about-lead", "tietoa", "nostolause"),
+    ("cp-main.about-section.about-body", "tietoa", "leipäteksti"),
+    ("cp-main-phone.phone-palvelut.phone-all-services", "palvelut", "more_label"),
     (
-        "cp-main-phone.phone-vastaanotto.phone-booking-note-0",
-        "Verkossa ei ole varausjärjestelmää",
+        "cp-main-phone.phone-vastaanotto.phone-booking-note",
+        "vastaanottoajat",
+        "booking_note",
     ),
-    (
-        "cp-main-phone.phone-vastaanotto.phone-booking-note-1",
-        "kerro lomakkeella, mitä etsit.",
-    ),
+    ("cp-main.header.brand", "hero", "brand"),
+    ("cp-main-phone.phone-footer.phone-copyright", "hero", "footer"),
 ]
 
 
@@ -132,17 +84,56 @@ def test_document_contains_text(page_html, address, expected):
     assert expected in page_html, f"{address}: {expected!r} not in document"
 
 
+@pytest.mark.parametrize(
+    "address,kind,field",
+    [pytest.param(a, k, f, id=a) for a, k, f in SEEDED_RENDERS],
+)
+def test_seeded_value_reaches_the_page(page_html, address, kind, field):
+    """The criterion is that the element renders the STORED value — not that
+    the value is any particular words. This still exercises seed -> database ->
+    visible_sections -> template; it fails whenever that pipeline drops a
+    field, and it keeps passing when the owner rewrites their copy."""
+    value = SEED_BY_KIND[kind][field]
+    assert value.strip(), f"{address}: seeded {kind}.{field} is empty"
+    assert value in page_html, f"{address}: stored {kind}.{field} not rendered"
+
+
+def test_hero_fact_cards_render_their_stored_labels_and_values(page_html):
+    # cp-main.hero.fact-cards — four cards, each label and value from the
+    # store. The labels were byte-exact criteria until LLM-COP-10; they are
+    # payload data the owner can rename, so they are read from the seed.
+    for fact in SEED_BY_KIND["hero"]["facts"]:
+        assert fact["label"] in page_html
+        for line in fact["value"].split("\n"):
+            assert line in page_html
+
+
+def test_about_facts_render_their_stored_strings(page_html):
+    # cp-main.about-section.about-facts-0/-1/-2
+    for fact in SEED_BY_KIND["tietoa"]["facts"]:
+        assert fact in page_html
+    assert DURATION in page_html  # the en-dash guarantee, on the served page
+
+
+def test_services_render_their_stored_strings(page_html):
+    # cp-main-phone.phone-palvelut.phone-services.*
+    for service in SEED_BY_KIND["palvelut"]["services"]:
+        assert service in page_html
+
+
 # --- criteria scoped to the implementation's own elements -------------------
 
 
 def test_header_brand(page_html):
-    # cp-main.header.brand — "Puheterapia Anna Virtanen" as the header
-    # brand element's own text, not merely the <title>.
+    # cp-main.header.brand / cp-main-phone.phone-header.phone-brand — the
+    # brand element carries the STORED site name, not a template literal, and
+    # the phone avatar carries initials derived from it. Before LLM-COP-10
+    # both were hard-coded in page.html and no admin could change them.
+    seeded = SEED_BY_KIND["hero"]["brand"]
     brand = element_text(page_html, "span", cls="brand")
     assert brand is not None
-    assert "Puheterapia Anna Virtanen" in brand
-    # cp-main-phone.phone-header.phone-brand
-    assert "Anna Virtanen" in brand
+    assert seeded in brand
+    assert initials(seeded) in brand
 
 
 @pytest.mark.parametrize(
@@ -192,12 +183,24 @@ def test_phone_hours(page_html, address, expected):
 @pytest.mark.parametrize(
     "address,expected",
     [
-        pytest.param("cp-main-phone.phone-footer.phone-copyright-0", "© 2026", id="cp-main-phone.phone-footer.phone-copyright-0"),
-        pytest.param("cp-main-phone.phone-footer.phone-copyright-1", "toiminimi", id="cp-main-phone.phone-footer.phone-copyright-1"),
-        pytest.param("cp-main-phone.phone-footer.phone-yllapito", "Ylläpito", id="cp-main-phone.phone-footer.phone-yllapito"),
+        pytest.param(
+            "cp-main-phone.phone-footer.phone-copyright",
+            SEED_BY_KIND["hero"]["footer"],
+            id="cp-main-phone.phone-footer.phone-copyright",
+        ),
+        pytest.param(
+            "cp-main-phone.phone-footer.phone-yllapito",
+            "Ylläpito",
+            id="cp-main-phone.phone-footer.phone-yllapito",
+        ),
     ],
 )
 def test_footer(page_html, address, expected):
+    # The copyright line was two byte-exact criteria ("© 2026", "toiminimi")
+    # against a template literal. It is now one stored field, so the case
+    # asserts the WHOLE seeded footer reaches the page — strictly stronger
+    # than the 6-character substring it replaces. "Ylläpito" is the admin link
+    # the template owns and stays byte-exact.
     footer = element_text(page_html, "footer")
     assert footer is not None
     assert expected in footer, f"{address}: {expected!r} not in the footer"
@@ -223,7 +226,8 @@ def test_hiding_sijainti_removes_it_from_nav_and_body(app, client):
 
 
 def test_service_card_count_follows_the_data(app, client):
-    removed = "Äännevirheiden kuntoutus"
+    seeded = SEED_BY_KIND["palvelut"]["services"]
+    removed, kept = seeded[1], [seeded[0], seeded[2]]
     before = client.get("/").get_data(as_text=True)
     assert removed in before
 
@@ -233,31 +237,53 @@ def test_service_card_count_follows_the_data(app, client):
 
     after = client.get("/").get_data(as_text=True)
     assert removed not in after
-    assert "Puheen ja kielen arviointi" in after
-    assert "Änkytyksen kuntoutus" in after
+    for service in kept:
+        assert service in after
+
+
+def test_site_chrome_is_data_the_owner_can_change(app, client):
+    """LLM-COP-10's central claim, asserted without reference to the seed.
+
+    The site name, the browser title and the footer are stored fields, so
+    changing them changes the served page. This is the one case the seed
+    cannot satisfy by equalling itself: the expected strings appear nowhere
+    in app/, so it fails against any implementation that keeps a template
+    literal. It also closes LLM-COP-7's deferral, which reported that its
+    wizard could not offer these three.
+    """
+    def rewrite(payload):
+        payload["brand"] = "Testi Yritys"
+        payload["page_title"] = "Testiselaimen otsikko"
+        payload["footer"] = "© 2030 Testi Yritys ja kumppanit"
+
+    edit_published_payload(app, "hero", rewrite)
+
+    after = client.get("/").get_data(as_text=True)
+    assert "<title>Testiselaimen otsikko</title>" in after
+    brand = element_text(after, "span", cls="brand")
+    assert "Testi Yritys" in brand
+    assert "TY" in brand  # initials recomputed from the new brand
+    assert "© 2030 Testi Yritys ja kumppanit" in element_text(after, "footer")
 
 
 def test_fact_card_count_follows_the_data(app, client):
-    def drop_erityisosaaminen(payload):
+    seeded = SEED_BY_KIND["hero"]["facts"]
+    dropped, kept = seeded[2], [seeded[0], seeded[1], seeded[3]]
+
+    def drop_third_card(payload):
         payload["facts"] = [
-            fact
-            for fact in payload["facts"]
-            if fact["label"] != "ERITYISOSAAMINEN"
+            fact for fact in payload["facts"] if fact["label"] != dropped["label"]
         ]
 
     before = client.get("/").get_data(as_text=True)
-    assert "Änkytys ja afasiakuntoutus" in before
+    assert dropped["value"] in before
 
-    edit_published_payload(app, "hero", drop_erityisosaaminen)
+    edit_published_payload(app, "hero", drop_third_card)
 
     after = client.get("/").get_data(as_text=True)
-    assert "ERITYISOSAAMINEN" not in after
-    assert "Änkytys ja afasiakuntoutus" not in after
-    for remaining in ("KOULUTUS", "KOKEMUS", "ASIAKKAAT"):
-        assert remaining in after
-    for remaining_value in (
-        "FM, logopedia",
-        "15 vuotta kliinistä työtä",
-        "Lapset, nuoret ja aikuiset",
-    ):
-        assert remaining_value in after
+    assert dropped["label"] not in after
+    assert dropped["value"] not in after
+    for fact in kept:
+        assert fact["label"] in after
+        for line in fact["value"].split("\n"):
+            assert line in after

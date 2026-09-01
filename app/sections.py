@@ -59,6 +59,41 @@ def draft_sections(conn, include_hidden=False):
     ]
 
 
+def initials(brand):
+    """The avatar's letters: the first letter of each of the first two words,
+    upper-cased. An empty brand gives "" rather than an IndexError."""
+    return "".join(word[0] for word in brand.split()[:2]).upper()
+
+
+def site_chrome(conn, column="published"):
+    """The page-wide chrome the templates render — brand, browser title and
+    footer — plus the avatar initials derived from the brand (LLM-COP-10).
+
+    Read from the hero row by kind and *ignoring state*, so hiding the
+    Aloitusosio does not blank the header and the tab title. A missing row or
+    missing keys give empty strings: a pre-migration or blank row must not
+    raise.
+
+    Returned as flat scalars, never a dict. page.html is imported as a macro
+    module by _section_row.html with a context that binds none of these, and
+    there an undefined bare name renders empty while attribute access on one
+    raises UndefinedError — which would 500 the section-list routes.
+    """
+    row = conn.execute(
+        f"SELECT {column} AS payload FROM sections WHERE kind = 'hero'"
+    ).fetchone()
+    payload = {}
+    if row is not None and row["payload"]:
+        payload = json.loads(row["payload"])
+    brand = payload.get("brand", "")
+    return {
+        "site_brand": brand,
+        "site_title": payload.get("page_title", ""),
+        "site_footer": payload.get("footer", ""),
+        "site_initials": initials(brand),
+    }
+
+
 def publish_dirty(conn):
     """Publish exactly the dirty sections (draft text != published text):
     previous_published takes the old published, published takes the draft.

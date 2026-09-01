@@ -13,7 +13,7 @@ from werkzeug.security import generate_password_hash
 from app import create_app
 from app import db as database
 
-ADMIN_USERNAME = "anna.virtanen"
+ADMIN_USERNAME = "yllapitaja"
 ADMIN_PASSWORD = "oikea salasana 123"
 
 
@@ -192,7 +192,7 @@ def publish_something(app, admin):
 
     # A whole-payload write, as PUT /api/sections/<id>/draft requires:
     # the stored draft with exactly one field changed.
-    payload["title"] = "Anna V. Virtanen"
+    payload["title"] = "Muokattu otsikko"
     json_accept = {"Accept": "application/json"}
     response = admin.put(
         f"/api/sections/{section_id}/draft", json=payload, headers=json_accept

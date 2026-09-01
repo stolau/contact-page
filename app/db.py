@@ -1,5 +1,6 @@
 """SQLite connection and PRAGMA user_version migrations."""
 
+import json
 import sqlite3
 
 
@@ -82,7 +83,43 @@ def _migration_3(conn):
     )
 
 
-MIGRATIONS = [_migration_1, _migration_2, _migration_3]
+def _migration_4(conn):
+    # Site chrome becomes stored data (LLM-COP-10): brand, page_title and
+    # footer move out of the templates onto the hero payload, so existing rows
+    # need the keys or validate_payload's required-key check rejects the first
+    # save. The defaults are FROZEN LITERALS on purpose: a migration that
+    # imports app.fields or app.seed changes behaviour whenever the schema
+    # later changes, which is not a migration. setdefault appends, so a row
+    # that already has the keys is untouched and a backfilled row's key order
+    # still equals FIELDS["hero"] declaration order — which is what keeps
+    # draft == published byte-equal and every badge on Julkaistu.
+    # previous_published is backfilled too: /api/sections/<id>/restore copies
+    # it verbatim into draft, and a short payload there would 400 the next
+    # save.
+    defaults = {
+        "brand": "Yrityksen nimi",
+        "page_title": "Yrityksen nimi",
+        "footer": "© 2026 Yrityksen nimi",
+    }
+    rows = conn.execute(
+        "SELECT id, draft, published, previous_published FROM sections"
+        " WHERE kind = 'hero'"
+    ).fetchall()
+    for row in rows:
+        for column in ("draft", "published", "previous_published"):
+            text = row[column]
+            if not text:
+                continue
+            payload = json.loads(text)
+            for key, value in defaults.items():
+                payload.setdefault(key, value)
+            conn.execute(
+                f"UPDATE sections SET {column} = ? WHERE id = ?",
+                (json.dumps(payload, ensure_ascii=False), row["id"]),
+            )
+
+
+MIGRATIONS = [_migration_1, _migration_2, _migration_3, _migration_4]
 
 
 def migrate(conn):

@@ -23,6 +23,16 @@ FIELDS = {
         "contact_label": {"type": "plain"},
         "services_label": {"type": "plain"},
         "portrait": {"type": "plain"},
+        # Site chrome (LLM-COP-10). These three are page-wide, not hero
+        # content, but they are parked on the hero payload rather than a
+        # settings table: the panel form, blank_payload and the bootstrap all
+        # derive from FIELDS, so declaring them here is the whole feature.
+        # They are appended LAST on purpose — validate_payload rebuilds a
+        # payload in declaration order, so a mid-list key would reorder the
+        # stored JSON on the first save and flip every badge to Luonnos.
+        "brand": {"type": "plain"},
+        "page_title": {"type": "plain"},
+        "footer": {"type": "plain"},
     },
     "tietoa": {
         "nostolause": {"type": "plain"},
@@ -78,6 +88,9 @@ FIELD_LABELS = {
         "credentials": "Yritystiedot",
         "contact_label": "Painike 1",
         "services_label": "Painike 2",
+        "brand": "Sivuston nimi",
+        "page_title": "Selaimen otsikko",
+        "footer": "Alatunniste",
     },
     "tietoa": {
         "nostolause": "Nostolause",

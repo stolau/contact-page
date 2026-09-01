@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Puheterapia Anna Virtanen</title>
+<title>{{ site_title }}</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 {% if direct_edit %}<link rel="stylesheet" href="{{ url_for('static', filename='direct-edit.css') }}">{% endif %}
 </head>
@@ -104,8 +104,7 @@
 
 <header class="site-header">
   <span class="brand">
-    <span class="brand-avatar phone-only" aria-hidden="true">AV</span>
-    <span class="brand-prefix desktop-only">Puheterapia </span>Anna Virtanen
+    <span class="brand-avatar phone-only" aria-hidden="true">{{ site_initials }}</span>{{ site_brand }}
   </span>
   <nav class="nav-links desktop-only">
     {% for section in sections %}{% if nav_labels[section.kind] %}
@@ -129,7 +128,7 @@
 </main>
 
 <footer class="site-footer">
-  <p class="copyright">© 2026 Puheterapia Anna Virtanen · toiminimi</p>
+  <p class="copyright">{{ site_footer }}</p>
   <a class="yllapito" href="{{ url_for('yllapito') }}">Ylläpito</a>
 </footer>
 

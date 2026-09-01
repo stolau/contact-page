@@ -104,8 +104,8 @@ def test_https_link_survives_with_its_href():
 
 def test_mailto_and_tel_and_fragment_links_survive():
     assert (
-        sanitize_rich('<a href="mailto:anna@x.fi">k</a>')
-        == '<a href="mailto:anna@x.fi">k</a>'
+        sanitize_rich('<a href="mailto:posti@x.fi">k</a>')
+        == '<a href="mailto:posti@x.fi">k</a>'
     )
     assert (
         sanitize_rich('<a href="TEL:+358401234567">k</a>')
