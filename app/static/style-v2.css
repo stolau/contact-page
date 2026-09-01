@@ -1,0 +1,679 @@
+/* The V2 public stylesheet (LLM-COP-23) — the alternative skin.
+ *
+ * Self-contained on purpose: page_v2.html links this and nothing else, so
+ * V1's style.css is never loaded beside it and the two can never fight
+ * over a shared selector. That also means V1's served bytes cannot change
+ * from anything in here.
+ *
+ * The class contract is deliberately shared with V1 where a component is
+ * shared — .fact-card/.fact-label/.fact-value (spec cp-fact-card),
+ * .portrait/.portrait-label/.portrait-browse, .button, .cta-contact,
+ * .header-contact, the dialog classes — because app/static/direct-edit.js
+ * and app/templates/contact_dialog.html bind to those names. Only the
+ * skin differs, which is the whole claim of this artifact.
+ *
+ * Seven measured designs describe what is below: v2-cp-hero,
+ * v2-cp-section-prose, v2-cp-section-portrait, v2-cp-section-contact,
+ * v2-cp-phone-hero, v2-cp-phone-scroll-1, v2-cp-phone-scroll-2. One
+ * breakpoint, as V1 has: above it the four desktop bands, below it the
+ * three phone ones.
+ */
+
+:root {
+  --v2-ink: #14293d;        /* serif headings */
+  --v2-body: #3d5f77;       /* long-form copy */
+  --v2-muted: #6b8296;      /* labels, captions */
+  --v2-rust: #a8431c;       /* the accent: kicker, pill, primary button */
+  --v2-rust-dark: #8b3715;
+  --v2-navy: #14324a;       /* the contact card */
+  --v2-navy-deep: #0c1f2e;  /* the footer bar */
+  --v2-page: #f7fafc;
+  --v2-tint: #e6eef6;       /* the contact band behind the card */
+  --v2-header: #d9e8f2;
+  --v2-card: #ffffff;
+  --v2-line: #d6e2ec;
+  --v2-serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia,
+              "Times New Roman", serif;
+  --v2-sans: "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--v2-sans);
+  color: var(--v2-body);
+  background: var(--v2-page);
+  line-height: 1.6;
+}
+
+/* One responsive document, two renderings — the same two toggles V1 uses. */
+.phone-only { display: none; }
+
+a { color: var(--v2-rust); }
+
+h1, h2 { font-family: var(--v2-serif); color: var(--v2-ink); font-weight: 400; }
+
+.button {
+  display: inline-block;
+  padding: 0.7rem 1.5rem;
+  border-radius: 0.3rem;
+  border: 1px solid var(--v2-rust);
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  text-align: center;
+}
+.button.primary { background: var(--v2-rust); color: #fff; }
+.button.primary:hover { background: var(--v2-rust-dark); border-color: var(--v2-rust-dark); }
+.button.secondary { background: transparent; color: var(--v2-rust); }
+
+/* ---- header (v2-cp-hero.nav, v2-cp-phone-hero.header) ---------------- */
+
+.v2-header {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0.85rem 3rem;
+  background: var(--v2-header);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+.brand {
+  font-family: var(--v2-serif);
+  font-size: 1.2rem;
+  color: var(--v2-ink);
+  margin-right: auto;
+  display: flex;
+  align-items: center;
+}
+.brand-avatar {
+  display: inline-flex;
+  width: 2.1rem; height: 2.1rem;
+  flex: 0 0 2.1rem;
+  border-radius: 50%;
+  background: var(--v2-navy); color: #fff;
+  font-family: var(--v2-sans);
+  font-size: 0.75rem; font-weight: 700; letter-spacing: 0.04em;
+  align-items: center; justify-content: center;
+  margin-right: 0.65rem;
+}
+.nav-links { display: flex; gap: 1.6rem; }
+.nav-links a {
+  color: var(--v2-ink);
+  text-decoration: none;
+  font-size: 0.92rem;
+}
+.nav-links a:hover { color: var(--v2-rust); }
+.header-contact { padding: 0.55rem 1.3rem; }
+.menu-toggle {
+  background: none; border: none; font-size: 1.4rem;
+  cursor: pointer; color: var(--v2-ink); padding: 0;
+}
+
+/* ---- hero (v2-cp-hero, v2-cp-phone-hero) ----------------------------- */
+
+.v2-hero {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 78vh;
+  padding: 4rem 3rem 6rem;
+}
+/* No overflow:hidden on the band itself. The photograph clips its own tree
+   line, and the card carries the whole hero payload — at a short viewport
+   it is taller than 78vh and clipping the band would cut editable fields
+   off the bottom of it. The band grows instead. */
+
+/* hero-photo: the picture fills the band edge to edge behind everything
+   else in it. With no uploaded image the gradient stands in — a hero that
+   collapsed to nothing would take the card's ground away with it. */
+.v2-hero-photo {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(170deg, #7d99ad 0%, #94a98c 45%, #6f8663 100%);
+  overflow: hidden;
+}
+.v2-hero-image { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* hero-trees: the forest silhouette that fades the photograph into the
+   page background at the foot of the band. Skin, not content — drawn in
+   the stylesheet, from the stylesheet, with no asset to ship. */
+.v2-trees {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 22%;
+  min-height: 5rem;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 160 80'%3E%3Cg fill='%23ffffff' fill-opacity='0.92'%3E%3Cpath d='M18 16 L34 78 L2 78 Z'/%3E%3Cpath d='M54 2 L78 78 L30 78 Z'/%3E%3Cpath d='M98 22 L114 78 L82 78 Z'/%3E%3Cpath d='M136 10 L159 78 L113 78 Z'/%3E%3C/g%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 80'%3E%3Cg fill='%23ffffff' fill-opacity='0.55'%3E%3Cpath d='M28 24 L46 78 L10 78 Z'/%3E%3Cpath d='M78 14 L102 78 L54 78 Z'/%3E%3C/g%3E%3C/svg%3E"),
+    linear-gradient(to bottom, rgba(247, 250, 252, 0) 0%, rgba(247, 250, 252, 0.75) 72%, var(--v2-page) 100%);
+  background-repeat: repeat-x, repeat-x, no-repeat;
+  background-size: 160px 100%, 120px 78%, 100% 100%;
+  background-position: bottom left, bottom 0 left 40px, bottom;
+}
+
+/* hero-card: the paper-textured card floating over the photograph, roughly
+   centred in the band. The faint ruled lines and the torn edge are the
+   texture the design draws; drop-shadow rather than box-shadow because
+   clip-path would cut a box-shadow off at the clip. */
+.v2-hero-card {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  width: min(56rem, 100%);
+  padding: 3rem 3.5rem 2.6rem;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      rgba(20, 50, 74, 0) 0 13px,
+      rgba(20, 50, 74, 0.055) 13px 14px
+    ),
+    #fdfdfb;
+  clip-path: polygon(
+    0% 2%, 12% 0.4%, 31% 1.6%, 55% 0%, 74% 1.4%, 91% 0.3%, 100% 1.8%,
+    99.4% 30%, 100% 62%, 99.5% 98.2%, 88% 99.6%, 66% 98.4%, 44% 100%,
+    25% 98.6%, 9% 99.7%, 0.4% 98%, 0.6% 66%, 0% 34%
+  );
+  filter: drop-shadow(0 1.1rem 2.2rem rgba(12, 31, 46, 0.32));
+}
+.v2-hero-kicker {
+  order: 3;
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--v2-rust);
+}
+.v2-hero-title {
+  order: 1;
+  margin: 0 0 1.4rem;
+  font-size: clamp(2.2rem, 4.2vw, 3.4rem);
+  line-height: 1.12;
+}
+.v2-hero-rule {
+  order: 2;
+  display: block;
+  width: 78%;
+  height: 1px;
+  margin: 0 0 1.3rem;
+  background: linear-gradient(
+    to right,
+    rgba(20, 50, 74, 0) 0%,
+    rgba(20, 50, 74, 0.38) 22%,
+    rgba(20, 50, 74, 0.38) 78%,
+    rgba(20, 50, 74, 0) 100%
+  );
+}
+.v2-hero-subtitle {
+  order: 4;
+  margin: 1.1rem 0 0;
+  color: var(--v2-muted);
+  font-size: 1rem;
+}
+.v2-hero-intro {
+  order: 5;
+  margin: 0.9rem 0 0;
+  max-width: 38rem;
+  color: var(--v2-body);
+}
+.v2-hero-intro p { margin: 0 0 0.7rem; }
+.v2-hero-intro p:last-child { margin-bottom: 0; }
+
+/* The 2x2 fact grid the phone card keeps (v2-cp-phone-hero.hero.hero-card
+   .card-facts), under a hairline rule. cp-fact-card's own structure is
+   unchanged — label over value — and only the skin differs: no box, no
+   coloured top border, just type on paper. */
+.v2-fact-cards {
+  order: 6;
+  list-style: none;
+  width: 100%;
+  max-width: 34rem;
+  margin: 1.5rem 0 0;
+  padding: 1.2rem 0 0;
+  border-top: 1px solid rgba(20, 50, 74, 0.18);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem 2rem;
+  text-align: left;
+}
+.v2-fact-cards .fact-card { padding: 0; }
+.fact-label {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--v2-muted);
+  margin-bottom: 0.15rem;
+}
+.fact-value {
+  display: block;
+  white-space: pre-line;
+  font-size: 0.98rem;
+  color: var(--v2-ink);
+}
+
+.v2-cta-row {
+  order: 7;
+  display: flex;
+  gap: 0.9rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 1.7rem;
+}
+.v2-hero-credentials {
+  order: 8;
+  margin: 1.2rem 0 0;
+  font-size: 0.83rem;
+  color: var(--v2-muted);
+}
+
+/* ---- the editorial bands --------------------------------------------- */
+
+.v2-main { position: relative; }
+
+.v2-band {
+  max-width: 1160px;
+  margin: 0 auto;
+  padding: 3.6rem 3rem;
+}
+
+/* The hairline rule that spans the page just under a band's top edge
+   (v2-cp-section-prose.prose-section). The hero owns no rule — the tree
+   line is its edge — so this is scoped away from it. */
+.v2-band + .v2-band,
+.v2-hero + .v2-band { border-top: 1px solid var(--v2-line); }
+.v2-contact-band + .v2-band,
+.v2-band + .v2-contact-band { border-top: 0; }
+
+.v2-section-label {
+  margin: 0 0 1rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--v2-muted);
+}
+/* The short rust rule beneath the label, which the desktop portrait band
+   draws and the phone one does not (v2-cp-phone-scroll-1.section-label:
+   "Unlike the desktop rendering, no rule is drawn beneath it here"). */
+.v2-band-media-left .v2-section-label::after {
+  content: "";
+  display: block;
+  width: 3rem;
+  height: 3px;
+  margin-top: 0.55rem;
+  background: var(--v2-rust);
+}
+
+.v2-band-heading {
+  margin: 0 0 1.4rem;
+  font-size: clamp(1.7rem, 2.6vw, 2.3rem);
+  line-height: 1.2;
+}
+.v2-band-body { max-width: 46rem; }
+.v2-band-body p { margin: 0 0 1.15rem; }
+.v2-band-body p:last-child { margin-bottom: 0; }
+.v2-band-note { max-width: 46rem; margin: 1.2rem 0 0; }
+.v2-band-link {
+  display: inline-block;
+  margin-top: 1.1rem;
+  font-size: 0.95rem;
+  color: var(--v2-rust);
+}
+
+/* The fact row: one entry per fact the owner filled in, laid out left to
+   right in a single row under a hairline rule, in stored order. No count
+   is asserted by any of the seven documents and none is assumed here —
+   it wraps rather than truncating. */
+.v2-fact-row {
+  list-style: none;
+  margin: 1.8rem 0 0;
+  padding: 1rem 0 0;
+  border-top: 1px solid var(--v2-line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 2.4rem;
+  font-size: 0.93rem;
+}
+.v2-fact-line-label { color: var(--v2-ink); font-weight: 600; }
+.v2-fact-line-label + .v2-fact-line-value { margin-left: 0.4rem; }
+.v2-fact-line-value { color: var(--v2-body); }
+
+/* Portrait + bio (v2-cp-section-portrait): the image column on the left,
+   the copy on the right, the small-caps label under the image. */
+.v2-band-media-left {
+  display: grid;
+  grid-template-columns: minmax(0, 21rem) minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 3.5rem;
+  align-items: start;
+}
+.v2-band-media { grid-column: 1; grid-row: 1; }
+.v2-band-media-left > .v2-section-label { grid-column: 1; grid-row: 2; margin-top: 1.2rem; }
+.v2-band-media-left > .v2-band-copy { grid-column: 2; grid-row: 1 / span 2; }
+
+/* The portrait itself: a circle with a dashed inner outline and a white
+   ring. The placeholder is what shows when the owner has given no image —
+   the two strings the documents assert byte-exact live in the template,
+   not here. */
+.portrait {
+  position: relative;
+  width: 17rem;
+  height: 17rem;
+  border-radius: 50%;
+  background: #eceff1;
+  border: 8px solid #fff;
+  box-shadow: 0 0.5rem 1.6rem rgba(20, 50, 74, 0.16);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1rem;
+  color: var(--v2-muted);
+  font-size: 0.88rem;
+  overflow: hidden;
+}
+.portrait::before {
+  content: "";
+  position: absolute;
+  inset: 0.85rem;
+  border: 1px dashed #b6c5d2;
+  border-radius: 50%;
+}
+.portrait-icon { font-size: 1.5rem; line-height: 1; margin-bottom: 0.35rem; }
+.portrait-browse { text-decoration: underline; cursor: pointer; }
+/* Around a real photograph the dashed ring reads as an unfinished upload,
+   the same reasoning V1's stylesheet records. */
+.portrait.has-image { border-color: #fff; background: none; }
+.portrait.has-image::before { content: none; }
+.portrait-image { width: 100%; height: 100%; object-fit: cover; }
+
+/* The prose band (v2-cp-section-prose), which is also the neutral V2
+   default LLM-COP-18 answer 4 asks for: the copy runs in the left column
+   and the right column is empty. Nothing published is hidden by the skin. */
+.v2-band-prose {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.6fr);
+}
+.v2-band-prose > * { grid-column: 1; }
+
+.v2-service-list { list-style: none; margin: 0; padding: 0; }
+.v2-service-item {
+  padding: 0.7rem 0;
+  border-bottom: 1px solid var(--v2-line);
+  font-size: 1.02rem;
+  color: var(--v2-ink);
+}
+.v2-hours-row { margin-top: 0; }
+.v2-address { color: var(--v2-body); }
+
+/* ---- the contact band (v2-cp-section-contact, v2-cp-phone-scroll-2) --- */
+
+.v2-contact-band {
+  max-width: none;
+  background: var(--v2-tint);
+  padding: 3.6rem 3rem 4.4rem;
+}
+.v2-contact-card {
+  max-width: 1100px;
+  margin: 0 auto;
+  background: var(--v2-navy);
+  color: #dce7f0;
+  border-radius: 0.9rem;
+  padding: 2.8rem 3rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.62fr);
+  gap: 2.5rem;
+  align-items: start;
+}
+.v2-contact-kicker {
+  margin: 0 0 0.9rem;
+  font-family: var(--v2-serif);
+  font-size: 2.1rem;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #fff;
+}
+.v2-contact-form { display: flex; flex-direction: column; gap: 0.8rem; }
+.v2-contact-form label {
+  display: flex; flex-direction: column; gap: 0.3rem;
+  font-size: 0.88rem; color: #93aec4;
+}
+.v2-contact-form input,
+.v2-contact-form textarea {
+  font: inherit;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 0.35rem;
+  background: rgba(255, 255, 255, 0.07);
+  color: #eaf2f8;
+}
+.v2-contact-actions { display: flex; flex-direction: column; gap: 0.8rem; }
+.v2-contact-primary { width: 100%; padding: 0.85rem 1.5rem; }
+
+/* ---- footer (v2-cp-section-contact.footer) --------------------------- */
+
+.v2-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.3rem 3rem;
+  background: var(--v2-navy-deep);
+  color: #8ea7bc;
+  font-size: 0.88rem;
+}
+.v2-footer .copyright { margin: 0; }
+.v2-footer .yllapito { color: #b8cbdb; text-decoration: none; }
+.v2-footer .yllapito:hover { text-decoration: underline; }
+
+/* ---- phone rendering -------------------------------------------------- */
+
+@media (max-width: 720px) {
+  .desktop-only { display: none; }
+  .phone-only { display: revert; }
+
+  .v2-header { padding: 0.75rem 1.1rem; gap: 0.8rem; }
+  .brand { font-size: 1.05rem; }
+
+  /* The hero card overlaps the foot of the photograph rather than floating
+     in the middle of it (v2-cp-phone-hero.hero.hero-card). */
+  .v2-hero {
+    display: block;
+    min-height: 0;
+    padding: 0 1.1rem 2rem;
+    overflow: visible;
+  }
+  .v2-hero-photo {
+    position: relative;
+    height: 15rem;
+    margin: 0 -1.1rem;
+  }
+  .v2-trees { height: 32%; min-height: 3.2rem; background-size: 120px 100%, 90px 78%, 100% 100%; }
+  .v2-hero-card {
+    width: auto;
+    margin: -3.2rem 0 0;
+    padding: 1.5rem 1.4rem 1.6rem;
+    text-align: left;
+    align-items: stretch;
+    background: var(--v2-card);
+    border-radius: 0.9rem;
+    clip-path: none;
+    box-shadow: 0 0.6rem 1.6rem rgba(12, 31, 46, 0.16);
+    filter: none;
+  }
+  .v2-hero-kicker { order: 1; font-size: 0.72rem; letter-spacing: 0.16em; }
+  .v2-hero-title { order: 2; margin: 0.35rem 0 0; font-size: 1.85rem; }
+  .v2-hero-subtitle { order: 3; margin: 0.5rem 0 0; }
+  .v2-hero-rule { order: 4; width: 100%; margin: 1.1rem 0 0; }
+  .v2-fact-cards {
+    order: 5;
+    max-width: none;
+    margin-top: 1.1rem;
+    padding-top: 0;
+    border-top: 0;
+    gap: 0.9rem 1.6rem;
+  }
+  .v2-hero-intro { order: 6; margin-top: 1.1rem; max-width: none; }
+  .v2-cta-row { order: 7; flex-direction: column; margin-top: 1.3rem; }
+  .v2-cta-row .button { width: 100%; }
+  .v2-hero-credentials { order: 8; }
+
+  .v2-band { padding: 2.2rem 1.4rem; }
+
+  /* Stacked, not side by side: image, then the label, then the copy. */
+  .v2-band-media-left { display: block; }
+  .v2-band-media-left > .v2-section-label { margin: 1.2rem 0 0.7rem; }
+  .v2-band-media-left .v2-section-label::after { content: none; }
+  .portrait { width: 10.5rem; height: 10.5rem; font-size: 0.8rem; border-width: 6px; }
+  .portrait::before { inset: 0.6rem; }
+  .portrait-icon { font-size: 1.2rem; }
+
+  .v2-band-prose { display: block; }
+  .v2-band-heading { font-size: 1.55rem; margin-bottom: 1rem; }
+
+  .v2-fact-row { gap: 0.4rem 1.4rem; }
+
+  .v2-contact-band { padding: 0 0 2rem; background: none; }
+  .v2-contact-card {
+    display: block;
+    border-radius: 0;
+    padding: 1.8rem 1.4rem 2rem;
+  }
+  .v2-contact-kicker { font-size: 1.7rem; }
+  .v2-contact-actions { margin-top: 1.4rem; }
+
+  .v2-footer { padding: 1rem 1.4rem; }
+}
+
+/* ---- dialogs ----------------------------------------------------------
+ * login_dialog.html and contact_dialog.html are included by page_v2.html
+ * exactly as page.html includes them, so V2 has to dress them or they
+ * render unstyled the first time somebody opens one. Same class names,
+ * same structure, V2's palette. */
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(12, 31, 46, 0.58);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.2rem;
+  z-index: 20;
+}
+.login-dialog,
+.contact-panel {
+  background: var(--v2-card);
+  border-radius: 0.7rem;
+  padding: 1.7rem 1.9rem;
+  width: 100%;
+  box-shadow: 0 1rem 2.5rem rgba(12, 31, 46, 0.4);
+}
+.login-dialog { max-width: 26rem; }
+.contact-panel { max-width: 32rem; max-height: 90vh; overflow-y: auto; }
+
+.login-head,
+.contact-head { display: flex; justify-content: space-between; align-items: flex-start; }
+.login-title,
+.cd-title { margin: 0 0 0.2rem; font-family: var(--v2-serif); font-size: 1.45rem; }
+.login-subtitle,
+.cd-subtitle { margin: 0 0 1.1rem; color: var(--v2-muted); font-size: 0.95rem; }
+.login-close,
+.cd-close {
+  background: none; border: none;
+  color: var(--v2-muted);
+  font: inherit; font-size: 1.35rem; line-height: 1;
+  text-decoration: none;
+  cursor: pointer;
+  padding: 0;
+}
+.login-error { color: #a03123; font-size: 0.9rem; margin: 0 0 0.8rem; }
+.login-note { color: var(--v2-muted); font-size: 0.9rem; margin: 0 0 0.8rem; }
+
+.login-form { display: flex; flex-direction: column; gap: 0.9rem; }
+.login-form > label {
+  display: flex; flex-direction: column; gap: 0.3rem;
+  font-size: 0.9rem; color: var(--v2-muted);
+}
+.contact-dialog-form { display: flex; flex-direction: column; gap: 0.4rem; }
+.login-form input[type="text"],
+.login-form input[type="password"],
+.contact-dialog-form input[type="text"],
+.contact-dialog-form textarea {
+  font: inherit;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--v2-line);
+  border-radius: 0.35rem;
+  background: var(--v2-card);
+  color: var(--v2-ink);
+  width: 100%;
+}
+.password-row { display: flex; align-items: center; gap: 0.5rem; }
+.password-show {
+  background: none; border: none;
+  font: inherit; font-size: 0.85rem;
+  color: var(--v2-rust);
+  cursor: pointer;
+  padding: 0;
+}
+.login-options {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.9rem;
+}
+.login-remember { display: flex; align-items: center; gap: 0.4rem; }
+.login-options a { font-size: 0.9rem; }
+.login-submit { width: 100%; }
+.login-footnote { color: var(--v2-muted); font-size: 0.85rem; text-align: center; margin: 0; }
+
+.cd-name-label,
+.cd-message-label,
+.cd-contact-label {
+  font-size: 0.9rem;
+  color: var(--v2-muted);
+  margin: 0.8rem 0 0;
+}
+.cd-message-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-top: 0.8rem;
+}
+.cd-message-head .cd-message-label { margin: 0; }
+.cd-message-hint { font-size: 0.85rem; color: var(--v2-muted); }
+.cd-message-helper { font-size: 0.85rem; color: var(--v2-muted); margin: 0.2rem 0 0; }
+.cd-contact-row { display: flex; gap: 0.8rem; }
+.cd-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--v2-muted);
+  margin-top: 1rem;
+}
+.cd-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 1.2rem;
+}
+.cd-cancel {
+  background: none; border: none;
+  font: inherit; font-size: 0.95rem;
+  color: var(--v2-muted);
+  cursor: pointer;
+  padding: 0;
+}
+.cd-thanks { margin: 1rem 0 0; }
