@@ -79,6 +79,11 @@ def site_chrome(conn, column="published"):
     there an undefined bare name renders empty while attribute access on one
     raises UndefinedError — which would 500 the section-list routes.
     """
+    if column not in ("draft", "published"):
+        # `column` is a public parameter interpolated into SQL. Every call site
+        # passes a literal today, but a whitelist is what makes that safe by
+        # construction rather than by convention.
+        raise ValueError(f"unknown column {column!r}")
     row = conn.execute(
         f"SELECT {column} AS payload FROM sections WHERE kind = 'hero'"
     ).fetchone()

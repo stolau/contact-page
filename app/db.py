@@ -101,13 +101,18 @@ def _migration_4(conn):
         "page_title": "Yrityksen nimi",
         "footer": "© 2026 Yrityksen nimi",
     }
+    columns = ("draft", "published", "previous_published")
     rows = conn.execute(
         "SELECT id, draft, published, previous_published FROM sections"
         " WHERE kind = 'hero'"
     ).fetchall()
     for row in rows:
-        for column in ("draft", "published", "previous_published"):
-            text = row[column]
+        # Indexed positionally: a migration must not depend on the caller
+        # having set sqlite3.Row, which is a property of connect() and not of
+        # the database file this runs against.
+        section_id = row[0]
+        for offset, column in enumerate(columns, start=1):
+            text = row[offset]
             if not text:
                 continue
             payload = json.loads(text)
@@ -115,7 +120,7 @@ def _migration_4(conn):
                 payload.setdefault(key, value)
             conn.execute(
                 f"UPDATE sections SET {column} = ? WHERE id = ?",
-                (json.dumps(payload, ensure_ascii=False), row["id"]),
+                (json.dumps(payload, ensure_ascii=False), section_id),
             )
 
 

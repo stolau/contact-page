@@ -12,35 +12,45 @@ Trap characters are built from the constants in test_seed (escaped-verified
 en dash U+2013 and thin space U+2009 copied from the spec JSON).
 """
 
+import re
+
 import pytest
 
 from app.sections import initials
 from app.seed import SEED_SECTIONS
-from tests.conftest import edit_published_payload, element_text, set_section_state
+from tests.conftest import (
+    PERSONA_PATTERN,
+    edit_published_payload,
+    element_text,
+    set_section_state,
+)
 from tests.test_seed import DAYS, DURATION, HOURS
 
 SEED_BY_KIND = dict(SEED_SECTIONS)
 
 # --- whole-document byte-exact contains-text criteria -----------------------
 #
-# LLM-COP-10 split the old 55-row table in two.
+# LLM-COP-10 split the old 54-row DOCUMENT_CRITERIA table in two. 9 rows stay
+# below; the other 45 left it — 13 became SEEDED_RENDERS, and 32 are covered by
+# the three list-driven tests (fact cards, about facts, services), which assert
+# every stored item rather than a hand-picked few.
 #
 # Byte-exact below: strings the TEMPLATE owns, which no admin can edit, plus
-# the brief's explicit chrome carve-out ("Ota yhteyttä", "Lue palveluista") —
-# those two are payload fields, but the artifact names them as the product's
-# promise rather than the persona, so they stay pinned. That tension is
-# recorded in the spec delta, not resolved here.
+# "Ota yhteyttä", which is a payload field (hero.contact_label) that the brief
+# names explicitly as the product's promise rather than the persona. That one
+# exception is the brief's call, and the tension is recorded in the spec delta
+# rather than resolved here. "Lue palveluista" is NOT in the brief's list, so
+# it is treated as what it is — editable data — and moved below.
 #
-# Everything else moved to SEEDED_RENDERS below: 36 criteria that pinned a
-# value the owner can change through the admin panel. Pinning those is the
-# defect this artifact was filed against — a data value promoted to a promise.
-# They now assert that the STORED value reaches the page, never what it says.
+# Everything that moved pinned a value the owner can change from the admin
+# panel. Pinning those is the defect this artifact was filed against: a data
+# value promoted to a promise. They now assert that the STORED value reaches
+# the page, never what it says.
 
 DOCUMENT_CRITERIA = [
     ("cp-main.hero.portrait-placeholder-0", "Muotokuva"),
     ("cp-main.hero.portrait-placeholder-1", "browse files"),
     ("cp-main.hero.cta-row.cta-contact", "Ota yhteyttä"),
-    ("cp-main.hero.cta-row.cta-services", "Lue palveluista"),
     ("cp-main.about-section.about-kicker", "NÄIN TYÖSKENTELEN"),
     ("cp-main-phone.phone-hero.phone-portrait-0", "Kuva"),
     ("cp-main-phone.phone-hero.phone-portrait-1", "browse files"),
@@ -57,6 +67,7 @@ SEEDED_RENDERS = [
     ("cp-main.hero.intro", "hero", "ingress"),
     ("cp-main-phone.phone-hero.phone-intro", "hero", "ingress_mobile"),
     ("cp-main.hero.credentials-row", "hero", "credentials"),
+    ("cp-main.hero.cta-row.cta-services", "hero", "services_label"),
     ("cp-main.about-section.about-lead", "tietoa", "nostolause"),
     ("cp-main.about-section.about-body", "tietoa", "leipäteksti"),
     ("cp-main-phone.phone-palvelut.phone-all-services", "palvelut", "more_label"),
@@ -239,6 +250,35 @@ def test_service_card_count_follows_the_data(app, client):
     assert removed not in after
     for service in kept:
         assert service in after
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "/",
+        "/muokkaa",
+        "/muokkaa/esikatselu",
+        "/muokkaa/sivu",
+        "/muokkaa/osiot",
+        "/yllapito/viestit",
+        "/yllapito/alustus",
+    ],
+)
+def test_no_identity_string_reaches_any_served_document(logged_in_admin, url):
+    """The real standing guard for LLM-COP-10.
+
+    The artifact's first layer is identity HARD-CODED IN TEMPLATES, unreachable
+    by the admin. A guard that reads only the stored payloads cannot see that
+    layer at all: put the persona back into page.html's footer and a
+    seed-only check stays green. This one reads the SERVED DOCUMENT, so it
+    fails on a template literal, and it covers the four admin <title>s as well
+    — nothing else in the suite asserts those.
+    """
+    response = logged_in_admin.get(url)
+    assert response.status_code == 200, f"{url} answered {response.status}"
+    html = response.get_data(as_text=True)
+    found = re.findall(PERSONA_PATTERN, html, re.IGNORECASE)
+    assert found == [], f"{url} serves identity string(s): {sorted(set(found))}"
 
 
 def test_site_chrome_is_data_the_owner_can_change(app, client):
