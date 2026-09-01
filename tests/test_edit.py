@@ -470,7 +470,9 @@ def test_draft_put_of_a_reordered_payload_is_byte_identical(
     So `json=` would put an ALPHABETICAL body on the wire whatever order
     the dict literal has, the reordering this test exists to exercise
     would never reach the route, and the test would pass without proving
-    anything. Do not "simplify" this back to json= or put_draft.
+    anything. Do not "simplify" this back to json=. put_draft (LLM-COP-16)
+    now sends the literal's order too, but this test builds its own bytes
+    so it can assert the wire order before sending them.
     """
     before = section_row(app, "hero")
     stored = json.loads(before["draft"])
