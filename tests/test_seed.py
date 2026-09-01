@@ -76,17 +76,54 @@ def test_hero_facts_are_the_four_desktop_cards(conn):
     assert "\n" in values[0]
 
 
-def test_tietoa_facts_are_the_three_plain_strings(conn):
+def test_tietoa_facts_are_labelled_pairs(conn):
+    """LLM-COP-20: every tietoa fact carries its own label, so a caption is
+    owner data rather than a positional guess. Key ORDER is asserted for the
+    reason test_hero_carries_the_three_site_chrome_keys_last states — a stored
+    item whose keys are out of declaration order is rewritten by the first
+    no-op save through validate_payload, which flips the badge to Luonnos."""
     seed_if_empty(conn)
     (published,) = conn.execute(
         "SELECT published FROM sections WHERE kind = 'tietoa'"
     ).fetchone()
     facts = json.loads(published)["facts"]
-    assert len(facts) == 3
-    assert all(isinstance(fact, str) and fact.strip() for fact in facts)
+    assert len(facts) == 4
+    for fact in facts:
+        assert isinstance(fact, dict)
+        assert tuple(fact) == ("label", "value")
+        assert fact["label"].strip()
+        assert fact["value"].strip()
     # The one place the en-dash guarantee is anchored to a field rather than
-    # to the whole stored blob.
-    assert DURATION in facts[0]
+    # to the whole stored blob. The split makes the value exactly the trap
+    # string, so this is now an equality rather than a containment.
+    assert facts[3]["value"] == DURATION
+
+
+def test_the_seed_carries_the_three_mockup_labels(conn):
+    """cp-main-edit-sections.expanded-editor draws koulutus / kokemus /
+    osaaminen, and since LLM-COP-20 those three captions exist as seeded DATA
+    rather than as positional guesses baked into a renderer.
+
+    They are seeded placeholder content the owner may rename, exactly like
+    every other string in this file — so this asserts they are PRESENT as
+    labels, not that the product promises them. The corresponding *-label
+    contains-text criteria are reported for demotion in LLM-COP-20's PR body
+    and are NOT claimed satisfied by it: the label reaches the browser only as
+    a <textarea>'s assigned .value. See tests/test_sectionlist.py's module
+    docstring for that argument in full.
+
+    A PREFIX equality, so it pins the three captions AND their order — the
+    order the mockup draws them in — while leaving the tail free: the fourth
+    pair (Tapaamiset) is the shipped "Tapaamiset 45–90 min" split at the seam
+    it always had, and the list is variable length by design, so asserting the
+    whole list would pin a count the spec explicitly does not promise.
+    """
+    seed_if_empty(conn)
+    (published,) = conn.execute(
+        "SELECT published FROM sections WHERE kind = 'tietoa'"
+    ).fetchone()
+    labels = [fact["label"] for fact in json.loads(published)["facts"]]
+    assert labels[:3] == ["Koulutus", "Kokemus", "Osaaminen"]
 
 
 def test_stored_json_carries_the_trap_typography_byte_exact(conn):
