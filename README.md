@@ -1,3 +1,5 @@
+# This project is created as part of benchmarking and testing TDD tooling, agent analyzing. Procceed to use it with caution
+
 # Contact page — a generic, admin-editable one-page site
 
 Single-page Flask + SQLite site. The page is rendered from the `sections`
