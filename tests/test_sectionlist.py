@@ -29,11 +29,11 @@ What this file deliberately does NOT cover, and why:
   "Käynnit 45-90 min" and friends (app/seed.py:57-59), not a degree, a span of
   years and a specialism. Reported unsatisfied rather than faked with a
   positional label that would sit over the wrong value.
-* esikatselu-card's second criterion, "Olen työskennellyt puheterapeuttina",
-  is sample data that no seeded payload holds. Its heading half is asserted
-  here byte-exact; its body half is proven live by typing the sentence in and
-  watching it reach the card. A fixture planting the sentence would prove
-  nothing.
+* esikatselu-card's second criterion pins a sentence of the mockup's sample
+  copy that no seeded payload holds. Its heading half is asserted here
+  byte-exact; its body half is proven live by typing a sentence in and
+  watching it reach the card. A fixture planting it would prove nothing.
+  LLM-COP-10 reports that criterion for demotion to a note.
 
 The expanded-editor criteria are asserted against GET /muokkaa/osiot/rivi/<id>,
 a one-row document where element_text's first-match is unambiguous — on the
@@ -375,8 +375,8 @@ FRAGMENT_TEXT_CRITERIA = [
      "button", "exp-sulje", "Sulje"),
     ("cp-main-edit-sections.expanded-editor.esikatselu-panel.esikatselu-label",
      "p", "esikatselu-label", "ESIKATSELU"),
-    # esikatselu-card's other criterion, "Olen työskennellyt puheterapeuttina",
-    # is sample data no seeded payload holds — proven live, not by a fixture.
+    # esikatselu-card's other criterion is sample copy no seeded payload
+    # holds — proven live, not by a fixture. See LLM-COP-10's spec delta.
     ("cp-main-edit-sections.expanded-editor.esikatselu-panel.esikatselu-card",
      "div", "esikatselu-card", "TIETOA MINUSTA"),
     (("cp-main-edit-sections.expanded-editor.esikatselu-panel"
@@ -822,7 +822,7 @@ def test_all_three_badges_appear_in_one_served_document(logged_in_admin, app):
     logged_in_admin.post(f"/api/sections/{tietoa}/state",
                          json={"state": "hidden"}, headers=JSON_ACCEPT)
     dirty = copy.deepcopy(SEED_BY_KIND["palvelut"])
-    dirty["services"].append("Afasiakuntoutus aikuisille")
+    dirty["services"].append("Neljäs palvelu")
     assert logged_in_admin.put(
         f"/api/sections/{palvelut}/draft", json=dirty, headers=JSON_ACCEPT
     ).status_code == 200
@@ -904,12 +904,12 @@ def test_restore_writes_the_draft_only_and_the_screen_says_a_publish_is_needed(
     row reads Luonnos, and the disclaimer beside the editor says so."""
     hero = row_id(app, "hero")
     payload = copy.deepcopy(SEED_BY_KIND["hero"])
-    payload["title"] = "Anna V. Virtanen"
+    payload["title"] = "Muokattu otsikko"
     assert logged_in_admin.put(
         f"/api/sections/{hero}/draft", json=payload, headers=JSON_ACCEPT
     ).status_code == 200
     assert publish(logged_in_admin).status_code == 200
-    assert "Anna V. Virtanen" in public_html(app)
+    assert "Muokattu otsikko" in public_html(app)
 
     before = next(r for r in section_rows(app) if r["id"] == hero)
     assert before["previous_published"] is not None
@@ -927,7 +927,7 @@ def test_restore_writes_the_draft_only_and_the_screen_says_a_publish_is_needed(
     assert after["state"] == before["state"]
 
     # It did not reach the public page — a restore still needs Julkaise.
-    assert "Anna V. Virtanen" in public_html(app)
+    assert "Muokattu otsikko" in public_html(app)
 
     html = logged_in_admin.get("/muokkaa/osiot").get_data(as_text=True)
     scoped = outer_li(html, hero)
@@ -967,7 +967,7 @@ def test_the_row_fragment_enables_restore_as_soon_as_a_publish_lands(
     assert 'class="exp-restore" data-action="restore" disabled' in before
 
     payload = copy.deepcopy(SEED_BY_KIND["hero"])
-    payload["title"] = "Anna V. Virtanen"
+    payload["title"] = "Muokattu otsikko"
     assert logged_in_admin.put(
         f"/api/sections/{hero}/draft", json=payload, headers=JSON_ACCEPT
     ).status_code == 200
@@ -1135,7 +1135,7 @@ def test_restore_then_julkaise_puts_back_the_exact_published_bytes(
     assert "ä" in seeded_text and "·" in seeded_text
 
     payload = copy.deepcopy(SEED_BY_KIND["hero"])
-    payload["title"] = "Anna V. Virtanen"
+    payload["title"] = "Muokattu otsikko"
     logged_in_admin.put(f"/api/sections/{hero}/draft", json=payload,
                         headers=JSON_ACCEPT)
     publish(logged_in_admin)
@@ -1144,8 +1144,8 @@ def test_restore_then_julkaise_puts_back_the_exact_published_bytes(
 
     row = next(r for r in section_rows(app) if r["id"] == hero)
     assert row["published"] == seeded_text
-    assert "Anna Virtanen" in public_html(app)
-    assert "Anna V. Virtanen" not in public_html(app)
+    assert SEED_BY_KIND["hero"]["title"] in public_html(app)
+    assert "Muokattu otsikko" not in public_html(app)
 
 
 # --- one renderer each: guards on the duplication the artifact names ---------

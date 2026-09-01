@@ -1,8 +1,10 @@
-# Puheterapia Anna Virtanen — contact page
+# Contact page — a generic, admin-editable one-page site
 
 Single-page Flask + SQLite site. The page is rendered from the `sections`
-table's published payloads; a fresh database is migrated and seeded with the
-mockup content on first run.
+table's published payloads; a fresh database is migrated and seeded with
+neutral placeholder content on first run. Every word on the page — including
+the site name, the browser title and the footer — is the owner's to set from
+the admin panel; the shipped seed names no person, place or register.
 
 ## Run
 

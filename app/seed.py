@@ -1,7 +1,12 @@
-"""The mockup content, byte-exact, written on first run.
+"""The shipped placeholder content, written on first run.
 
-Copy is taken character-for-character from the governing specs (cp-main,
-cp-main-phone, cp-fact-card, cp-service-card). Mind the trap characters —
+This is a generic contact page: every word below is the owner's to replace
+from the admin panel. The copy is deliberately unfilled-looking so that an
+owner who deploys and does nothing ships a template, not somebody's
+identity. It names no person, no place and no register.
+
+The vastaanottoajat and yhteydenotto blocks are generic already and are kept
+byte-exact. Mind the trap characters —
 they are the spec's own, not ASCII look-alikes; copy, never retype:
 en dash – in "45–90 min" and "Ma–To", thin spaces
 around the en dash in "9.00 – 16.00".
@@ -13,50 +18,48 @@ SEED_SECTIONS = [
     (
         "hero",
         {
-            "kicker": "PUHETERAPEUTTI · TURKU · KELA-PALVELUNTUOTTAJA",
-            "title": "Anna Virtanen",
-            "subtitle": "Puheterapeutti, FM · toiminimi vuodesta 2018",
+            "kicker": "AMMATTINIMIKE · PAIKKAKUNTA · LISÄTIETO",
+            "title": "Nimi tähän",
+            "subtitle": "Ammattinimike · lisätieto",
             "ingress": (
-                "Puheterapiaa lapsille, nuorille ja aikuisille: arviointi, "
-                "kuntoutus ja ohjaus. Vastaanotto Turun keskustassa, "
-                "käynnit myös etäyhteydellä."
+                "Kerro tässä lyhyesti, kenelle palvelusi on ja mitä teet. "
+                "Korvaa tämä teksti omalla esittelylläsi."
             ),
             "ingress_mobile": (
-                "Arviointi, kuntoutus ja ohjaus lapsille, nuorille ja "
-                "aikuisille. Vastaanotto Turun keskustassa tai etäyhteys."
+                "Kerro lyhyesti, kenelle palvelusi on ja mitä teet."
             ),
             "facts": [
-                {"label": "KOULUTUS", "value": "FM, logopedia\nTurun yliopisto"},
-                {"label": "KOKEMUS", "value": "15 vuotta kliinistä työtä"},
-                {"label": "ERITYISOSAAMINEN", "value": "Änkytys ja afasiakuntoutus"},
-                {"label": "ASIAKKAAT", "value": "Lapset, nuoret ja aikuiset"},
+                {"label": "KOULUTUS", "value": "Täydennä koulutus\nja tutkinnot"},
+                {"label": "KOKEMUS", "value": "Täydennä työkokemus"},
+                {"label": "OSAAMINEN", "value": "Täydennä osaamisalueet"},
+                {"label": "ASIAKKAAT", "value": "Täydennä asiakasryhmät"},
             ],
             "credentials": (
-                "Toiminimi · Y-tunnus 2938471-2 · "
-                "Valvira-rekisteri 1093xxx · Suomi · English"
+                "Yritysmuoto · Y-tunnus · Rekisteritiedot · Suomi · English"
             ),
             "contact_label": "Ota yhteyttä",
             "services_label": "Lue palveluista",
             "portrait": "",
+            "brand": "Yrityksen nimi",
+            "page_title": "Yrityksen nimi",
+            "footer": "© 2026 Yrityksen nimi",
         },
     ),
     (
         "tietoa",
         {
             "nostolause": (
-                "Työskentelin ensin keskussairaalassa ja vuodesta 2018 "
-                "omalla toiminimellä. Kuntoutusjakso alkaa aina arvioinnista "
-                "ja yhdessä sovituista tavoitteista."
+                "Kirjoita tähän lyhyt esittely: kuka olet, mitä teet ja "
+                "miten työskentelet."
             ),
             "leipäteksti": (
-                "Harjoitukset suunnitellaan yhdessä perheen tai asiakkaan "
-                "kanssa ja sovitetaan osaksi arkea. Tarvittaessa teen "
-                "lausunnon neuvolalle, koululle tai Kelalle."
+                "Kerro tarkemmin palveluistasi ja siitä, miten yhteistyö "
+                "etenee. Korvaa tämä esimerkkiteksti omalla sisällölläsi."
             ),
             "facts": [
-                "Käynnit 45–90 min",
-                "Lausunnot neuvolalle, koululle ja Kelalle",
-                "Etäkäynnit mahdollisia",
+                "Tapaamiset 45–90 min",
+                "Lisätieto tähän",
+                "Toinen lisätieto tähän",
             ],
         },
     ),
@@ -64,11 +67,13 @@ SEED_SECTIONS = [
         "palvelut",
         {
             "services": [
-                "Puheen ja kielen arviointi",
-                "Äännevirheiden kuntoutus",
-                "Änkytyksen kuntoutus",
+                "Ensimmäinen palvelu",
+                "Toinen palvelu",
+                "Kolmas palvelu",
             ],
-            "more_label": "Kaikki kuusi palvelua",
+            # Was "Kaikki kuusi palvelua" — a hard-coded count of six against
+            # a seed that ships three. Same defect class as LLM-COP-8.
+            "more_label": "Kaikki palvelut",
         },
     ),
     (
@@ -97,10 +102,7 @@ SEED_SECTIONS = [
     (
         "sijainti",
         {
-            "address": (
-                "Vastaanotto Turun keskustassa. Tarkka osoite ja "
-                "saapumisohjeet lähetetään ajanvarauksen yhteydessä."
-            ),
+            "address": "Lisää käyntiosoite ja saapumisohjeet tähän.",
         },
     ),
 ]

@@ -15,7 +15,7 @@ from .fields import ANCHORS, NAV_LABELS
 from .messages import bp as messages_bp
 from .sanitize import sanitize_rich
 from .sectionlist import bp as sectionlist_bp
-from .sections import visible_sections
+from .sections import site_chrome, visible_sections
 from .seed import seed_if_empty
 from .wizard import bp as wizard_bp
 from .wizard import login_target
@@ -74,6 +74,7 @@ def create_app(instance_path=None):
         conn = database.connect(app.config["DATABASE"])
         try:
             sections = visible_sections(conn)
+            chrome = site_chrome(conn)
         finally:
             conn.close()
         return render_template(
@@ -81,6 +82,7 @@ def create_app(instance_path=None):
             sections=sections,
             nav_labels=NAV_LABELS,
             anchors=ANCHORS,
+            **chrome,
             **dialog,
         )
 

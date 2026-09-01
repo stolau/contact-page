@@ -155,7 +155,10 @@ def test_migration_3_creates_the_messages_table(conn):
         "created_at",
     }
     (version,) = conn.execute("PRAGMA user_version").fetchone()
-    assert version == 3
+    # Not a literal: migration 4 (LLM-COP-10) would turn a hard-coded 3
+    # red on correct code. The contract is that migrate() stamps the
+    # LAST migration, whatever the list currently holds.
+    assert version == len(database.MIGRATIONS)
 
 
 def test_migrate_is_still_idempotent_with_migration_3(conn):
@@ -172,7 +175,10 @@ def test_migrate_is_still_idempotent_with_migration_3(conn):
     ).fetchall()
     assert after == before
     (version,) = conn.execute("PRAGMA user_version").fetchone()
-    assert version == 3
+    # Not a literal: migration 4 (LLM-COP-10) would turn a hard-coded 3
+    # red on correct code. The contract is that migrate() stamps the
+    # LAST migration, whatever the list currently holds.
+    assert version == len(database.MIGRATIONS)
 
 
 # --- POST /api/messages: the happy path --------------------------------------
@@ -438,7 +444,7 @@ def test_mail_is_sent_when_both_smtp_host_and_mail_to_are_set(app, client,
                                                               monkeypatch):
     calls = install_fake_smtp(monkeypatch)
     monkeypatch.setenv("SMTP_HOST", "smtp.esimerkki.fi")
-    monkeypatch.setenv("MAIL_TO", "anna@esimerkki.fi")
+    monkeypatch.setenv("MAIL_TO", "yllapito@esimerkki.fi")
 
     assert post(client).status_code == 201
 
@@ -452,7 +458,7 @@ def test_a_failing_send_never_costs_the_visitor_their_message(app, client,
     the message is really in the store — not merely reported as accepted."""
     calls = install_fake_smtp(monkeypatch, raises=True)
     monkeypatch.setenv("SMTP_HOST", "smtp.esimerkki.fi")
-    monkeypatch.setenv("MAIL_TO", "anna@esimerkki.fi")
+    monkeypatch.setenv("MAIL_TO", "yllapito@esimerkki.fi")
 
     response = post(client)
 
@@ -542,7 +548,7 @@ def test_the_send_failure_path_logs_no_field_values(app, client, caplog,
     the one most likely to spill the payload into the warning."""
     install_fake_smtp(monkeypatch, raises=True)
     monkeypatch.setenv("SMTP_HOST", "smtp.esimerkki.fi")
-    monkeypatch.setenv("MAIL_TO", "anna@esimerkki.fi")
+    monkeypatch.setenv("MAIL_TO", "yllapito@esimerkki.fi")
     caplog.set_level(logging.DEBUG)
 
     assert post(client, sentinel_payload()).status_code == 201
@@ -590,7 +596,7 @@ def test_inbox_renders_both_messages_newest_first_with_every_field(
     newer = insert_message(
         app,
         "Jussi Nieminen",
-        "Isäni sai halvauksen ja etsimme afasiakuntoutusta.",
+        "Isäni tarvitsee apua ja etsimme sopivaa palvelua.",
         "jussi@esimerkki.fi",
         "050 765 4321",
         1_700_086_400,
@@ -605,7 +611,7 @@ def test_inbox_renders_both_messages_newest_first_with_every_field(
         "maria@esimerkki.fi",
         "040 123 4567",
         "Jussi Nieminen",
-        "Isäni sai halvauksen ja etsimme afasiakuntoutusta.",
+        "Isäni tarvitsee apua ja etsimme sopivaa palvelua.",
         "jussi@esimerkki.fi",
         "050 765 4321",
     ):

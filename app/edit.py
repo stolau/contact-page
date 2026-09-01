@@ -17,7 +17,7 @@ from . import auth
 from . import db as database
 from .fields import ANCHORS, FIELD_LABELS, FIELDS, NAV_LABELS, SECTION_NAMES
 from .sanitize import validate_payload
-from .sections import badge, draft_sections, publish_dirty
+from .sections import badge, draft_sections, publish_dirty, site_chrome
 
 bp = Blueprint("edit", __name__)
 
@@ -59,6 +59,7 @@ def esikatselu():
     conn = _connect()
     try:
         sections = draft_sections(conn)
+        chrome = site_chrome(conn, "draft")
     finally:
         conn.close()
     return render_template(
@@ -67,6 +68,7 @@ def esikatselu():
         nav_labels=NAV_LABELS,
         anchors=ANCHORS,
         preview=True,
+        **chrome,
     )
 
 

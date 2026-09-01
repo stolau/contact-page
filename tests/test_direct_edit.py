@@ -12,8 +12,6 @@ Two criteria carry a `when` clause that only a browser can produce
 (otsikko-tag's OTSIKKO and direct-counter's "14 / 60"): pytest's purchase
 on them is the JSON bootstrap those strings are computed from, asserted
 as such below and named as browser-only rather than claimed as covered.
-One criterion is unreachable against the seeded copy and is a strict
-xfail with the divergence spelled out.
 
 No fixture here plants anything to make a test pass: the two identity
 fixtures differ only in the account name, and the pair is what proves the
@@ -41,12 +39,16 @@ SEED_BY_KIND = dict(SEED_SECTIONS)
 JSON_ACCEPT = {"Accept": "application/json"}
 DIRECT_URL = "/muokkaa/sivu"
 
-# The mockup's owner is named "Anna Virtanen"; the documented convention
-# username (tests/conftest.py, and the admin-create argument) is
-# "anna.virtanen". Both are real account names — Decision A's two tests
-# use one each, and the difference between them is the whole point.
-MOCKUP_OWNER = "Anna Virtanen"
-HANDLE_OWNER = "anna.virtanen"
+# The pair below is the whole point of the two identity fixtures: one account
+# is named EXACTLY like the page's own h1, the other is a login handle that is
+# not. Only the pair can prove the top bar reads the account row rather than
+# page copy — with two arbitrary names, a document-wide check could not fail.
+#
+# Before LLM-COP-10 both were the mockup persona's name and login handle.
+# PAGE_NAME_OWNER is now derived from the seeded title so the property is
+# preserved BY CONSTRUCTION rather than by two literals that happen to match.
+PAGE_NAME_OWNER = SEED_BY_KIND["hero"]["title"]
+HANDLE_OWNER = "yllapitaja"
 
 
 # --- fixtures, all local to this file ---------------------------------------
@@ -54,18 +56,18 @@ HANDLE_OWNER = "anna.virtanen"
 
 @pytest.fixture
 def direct_admin(app):
-    """Signed in as an account named the way the mockup's owner is named."""
-    create_admin(app, username=MOCKUP_OWNER, password=ADMIN_PASSWORD)
+    """Signed in as an account named exactly like the page's own h1."""
+    create_admin(app, username=PAGE_NAME_OWNER, password=ADMIN_PASSWORD)
     client = app.test_client()
-    response = login(client, username=MOCKUP_OWNER, password=ADMIN_PASSWORD)
+    response = login(client, username=PAGE_NAME_OWNER, password=ADMIN_PASSWORD)
     assert response.status_code == 302
     return client
 
 
 @pytest.fixture
 def handle_admin(app):
-    """Signed in as the documented convention account, "anna.virtanen" —
-    a login handle that is *not* the hero heading on the same page."""
+    """Signed in as a login handle that is *not* the hero heading on the
+    same page — the other half of the identity pair."""
     create_admin(app, username=HANDLE_OWNER, password=ADMIN_PASSWORD)
     client = app.test_client()
     response = login(client, username=HANDLE_OWNER, password=ADMIN_PASSWORD)
@@ -156,25 +158,25 @@ def test_signed_in_admin_gets_the_page(direct_admin):
 
 def test_direct_topbar_shows_the_account_name(direct_html):
     # cp-main-direct-edit.direct-topbar.direct-breadcrumb — scoped to the
-    # top bar, because "Anna Virtanen" is also the hero heading and the
-    # header brand, so a document-wide check could not fail.
+    # top bar, because this fixture's account name is also the hero heading,
+    # so a document-wide check could not fail.
     topbar = element_text(direct_html, "header", cls="direct-topbar")
     assert topbar is not None
-    assert MOCKUP_OWNER in topbar
+    assert PAGE_NAME_OWNER in topbar
     assert "ylläpitäjä" in topbar
 
 
 def test_direct_topbar_name_follows_the_account_not_the_page(handle_admin):
-    # The other half of the pair: with the account named "anna.virtanen"
-    # the bar must read the handle, and must NOT read the hero heading —
-    # which the very same document still renders as "Anna Virtanen".
+    # The other half of the pair: with the account named by a handle, the bar
+    # must read the handle and must NOT read the hero heading — which the very
+    # same document still renders.
     html = handle_admin.get(DIRECT_URL).get_data(as_text=True)
 
     topbar = element_text(html, "header", cls="direct-topbar")
     assert topbar is not None
     assert HANDLE_OWNER in topbar
     assert "ylläpitäjä" in topbar
-    assert MOCKUP_OWNER not in topbar
+    assert PAGE_NAME_OWNER not in topbar
 
     breadcrumb = element_text(html, "span", cls="direct-breadcrumb")
     assert breadcrumb == f"{HANDLE_OWNER} · ylläpitäjä"
@@ -182,7 +184,7 @@ def test_direct_topbar_name_follows_the_account_not_the_page(handle_admin):
     # …while the page copy on the same page does say it. Without this the
     # assertion above would pass on a page that renders no heading at all.
     heading = element_text(html, "h1")
-    assert heading == MOCKUP_OWNER
+    assert heading == PAGE_NAME_OWNER
 
 
 # --- the server-rendered chrome, byte-exact (Decision C) --------------------
@@ -275,12 +277,16 @@ def test_publish_bar_strings_are_rendered_inside_the_publish_bar(direct_html):
     [
         pytest.param(
             "cp-main-direct-edit.direct-canvas.direct-kicker", text,
-            id=f"cp-main-direct-edit.direct-canvas.direct-kicker:{text}",
+            id=f"cp-main-direct-edit.direct-canvas.direct-kicker:{index}",
         )
-        for text in ("PUHETERAPEUTTI", "TURKU", "KELA-PALVELUNTUOTTAJA")
+        for index, text in enumerate(
+            SEED_BY_KIND["hero"]["kicker"].split(" · ")
+        )
     ],
 )
 def test_direct_kicker(direct_html, address, expected):
+    # The criterion is that each stored kicker part renders in the kicker
+    # element, not that the parts are any particular words.
     kicker = element_text(direct_html, "p", cls="kicker")
     assert kicker is not None
     assert expected in kicker, f"{address}: {expected!r} not in the kicker"
@@ -288,8 +294,8 @@ def test_direct_kicker(direct_html, address, expected):
 
 def test_direct_title(direct_html):
     # cp-main-direct-edit.direct-canvas.direct-title — the hero heading,
-    # scoped to the h1: "Anna Virtanen" is also the header brand.
-    assert element_text(direct_html, "h1") == "Anna Virtanen"
+    # scoped to the h1 because the stored title can also appear elsewhere.
+    assert element_text(direct_html, "h1") == SEED_BY_KIND["hero"]["title"]
 
 
 def test_direct_portrait(direct_html):
@@ -310,41 +316,27 @@ def test_direct_portrait(direct_html):
     [
         pytest.param(
             "cp-main-direct-edit.direct-canvas.direct-ingress", text,
-            id=f"cp-main-direct-edit.direct-canvas.direct-ingress:{text}",
+            id=f"cp-main-direct-edit.direct-canvas.direct-ingress:{index}",
         )
-        for text in ("Puheterapeutti, FM", "toiminimi vuodesta 2018")
+        for index, text in enumerate(
+            SEED_BY_KIND["hero"]["subtitle"].split(" · ")
+        )
     ],
 )
 def test_direct_ingress_subtitle_half(direct_html, address, expected):
     # The direct-ingress region's rect spans the subtitle line as well as
-    # the intro; these two strings are the seeded hero subtitle.
+    # the intro; these strings are the parts of the stored hero subtitle.
     subtitle = element_text(direct_html, "p", cls="subtitle")
     assert subtitle is not None
     assert expected in subtitle, f"{address}: {expected!r} not in the subtitle"
 
 
-# The spec's third direct-ingress string, byte-exact.
-INGRESS_CRITERION = "arviointi, kuntoutus ja ohjaus lapsille, nuorille ja aikuisille."
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "UNREACHABLE against the seeded copy, not skipped: "
-        "cp-main-direct-edit.direct-canvas.direct-ingress asserts "
-        "'arviointi, kuntoutus ja ohjaus lapsille, nuorille ja aikuisille.' "
-        "with a lower-case 'a'. The seed (governed by cp-main, whose own "
-        "cp-main.hero.intro criteria tests/test_page.py asserts) stores "
-        "hero.ingress as '...aikuisille: arviointi, kuntoutus ja ohjaus.' "
-        "and hero.ingress_mobile as 'Arviointi, kuntoutus ja ohjaus "
-        "lapsille, nuorille ja aikuisille.' — capital A. No seeded value "
-        "contains the spec's byte-exact string, so this criterion cannot "
-        "hold without changing the copy cp-main governs. Reported, not "
-        "papered over; strict=True so it fails loudly if the copy changes."
-    ),
-)
-def test_direct_ingress_byte_exact_criterion(direct_html):
-    assert INGRESS_CRITERION in direct_html
+# The spec's third direct-ingress string used to be asserted here as a strict
+# xfail, on the grounds that no seeded value contained it byte-exact. LLM-COP-10
+# DELETED it rather than re-wording the reason: the criterion pins a sentence of
+# the mockup persona's copy, and against a neutral seed it can never fail, so a
+# strict xfail there carries no information at all. It is reported in the spec
+# delta as a criterion to demote to a note, which is where it belongs.
 
 
 def test_direct_ingress_mobile_is_rendered_and_bound(direct_html):
@@ -352,8 +344,7 @@ def test_direct_ingress_mobile_is_rendered_and_bound(direct_html):
     # ingress_mobile binding (its element is display:none above 720px, so
     # its dashed outline is a narrow-viewport browser check).
     seeded = SEED_BY_KIND["hero"]["ingress_mobile"]
-    assert seeded.startswith("Arviointi, kuntoutus ja ohjaus lapsille,"
-                             " nuorille ja aikuisille.")
+    assert seeded.strip()
     mobile = element_text(direct_html, "p", cls="phone-only")
     assert mobile is not None
     assert seeded in mobile
@@ -441,10 +432,29 @@ EXCLUDED_SCALARS = {
         "not rendered on the page at all, so there is no element to bind."
         " Still editable in the side panel (Kiitosviesti)."
     ),
+    # The three site-chrome fields (LLM-COP-10). All three render OUTSIDE any
+    # section block, so none of them carries a data-section id; binding them
+    # means restructuring the public template's header and footer, which this
+    # artifact is explicitly not allowed to do. All three are editable in the
+    # side panel, which is what closes LLM-COP-7's deferral.
+    ("hero", "brand"): (
+        "rendered in <header class=\"site-header\">, outside every section"
+        " block, so it carries no data-section id. Still editable in the side"
+        " panel (Sivuston nimi)."
+    ),
+    ("hero", "page_title"): (
+        "rendered in <head><title>; there is no visible element to bind."
+        " Still editable in the side panel (Selaimen otsikko)."
+    ),
+    ("hero", "footer"): (
+        "rendered in <footer class=\"site-footer\">, the same outside-any-"
+        "section shape as brand. Still editable in the side panel"
+        " (Alatunniste)."
+    ),
 }
 
 BOUND_SCALAR_COUNT = 14
-EXCLUDED_SCALAR_COUNT = 5
+EXCLUDED_SCALAR_COUNT = 8
 
 
 def test_every_scalar_field_is_bound_or_excluded(direct_html):
@@ -544,7 +554,7 @@ def test_direct_mode_renders_the_draft_and_the_public_page_does_not(
     assert element_text(direct, "h1") == "Luonnosotsikko"
 
     public = direct_admin.get("/").get_data(as_text=True)
-    assert element_text(public, "h1") == "Anna Virtanen"
+    assert element_text(public, "h1") == SEED_BY_KIND["hero"]["title"]
     assert "Luonnosotsikko" not in public
 
 
@@ -580,7 +590,7 @@ def leaky_documents(direct_admin, client):
     ):
         assert response.status_code == 200, f"{where} answered {response.status}"
         html = response.get_data(as_text=True)
-        assert element_text(html, "h1") == "Anna Virtanen", (
+        assert element_text(html, "h1") == SEED_BY_KIND["hero"]["title"], (
             f"{where} is not the rendered page"
         )
         documents[where] = html
@@ -646,7 +656,7 @@ def test_the_preview_still_renders_the_draft_page(direct_admin):
     # The leak test above would also pass against an empty document; this
     # pins that /muokkaa/esikatselu is the real page.
     preview = direct_admin.get("/muokkaa/esikatselu").get_data(as_text=True)
-    assert element_text(preview, "h1") == "Anna Virtanen"
+    assert element_text(preview, "h1") == SEED_BY_KIND["hero"]["title"]
     assert "preview.js" in preview
 
 
@@ -666,13 +676,18 @@ def test_bootstrap_carries_the_field_label_the_tag_is_built_from(direct_html):
 def test_bootstrap_carries_the_cap_the_counter_is_built_from(direct_html):
     # cp-main-direct-edit.direct-canvas.direct-title.direct-counter asserts
     # "14 / 60 merkkiä" when the heading is being edited. " merkkiä" is
-    # server-rendered (asserted above); "14 / 60" is JS. 60 is the cap and
-    # 14 is the seeded title's length after one keystroke — both provable
-    # here, the rendered string is not.
+    # server-rendered (asserted above); the count itself is JS.
+    #
+    # The CAP is the product's promise and is asserted. The NUMERATOR is live
+    # data — it counts whatever title happens to be stored — so nothing here
+    # pins it. It used to read `len(seeded title) == 13`, a constant that was
+    # only true of the mockup persona's name: exactly the "data value promoted
+    # to a promise" defect this artifact removes, and the same one filed as
+    # LLM-COP-8. The spec's "14 / 60" is spec-delta material, not a constant.
     bootstrap = bootstrap_json(direct_html, "direct-bootstrap")
     assert bootstrap["fields"]["hero"]["title"]["cap"] == 60
     assert FIELDS["hero"]["title"]["cap"] == 60
-    assert len(SEED_BY_KIND["hero"]["title"]) == 13
+    assert 0 < len(SEED_BY_KIND["hero"]["title"]) <= 60
     assert '<span class="direct-counter-value"></span> merkkiä' in direct_html
 
 
@@ -690,12 +705,12 @@ def test_bootstrap_carries_the_draft_payloads_and_the_schema(direct_html):
 
 
 HOSTILE_INGRESS = (
-    'Puheterapiaa <b>lapsille</b> — '
+    'Palveluita <b>kaikille</b> — '
     '<a href="https://example.fi/" onclick="evil()">lisätietoa</a>'
     "<script>alert(1)</script>"
 )
 CLEAN_INGRESS = (
-    "Puheterapiaa <strong>lapsille</strong> — "
+    "Palveluita <strong>kaikille</strong> — "
     '<a href="https://example.fi/">lisätietoa</a>'
 )
 
@@ -742,7 +757,7 @@ def test_bold_and_link_edit_stores_clean_reads_back_and_publishes_sanitized(
     public = direct_admin.get("/").get_data(as_text=True)
     intro = element_text(public, "p", cls="intro")
     assert intro is not None
-    assert "Puheterapiaa lapsille — lisätietoa" in intro
+    assert "Palveluita kaikille — lisätietoa" in intro
     assert CLEAN_INGRESS in public
     assert "onclick" not in public
     assert "alert(1)" not in public

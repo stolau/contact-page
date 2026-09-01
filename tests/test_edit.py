@@ -95,35 +95,35 @@ def test_draft_put_stores_the_draft_without_touching_published(
     logged_in_admin, app
 ):
     payload = hero_payload()
-    payload["title"] = "Anna V. Virtanen"
+    payload["title"] = "Muokattu otsikko"
     before = section_row(app, "hero")
 
     response = put_draft(logged_in_admin, app, "hero", payload)
     assert response.status_code == 200
 
     after = section_row(app, "hero")
-    assert json.loads(after["draft"])["title"] == "Anna V. Virtanen"
+    assert json.loads(after["draft"])["title"] == "Muokattu otsikko"
     assert after["published"] == before["published"]  # byte-identical
 
     # The logged-out public page still shows the published title
     # (brief reviewer check: only publishes after Julkaise).
     html = app.test_client().get("/").get_data(as_text=True)
-    assert "Anna V. Virtanen" not in html
-    assert "Anna Virtanen" in html
+    assert "Muokattu otsikko" not in html
+    assert SEED_BY_KIND["hero"]["title"] in html
 
 
 def test_preview_renders_from_the_draft(logged_in_admin, app):
     payload = hero_payload()
-    payload["title"] = "Anna V. Virtanen"
+    payload["title"] = "Muokattu otsikko"
     assert put_draft(logged_in_admin, app, "hero", payload).status_code == 200
 
     html = logged_in_admin.get("/muokkaa/esikatselu").get_data(as_text=True)
-    assert "Anna V. Virtanen" in html  # the draft, not the published payload
+    assert "Muokattu otsikko" in html  # the draft, not the published payload
 
 
 def test_publish_flips_the_public_page(logged_in_admin, app):
     payload = hero_payload()
-    payload["title"] = "Anna V. Virtanen"
+    payload["title"] = "Muokattu otsikko"
     assert put_draft(logged_in_admin, app, "hero", payload).status_code == 200
 
     response = logged_in_admin.post("/api/publish", headers=JSON_ACCEPT)
@@ -131,12 +131,12 @@ def test_publish_flips_the_public_page(logged_in_admin, app):
     assert response.get_json()["published"] == [section_row(app, "hero")["id"]]
 
     html = app.test_client().get("/").get_data(as_text=True)
-    assert "Anna V. Virtanen" in html
+    assert "Muokattu otsikko" in html
 
 
 def test_publish_touches_exactly_the_dirty_rows(logged_in_admin, app):
     payload = hero_payload()
-    payload["title"] = "Anna V. Virtanen"
+    payload["title"] = "Muokattu otsikko"
     before = {row["kind"]: tuple(row) for row in all_rows(app)}
     old_published = section_row(app, "hero")["published"]
     assert put_draft(logged_in_admin, app, "hero", payload).status_code == 200
@@ -186,7 +186,7 @@ def test_put_response_carries_saved_at_and_the_sections_badge(
     logged_in_admin, app
 ):
     payload = hero_payload()
-    payload["title"] = "Anna V. Virtanen"
+    payload["title"] = "Muokattu otsikko"
     body = put_draft(logged_in_admin, app, "hero", payload).get_json()
 
     assert abs(body["saved_at"] - int(time.time())) < 5
@@ -257,7 +257,7 @@ def test_palvelut_edits_a_real_list_not_a_fixed_three(logged_in_admin, app):
     # Brief reviewer check: the Palvelut payload is a list — a fourth
     # service round-trips through draft and Julkaise to the public page.
     payload = copy.deepcopy(SEED_BY_KIND["palvelut"])
-    payload["services"].append("Afasiakuntoutus aikuisille")
+    payload["services"].append("Neljäs palvelu")
     assert len(payload["services"]) == 4
     assert (
         put_draft(logged_in_admin, app, "palvelut", payload).status_code
@@ -269,9 +269,9 @@ def test_palvelut_edits_a_real_list_not_a_fixed_three(logged_in_admin, app):
     )
 
     html = app.test_client().get("/").get_data(as_text=True)
-    assert "Afasiakuntoutus aikuisille" in html
+    assert "Neljäs palvelu" in html
     # cp-service-card.service-title: each use states its own contents.
-    assert "Puheen ja kielen arviointi" in html
+    assert SEED_BY_KIND["palvelut"]["services"][0] in html
 
 
 def test_unknown_section_id_is_404(logged_in_admin):
@@ -414,6 +414,14 @@ def test_panel_draw_order_for_hero_matches_the_mockup(logged_in_admin):
         "Yritystiedot",
         "Painike 1",
         "Painike 2",
+        # The three site-chrome rows (LLM-COP-10), drawn last because the
+        # keys are appended last in FIELDS["hero"]. Their presence here IS
+        # the "the admin can set the brand, page title and footer" proof at
+        # the panel: the form is generated from FIELDS + FIELD_LABELS, so a
+        # labelled key is a drawn input.
+        "Sivuston nimi",
+        "Selaimen otsikko",
+        "Alatunniste",
     ]
     assert FIELD_LABELS["hero"].get("portrait") is None  # why it is absent
 

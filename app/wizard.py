@@ -65,8 +65,8 @@ STEPS = [
         # The spec's helper reads "14/60", not the panel's
         # "14 / 60 merkkiä"; one string cannot serve both surfaces, so
         # this step passes the compact counter and the panel keeps the
-        # default. The number is live data — on the seeded 13-character
-        # title it reads 13/60 at load.
+        # default. The number is live data — it counts whatever the stored
+        # title happens to be, so no fixed reading is promised here.
         "counter": "compact",
     },
     {

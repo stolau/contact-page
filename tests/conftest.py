@@ -13,8 +13,23 @@ from werkzeug.security import generate_password_hash
 from app import create_app
 from app import db as database
 
-ADMIN_USERNAME = "anna.virtanen"
+ADMIN_USERNAME = "yllapitaja"
 ADMIN_PASSWORD = "oikea salasana 123"
+
+# The one place in the suite that names the mockup persona, on purpose.
+#
+# LLM-COP-10 removed a speech therapist's identity from a product that is a
+# GENERIC contact page. The guards in test_seed.py and test_db.py assert that
+# identity is ABSENT, and a guard has to name what it forbids — so this
+# constant exists once, here, and the release grep is run with
+# `--exclude=conftest.py`. Any other occurrence anywhere in app/ or tests/ is
+# a regression, which is exactly what that grep is looking for.
+#
+# It is deliberately wider than the artifact's own stated gate, which missed
+# "anna.virtanen": that has a dot where the stated pattern had a space.
+PERSONA_PATTERN = (
+    r"anna|puheterap|2938471|valvira|virtanen|logopedia|afasia"
+)
 
 
 @pytest.fixture
@@ -192,7 +207,7 @@ def publish_something(app, admin):
 
     # A whole-payload write, as PUT /api/sections/<id>/draft requires:
     # the stored draft with exactly one field changed.
-    payload["title"] = "Anna V. Virtanen"
+    payload["title"] = "Muokattu otsikko"
     json_accept = {"Accept": "application/json"}
     response = admin.put(
         f"/api/sections/{section_id}/draft", json=payload, headers=json_accept

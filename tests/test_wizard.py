@@ -40,9 +40,11 @@ from app import create_app
 from app import db as database
 from app.fields import FIELDS
 from app.sections import badge
+from app.seed import SEED_SECTIONS
 from app.wizard import STEPS, is_first_run, login_target
 from tests.conftest import create_admin, login, publish_something
 
+SEED_BY_KIND = dict(SEED_SECTIONS)
 JSON_ACCEPT = {"Accept": "application/json"}
 STATIC = Path(__file__).resolve().parents[1] / "app" / "static"
 
@@ -493,7 +495,9 @@ def test_the_public_page_is_untouched_by_the_wizard(app, logged_in_admin):
         response = http.get("/")
         assert response.status_code == 200, f"{label}: {response.status_code}"
         assert "Location" not in response.headers, label
-        assert "Anna Virtanen" in response.get_data(as_text=True), label
+        assert SEED_BY_KIND["hero"]["title"] in response.get_data(
+            as_text=True
+        ), label
 
 
 # --- the wizard writes nothing ---------------------------------------------
