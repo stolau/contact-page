@@ -53,7 +53,12 @@
   <div class="about-columns">
     <p class="about-lead" data-section="{{ sid }}" data-field="nostolause">{{ p.nostolause }}</p>
     <div class="about-body" data-section="{{ sid }}" data-field="leipäteksti">{{ p['leipäteksti']|render_rich }}</div>
-    <p class="about-facts">{{ p.facts|join(' · ') }}</p>
+    <p class="about-facts">
+      {%- for fact in p.facts %}{% if not loop.first %} · {% endif %}
+      {%- if fact.label %}<span class="about-fact-label">{{ fact.label }}</span> {% endif -%}
+      <span class="about-fact-value">{{ fact.value }}</span>
+      {%- endfor -%}
+    </p>
   </div>
 </section>
 {%- endmacro %}

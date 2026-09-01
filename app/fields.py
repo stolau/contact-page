@@ -37,7 +37,7 @@ FIELDS = {
     "tietoa": {
         "nostolause": {"type": "plain"},
         "leipäteksti": {"type": "rich"},
-        "facts": {"type": "list", "item": "plain"},
+        "facts": {"type": "list", "item": {"label": "plain", "value": "plain"}},
     },
     "palvelut": {
         "services": {"type": "list", "item": "plain"},
@@ -96,6 +96,8 @@ FIELD_LABELS = {
         "nostolause": "Nostolause",
         "leipäteksti": "Leipäteksti",
         "facts": "Faktat",
+        "facts.label": "Otsikko",
+        "facts.value": "Teksti",
     },
     "palvelut": {
         "services": "Palvelut",

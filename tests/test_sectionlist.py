@@ -24,11 +24,26 @@ What this file deliberately does NOT cover, and why:
   only by the live browser run. Asserting them as raw substrings would pass
   off the bootstrap blob for one and could never pass for the other.
 * koulutus-label / kokemus-label / osaaminen-label and their three sibling
-  inputs are not satisfied by this change at all: tietoa.facts is an
-  unlabelled positional list (app/fields.py:30) whose seeded values are
-  "Käynnit 45-90 min" and friends (app/seed.py:57-59), not a degree, a span of
-  years and a specialism. Reported unsatisfied rather than faked with a
-  positional label that would sit over the wrong value.
+  inputs were reported unsatisfied by LLM-COP-5: tietoa.facts was an
+  unlabelled positional list (app/fields.py:40) and a positional label would
+  have sat over the wrong value. LLM-COP-20 reshaped it to {label, value}
+  (app/fields.py:40, migration 5 in app/db.py), so a fact's caption is now
+  seeded owner DATA (app/seed.py:76-81) that the editor draws a control for.
+  The three *-input is-visible criteria are satisfied by that control. The
+  three *-label contains-text criteria are STILL NOT satisfiable and this
+  unit does not claim them: the label reaches the browser as a <textarea>'s
+  assigned .value (app/static/section-form.js:90 creates the element, :98
+  assigns the value, called from :164), which is neither element text nor an
+  attribute — the only attribute a row part gets is placeholder (:165),
+  carrying "Otsikko" / "Teksti", never "Koulutus". The only real caption
+  element the region renders above the rows is the field head "Faktat"
+  (fieldHead, :53-65, span.textContent at :58), and no spec node addresses
+  it. Their demotion is REQUESTED of the author in LLM-COP-20's PR body, not
+  assumed here. What pytest can reach is asserted below:
+  test_the_bootstrap_carries_what_draws_a_labelled_fact_row and
+  test_a_fact_label_saved_through_the_api_reaches_the_preview_card. The label
+  control itself is drawn by app/static/section-form.js and is browser-only,
+  exactly like nostolause-textarea above.
 * esikatselu-card's second criterion pins a sentence of the mockup's sample
   copy that no seeded payload holds. Its heading half is asserted here
   byte-exact; its body half is proven live by typing a sentence in and
@@ -442,6 +457,92 @@ def test_the_section_form_is_served_empty_for_the_factory_to_fill(
     nostolause-label / leipateksti-label cannot be asserted in pytest."""
     assert '<form class="section-form"></form>' in tietoa_fragment
     assert element_text(tietoa_fragment, "span", "field-label") is None
+
+
+def bootstrap_json(html):
+    """The client's JSON bootstrap, parsed out of the served document exactly
+    where section-list.js reads it — script#bootstrap, written by
+    app/templates/edit_sections.html:61. The same device as
+    tests/test_edit.py's bootstrap_json, against this screen's own route."""
+    marker = '<script id="bootstrap" type="application/json">'
+    start = html.index(marker) + len(marker)
+    return json.loads(html[start : html.index("</script>", start)])
+
+
+def test_the_bootstrap_carries_what_draws_a_labelled_fact_row(osiot_html):
+    """cp-main-edit-sections.expanded-editor.koulutus-input / kokemus-input /
+    osaaminen-input — is-visible, reached as far as pytest can reach it.
+
+    LLM-COP-20 gave tietoa.facts a {label, value} item shape, and that schema
+    line plus two dotted FIELD_LABELS keys is the ENTIRE client change: the
+    label control appears because listRowInputs (section-form.js:153-174)
+    walks Object.keys(itemShape) and builds one control per key, naming each
+    from labelFor(name + "." + key) (:165). So this pins what the browser is
+    handed and encodes that rule in Python — the same device and the same
+    stated limitation as test_panel_draw_order_for_hero_matches_the_mockup
+    (tests/test_edit.py): it CANNOT notice section-form.js changing its rule,
+    and the live browser run is what covers that.
+
+    The expected values are written out as literals rather than read back
+    from app.fields, because the bootstrap is generated FROM app.fields —
+    comparing it to its own source would be true by construction and would
+    stay green while both moved together.
+    """
+    boot = bootstrap_json(osiot_html)
+    item = boot["fields"]["tietoa"]["facts"]["item"]
+    assert item == {"label": "plain", "value": "plain"}
+
+    labels = boot["field_labels"]["tietoa"]
+    assert labels["facts.label"] == "Otsikko"
+    assert labels["facts.value"] == "Teksti"
+
+    # section-form.js:163-171's rule, in Python: one control per declared key,
+    # in declared order, captioned by its dotted label.
+    assert [labels[f"facts.{key}"] for key in item] == ["Otsikko", "Teksti"]
+
+    # And the field head above the rows — the one caption this region really
+    # does render as element text (fieldHead, :53-65) — is still "Faktat".
+    # No spec node addresses it; see the module docstring.
+    assert labels["facts"] == "Faktat"
+
+
+def test_a_fact_label_saved_through_the_api_reaches_the_preview_card(
+    logged_in_admin, app
+):
+    """The round trip LLM-COP-20's artifact asks a reviewer to check, JS-free
+    and end to end: a label typed into a fact goes through the real PUT draft
+    endpoint, past validate_payload, into the store, and out again through
+    page.html's tietoa macro in the ESIKATSELU card.
+
+    The label used here is deliberately NOT one of the seeded three. Asserting
+    "Koulutus" would pass against a route that ignored the request entirely,
+    since the seed already carries that label — so the test would be green by
+    construction. Its absence before the PUT is asserted first, for the same
+    reason.
+    """
+    tietoa = row_id(app, "tietoa")
+    label = "Tohtorintutkinto"
+    before = logged_in_admin.get(
+        f"/muokkaa/osiot/rivi/{tietoa}"
+    ).get_data(as_text=True)
+    assert label not in before
+
+    payload = copy.deepcopy(SEED_BY_KIND["tietoa"])
+    payload["facts"][0] = {"label": label, "value": "Väitöskirja 2019"}
+    response = logged_in_admin.put(
+        f"/api/sections/{tietoa}/draft", json=payload, headers=JSON_ACCEPT
+    )
+    assert response.status_code == 200, response.get_data(as_text=True)
+
+    fragment = logged_in_admin.get(
+        f"/muokkaa/osiot/rivi/{tietoa}"
+    ).get_data(as_text=True)
+    # element_text, never a raw substring: the document carries the bootstrap
+    # blob, and the draft payload is inside it — so a raw check would pass off
+    # the JSON and prove nothing about what the card renders.
+    assert element_text(fragment, "span", "about-fact-label") == label
+    assert element_text(fragment, "span", "about-fact-value") == \
+        "Väitöskirja 2019"
 
 
 def test_the_page_row_is_byte_identical_to_the_fragment(
@@ -859,7 +960,7 @@ def test_every_kind_renders_its_own_summary_line(osiot_html, app):
     }
     assert rendered == {
         "hero": HERO_SUMMARY,
-        "tietoa": "Nostolause, leipäteksti, 3 faktaa",
+        "tietoa": "Nostolause, leipäteksti, 4 faktaa",
         "palvelut": "3 palvelukorttia",
         "vastaanottoajat": "Aukioloajat ja yhteydenottokehotus",
         "yhteydenotto": "Kentät ja kiitosviesti",

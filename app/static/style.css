@@ -146,6 +146,7 @@ main section { padding: 3.5rem 3rem; max-width: 1100px; margin: 0 auto; }
 .about-lead { font-size: 1.35rem; margin: 0 0 1.2rem; }
 .about-body { color: var(--muted); margin-bottom: 1.4rem; }
 .about-facts { font-size: 0.9rem; color: var(--muted); }
+.about-fact-label { font-weight: 600; color: var(--ink); }
 
 /* Palvelut */
 .services { border-top: 1px solid var(--line); }

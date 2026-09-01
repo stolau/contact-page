@@ -120,9 +120,12 @@ def test_hero_fact_cards_render_their_stored_labels_and_values(page_html):
 
 
 def test_about_facts_render_their_stored_strings(page_html):
-    # cp-main.about-section.about-facts-0/-1/-2
+    # cp-main.about-section.about-facts. Since LLM-COP-20 a tietoa fact is a
+    # {label, value} pair, so this reads one level deeper — it still asserts
+    # that every stored item reaches the page, now both halves of it.
     for fact in SEED_BY_KIND["tietoa"]["facts"]:
-        assert fact in page_html
+        assert fact["label"] in page_html
+        assert fact["value"] in page_html
     assert DURATION in page_html  # the en-dash guarantee, on the served page
 
 

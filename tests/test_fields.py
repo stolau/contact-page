@@ -30,10 +30,10 @@ def test_hero_facts_is_a_list_of_label_value_pairs():
     assert fact["item"] == {"label": "plain", "value": "plain"}
 
 
-def test_tietoa_facts_is_a_list_of_plain_strings():
+def test_tietoa_facts_is_a_list_of_label_value_pairs():
     fact = FIELDS["tietoa"]["facts"]
     assert fact["type"] == "list"
-    assert fact["item"] == "plain"
+    assert fact["item"] == {"label": "plain", "value": "plain"}
 
 
 def test_nav_label_map():

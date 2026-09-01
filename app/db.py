@@ -124,7 +124,114 @@ def _migration_4(conn):
             )
 
 
-MIGRATIONS = [_migration_1, _migration_2, _migration_3, _migration_4]
+def _migration_5(conn):
+    # tietoa.facts becomes a list of {label, value} pairs (LLM-COP-20). The
+    # stored list carried no label, so a fact's caption could only ever be a
+    # positional guess.
+    #
+    # Existing entries are wrapped with an EMPTY label ON PURPOSE. This
+    # migration knows what POSITION an entry had and nothing whatever about
+    # what it MEANS; a positional default would print "Koulutus" over
+    # "Käynnit 45–90 min" on the author's own store, which is exactly the lie
+    # LLM-COP-5 refused to ship (tests/test_sectionlist.py). The owner fills
+    # the labels in, and page.html omits an empty label, so a migrated page
+    # shows the same text it showed before.
+    #
+    # The shape is a FROZEN LITERAL — no import of app.fields — for the
+    # reason _migration_4 states: a migration that reads the live schema
+    # changes behaviour whenever the schema next changes, which is not a
+    # migration. label comes first because that is FIELDS declaration order
+    # and _validate_item rebuilds items in it (app/sanitize.py:150).
+    #
+    # All three columns are rewritten in ONE pass by ONE pure function of
+    # the stored text, so draft == published before implies draft ==
+    # published after and badge() (app/sections.py:15) cannot flip a
+    # Julkaistu row. The converse hazard — a Luonnos row silently becoming
+    # Julkaistu — needs two DISTINCT stored texts to collapse to one, and
+    # there are exactly two ways that could happen. First, two payloads
+    # differing only in JSON formatting: every writer serializes with
+    # json.dumps(..., ensure_ascii=False) and default separators
+    # (app/seed.py, app/edit.py, app/sectionlist.py, and this module), and
+    # restore copies bytes verbatim, so no such pair exists. Second, and
+    # only because the already-reshaped branch below rebuilds an item in
+    # declared key order, two payloads differing only in a fact item's key
+    # ORDER. That pair cannot exist either: every write path runs through
+    # validate_payload, and _validate_item already rebuilds every object
+    # item as {key: item[key] for key in shape} (app/sanitize.py:150), so
+    # a stored item is in declared order before this migration ever sees it.
+    columns = ("draft", "published", "previous_published")
+    rows = conn.execute(
+        "SELECT id, draft, published, previous_published FROM sections"
+        " WHERE kind = 'tietoa'"
+    ).fetchall()
+    for row in rows:
+        # Indexed positionally: a migration must not depend on the caller
+        # having set sqlite3.Row (app/db.py:110-113).
+        section_id = row[0]
+        for offset, column in enumerate(columns, start=1):
+            text = row[offset]
+            if not text:
+                continue
+            payload = json.loads(text)
+            facts = payload.get("facts")
+            if not isinstance(facts, list):
+                continue
+            reshaped = []
+            for fact in facts:
+                if isinstance(fact, str):
+                    # The only shape any writer in this repo could have
+                    # stored under item: "plain". _validate_item admits
+                    # nothing but str for a plain item (app/sanitize.py:
+                    # 141-144), and every write path to these columns goes
+                    # through validate_payload — PUT draft (app/edit.py:92),
+                    # POST sections (app/sectionlist.py:290), publish
+                    # (app/edit.py:106) — or is a byte-verbatim copy
+                    # (restore, app/sectionlist.py:369-374). The seed
+                    # (app/seed.py:76-81) writes str too.
+                    reshaped.append({"label": "", "value": fact})
+                elif isinstance(fact, dict) and set(fact) == {"label", "value"}:
+                    # Already reshaped: this row was migrated before, or the
+                    # file came from a newer build. Rebuilt in DECLARED key
+                    # order so the output is byte-identical either way —
+                    # that is what makes this migration idempotent.
+                    reshaped.append(
+                        {"label": fact["label"], "value": fact["value"]}
+                    )
+                else:
+                    # Unreachable from any writer above. Left ALONE rather
+                    # than coerced or raised on, deliberately:
+                    #   - coercing would need a string this migration would
+                    #     have to invent, and inventing owner text is the
+                    #     defect this artifact exists to remove;
+                    #   - raising would take the whole site down inside
+                    #     create_app (app/__init__.py:52-57), which calls
+                    #     migrate() before the app can serve anything, over
+                    #     one bad row in one section;
+                    #   - validate_payload already rejected such a row
+                    #     BEFORE this migration and still rejects it after,
+                    #     so the section shows as unsavable in the editor
+                    #     either way. This migration neither creates nor
+                    #     hides the condition, and a test asserts exactly
+                    #     that (test_migration_5_leaves_an_unwritable_item_
+                    #     alone_and_does_not_hide_it).
+                    reshaped.append(fact)
+            payload["facts"] = reshaped
+            new_text = json.dumps(payload, ensure_ascii=False)
+            if new_text == text:
+                continue
+            conn.execute(
+                f"UPDATE sections SET {column} = ? WHERE id = ?",
+                (new_text, section_id),
+            )
+
+
+MIGRATIONS = [
+    _migration_1,
+    _migration_2,
+    _migration_3,
+    _migration_4,
+    _migration_5,
+]
 
 
 def migrate(conn):

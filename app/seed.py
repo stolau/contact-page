@@ -10,6 +10,11 @@ byte-exact. Mind the trap characters —
 they are the spec's own, not ASCII look-alikes; copy, never retype:
 en dash – in "45–90 min" and "Ma–To", thin spaces
 around the en dash in "9.00 – 16.00".
+
+Since LLM-COP-20 reshaped tietoa.facts into {label, value} pairs, the en-dash
+anchor lives in tietoa.facts[3]["value"], which is exactly "45–90 min" rather
+than embedded in a longer string — the split moved the caption "Tapaamiset"
+into the label beside it, so the trap character is now the whole value.
 """
 
 import json
@@ -56,10 +61,30 @@ SEED_SECTIONS = [
                 "Kerro tarkemmin palveluistasi ja siitä, miten yhteistyö "
                 "etenee. Korvaa tämä esimerkkiteksti omalla sisällölläsi."
             ),
+            # LLM-COP-20. The labels are the mockup's three (Koulutus,
+            # Kokemus, Osaaminen); the fourth pair is the shipped
+            # "Tapaamiset 45–90 min" split at the seam it always had, which
+            # is this reshape applied to existing content rather than a
+            # fourth fact invented for it.
+            # Both these labels and hero.facts' above name the same three
+            # things, but they must never collide as STRINGS. Both blocks
+            # render on the same page, and test_fact_card_count_follows_the_data
+            # drops one hero card and asserts that card's label and value are
+            # absent from the WHOLE page — so a tietoa copy of either would
+            # make that test FAIL, not merely weaken it. Two separate things
+            # keep them apart, and both are load-bearing:
+            #   - the VALUES are worded differently from hero's "Täydennä
+            #     koulutus…/työkokemus/osaamisalueet" (no substring overlap
+            #     in either direction);
+            #   - the LABELS differ by case — hero's are uppercase
+            #     (KOULUTUS), these are title-case (Koulutus), because the
+            #     public fact cards shout and the Tietoa fact line does not.
+            # Keep them distinct on both counts.
             "facts": [
-                "Tapaamiset 45–90 min",
-                "Lisätieto tähän",
-                "Toinen lisätieto tähän",
+                {"label": "Koulutus", "value": "Täydennä tutkintosi"},
+                {"label": "Kokemus", "value": "Täydennä työhistoriasi"},
+                {"label": "Osaaminen", "value": "Täydennä erityisosaamisesi"},
+                {"label": "Tapaamiset", "value": "45–90 min"},
             ],
         },
     ),
