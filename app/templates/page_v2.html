@@ -1,0 +1,277 @@
+{#
+  The V2 public page (LLM-COP-23) — the alternative skin over the SAME
+  section model page.html renders. Seven measured designs describe it:
+  v2-cp-hero, v2-cp-section-prose, v2-cp-section-portrait,
+  v2-cp-section-contact (four desktop scroll bands of one page) and
+  v2-cp-phone-hero, v2-cp-phone-scroll-1, v2-cp-phone-scroll-2 (three
+  phone bands of the same page). They are seven views of one document,
+  not seven screens, so this is one template and one stylesheet.
+
+  THE RULE THIS FILE EXISTS TO KEEP (LLM-COP-18, LLM-COP-23): the direct
+  in-place editor binds by [data-section][data-field] rendered into the
+  PUBLIC template (app/static/direct-edit.js), so every pair page.html
+  renders, this file renders too — for the same section id and the same
+  field name. Drop one and in-place editing stops working on V2 with no
+  error anywhere. tests/test_page_v2.py asserts the two sets are equal
+  and tests/browser/test_browser_v2_direct_edit.py types into every one
+  of them in a real Chrome.
+
+  Three other bindings are load-bearing and are carried verbatim:
+    - section[data-kind] — direct-edit.js moves the section-name chip
+      into the band that names it.
+    - .portrait — direct-edit.js anchors the disabled "Vaihda kuva" pill
+      as its next sibling.
+    - .header-contact / .cta-contact — contact_dialog.html's openers.
+  And id="{{ anchors[kind] }}" is what preview.js highlights and what the
+  nav links point at.
+
+  Every word rendered below comes from the store. No sample copy from the
+  mockups is written into this file: the only strings this template owns
+  are the section labels page.html already owns and "Ylläpito".
+#}<!doctype html>
+<html lang="fi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ site_title }}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style-v2.css') }}">
+{% if direct_edit %}<link rel="stylesheet" href="{{ url_for('static', filename='direct-edit.css') }}">{% endif %}
+</head>
+<body class="v2">
+
+{# cp-fact-card, reused rather than redrawn: v2-cp-phone-hero.hero.hero-card
+   .card-facts.card-fact-1 states `uses: cp-fact-card`, so the same
+   label-over-value structure and the same class names carry over and only
+   the skin differs. #}
+{% macro fact_card(fact) -%}
+<li class="fact-card">
+  <span class="fact-label">{{ fact.label }}</span>
+  <span class="fact-value">{{ fact.value }}</span>
+</li>
+{%- endmacro %}
+
+{# The fact ROW the editorial bands carry under a hairline rule
+   (v2-cp-section-prose.prose-section.prose-facts,
+   v2-cp-section-portrait.portrait-section.bio-facts): one entry per fact
+   the owner filled in, left to right, in stored order. No count is
+   asserted anywhere and none is assumed here. #}
+{% macro fact_row(facts) -%}
+<ul class="v2-fact-row">
+  {%- for fact in facts %}
+  <li class="v2-fact-line">
+    {%- if fact.label %}<span class="v2-fact-line-label">{{ fact.label }}</span>{% endif -%}
+    <span class="v2-fact-line-value">{{ fact.value }}</span>
+  </li>
+  {%- endfor %}
+</ul>
+{%- endmacro %}
+
+{# The portrait slot. V1 puts this in the hero; V2's designs put it in the
+   editorial band (v2-cp-section-portrait.portrait-section.portrait), so
+   that is where it goes — same classes, same placeholder strings, so
+   direct-edit.js still finds .portrait and the two asserted strings
+   ("Muotokuva", "browse files") are still the ones the criteria name.
+   hero.portrait is the product's ONE stored image reference (LLM-COP-21);
+   image_url answers a URL only for a real digest, so anything else falls
+   through to the placeholder. #}
+{% macro portrait_slot(src) -%}
+<div class="portrait{% if src %} has-image{% endif %}">
+  {%- if src %}
+  <img class="portrait-image" src="{{ src }}" alt="">
+  {%- else %}
+  <span class="portrait-icon" aria-hidden="true">&#128247;</span>
+  <span class="portrait-label">Muotokuva</span>
+  <span class="portrait-browse">or browse files</span>
+  {%- endif %}
+</div>
+{%- endmacro %}
+
+{# ---- hero: v2-cp-hero and v2-cp-phone-hero ----------------------------
+   A full-bleed photograph (hero-photo), a decorative forest silhouette
+   fading it into the page (hero-trees), and a card floating over it
+   (hero-card). The desktop mockup's card carries title and kicker; the
+   phone mockup's carries kicker, title, subtitle and the 2x2 fact grid.
+   One card carries the whole hero payload at both sizes and CSS `order`
+   gives each viewport its own reading order — hiding the rest at desktop
+   would take hero.subtitle, .facts, .contact_label, .services_label and
+   .credentials out of reach of the in-place editor at the only viewport
+   the browser gate runs at, which is the defect this artifact exists to
+   avoid. #}
+{% macro hero(p, sid='') -%}
+{% set portrait_src = p.portrait|image_url %}
+<section id="{{ anchors['hero'] }}" class="v2-hero" data-section="{{ sid }}" data-kind="hero">
+  <div class="v2-hero-photo{% if portrait_src %} has-image{% endif %}">
+    {% if portrait_src %}<img class="v2-hero-image" src="{{ portrait_src }}" alt="">{% endif %}
+    <div class="v2-trees" aria-hidden="true"></div>
+  </div>
+  <div class="v2-hero-card">
+    <p class="v2-hero-kicker" data-section="{{ sid }}" data-field="kicker">{{ p.kicker }}</p>
+    <h1 class="v2-hero-title" data-section="{{ sid }}" data-field="title">{{ p.title }}</h1>
+    <span class="v2-hero-rule" aria-hidden="true"></span>
+    <p class="v2-hero-subtitle" data-section="{{ sid }}" data-field="subtitle">{{ p.subtitle }}</p>
+    <div class="v2-hero-intro desktop-only" data-section="{{ sid }}" data-field="ingress">{{ p.ingress|render_rich }}</div>
+    <div class="v2-hero-intro phone-only" data-section="{{ sid }}" data-field="ingress_mobile">{{ p.ingress_mobile|render_rich }}</div>
+    <ul class="fact-cards v2-fact-cards">
+      {% for fact in p.facts %}{{ fact_card(fact) }}{% endfor %}
+    </ul>
+    <div class="cta-row v2-cta-row">
+      <button type="button" class="button primary cta-contact" data-section="{{ sid }}" data-field="contact_label">{{ p.contact_label }}</button>
+      <a class="button secondary cta-services" href="#{{ anchors['palvelut'] }}" data-section="{{ sid }}" data-field="services_label">{{ p.services_label }}</a>
+    </div>
+    <p class="v2-hero-credentials" data-section="{{ sid }}" data-field="credentials">{{ p.credentials }}</p>
+  </div>
+</section>
+{%- endmacro %}
+
+{# ---- tietoa: the portrait + bio band -----------------------------------
+   v2-cp-section-portrait (desktop) and v2-cp-phone-scroll-1 / -2 (phone).
+   The image column and the copy column side by side on desktop, stacked on
+   the phone, with the small-caps section label under the image on desktop
+   and between image and copy on the phone — one DOM, two grid placements.
+   The label string is page.html's own ("NÄIN TYÖSKENTELEN"), unchanged:
+   it is product chrome in V1 and stays product chrome here. #}
+{% macro tietoa(p, sid='', portrait_src=None) -%}
+<section id="{{ anchors['tietoa'] }}" class="v2-band v2-band-media-left" data-section="{{ sid }}" data-kind="tietoa">
+  <div class="v2-band-media">{{ portrait_slot(portrait_src) }}</div>
+  <p class="section-kicker v2-section-label about-kicker">NÄIN TYÖSKENTELEN</p>
+  <div class="v2-band-copy">
+    <h2 class="v2-band-heading" data-section="{{ sid }}" data-field="nostolause">{{ p.nostolause }}</h2>
+    <div class="v2-band-body" data-section="{{ sid }}" data-field="leipäteksti">{{ p['leipäteksti']|render_rich }}</div>
+    {{ fact_row(p.facts) }}
+  </div>
+</section>
+{%- endmacro %}
+
+{# ---- the neutral V2 default: the prose band ----------------------------
+   v2-cp-section-prose — a heading, long-form copy in the left column, an
+   empty right column, and a fact row under a hairline rule. LLM-COP-18
+   answer 4 says the kinds V2's designs do not draw still appear, styled to
+   V2's palette and type, and are explicitly NOT hidden. This is that
+   default: palvelut, vastaanottoajat and sijainti each render as one prose
+   band carrying their own fields, so no published content disappears when
+   the skin changes. #}
+{% macro prose_band(kind, label, sid) -%}
+<section id="{{ anchors[kind] }}" class="v2-band v2-band-prose" data-section="{{ sid }}" data-kind="{{ kind }}">
+  <p class="section-kicker v2-section-label">{{ label }}</p>
+  <div class="v2-band-copy">{{ caller() }}</div>
+</section>
+{%- endmacro %}
+
+{% macro palvelut(p, sid='') -%}
+{% call prose_band('palvelut', 'PALVELUT', sid) %}
+  <ul class="v2-service-list">
+    {% for name in p.services %}<li class="v2-service-item">{{ name }}</li>{% endfor %}
+  </ul>
+  <a class="v2-band-link all-services" href="#{{ anchors['palvelut'] }}" data-section="{{ sid }}" data-field="more_label">{{ p.more_label }}</a>
+{% endcall %}
+{%- endmacro %}
+
+{% macro vastaanottoajat(p, sid='') -%}
+{% call prose_band('vastaanottoajat', 'VASTAANOTTOAJAT', sid) %}
+  {# Its own item class, not v2-fact-line: opening hours are not the fact
+     row the prose and portrait bands draw, and one class for both would
+     make either one uncountable on its own. #}
+  <ul class="v2-fact-row v2-hours-row">
+    {%- for day in p.days %}
+    <li class="v2-hours-line">
+      <span class="v2-fact-line-label">{{ day.label }}</span>
+      <span class="v2-fact-line-value">{{ day.hours }}</span>
+    </li>
+    {%- endfor %}
+  </ul>
+  <p class="v2-band-note" data-section="{{ sid }}" data-field="booking_note">{{ p.booking_note }}</p>
+{% endcall %}
+{%- endmacro %}
+
+{% macro sijainti(p, sid='') -%}
+{% call prose_band('sijainti', 'SIJAINTI', sid) %}
+  <p class="v2-band-note v2-address" data-section="{{ sid }}" data-field="address">{{ p.address }}</p>
+{% endcall %}
+{%- endmacro %}
+
+{# ---- yhteydenotto: the dark navy contact card --------------------------
+   v2-cp-section-contact.contact-band.contact-card and
+   v2-cp-phone-scroll-2.contact-card. Copy on the left, the actions stacked
+   on the right at desktop; copy above the actions on the phone.
+
+   The primary action is the button the design draws — one that OPENS the
+   form rather than being the form. It carries .cta-contact, so
+   contact_dialog.html (LLM-COP-3) binds it as an opener with no new code,
+   and it carries yhteydenotto.send_label, so its label stays the owner's
+   and stays in-place editable.
+
+   The three field labels keep their V1 job — labelling the three inputs —
+   rather than being promoted into the card's body copy, which is what
+   contact-body and contact-caveat would need. No field in the shipped
+   model carries a body paragraph or a caveat line for this section, and
+   LLM-COP-18 settles that app/fields.py does not change here, so those
+   two addresses are reported unsatisfied rather than filled with a
+   string that means something else. #}
+{% macro yhteydenotto(p, sid='') -%}
+<section id="{{ anchors['yhteydenotto'] }}" class="v2-band v2-contact-band" data-section="{{ sid }}" data-kind="yhteydenotto">
+  <div class="v2-contact-card">
+    <div class="v2-contact-copy">
+      <p class="section-kicker v2-contact-kicker">YHTEYDENOTTO</p>
+      <form class="contact-form v2-contact-form">
+        <label>{{ p.name_label }}<input type="text" name="name"></label>
+        <label>{{ p.email_label }}<input type="text" name="email"></label>
+        <label>{{ p.message_label }}<textarea name="message" rows="3"></textarea></label>
+      </form>
+    </div>
+    <div class="v2-contact-actions">
+      <button type="button" class="button primary cta-contact v2-contact-primary" data-section="{{ sid }}" data-field="send_label">{{ p.send_label }}</button>
+    </div>
+  </div>
+</section>
+{%- endmacro %}
+
+{# The header: the same elements page.html renders, so .header-contact
+   still opens the dialog and the nav is still generated from the data.
+   The monogram avatar is drawn at both sizes here — v2-cp-hero.nav
+   .nav-avatar shows it on desktop, where V1's is phone-only. #}
+<header class="site-header v2-header">
+  <span class="brand">
+    <span class="brand-avatar" aria-hidden="true">{{ site_initials }}</span>{{ site_brand }}
+  </span>
+  <nav class="nav-links desktop-only">
+    {% for section in sections %}{% if nav_labels[section.kind] %}
+    <a href="#{{ anchors[section.kind] }}">{{ nav_labels[section.kind] }}</a>
+    {% endif %}{% endfor %}
+  </nav>
+  <button type="button" class="button primary header-contact desktop-only">Ota yhteyttä</button>
+  <button type="button" class="menu-toggle phone-only" aria-label="Valikko">&#9776;</button>
+</header>
+
+{# The one stored image reference feeds both the hero photograph and the
+   portrait circle: the product has exactly one (hero.portrait), and the
+   portrait design's own note says so — "Here image is used as profile
+   picture, but should be same generic possibility than for other
+   sections". Read once, before the loop, because the band that draws the
+   portrait is not the section that stores it. #}
+{% set shared = namespace(portrait=None) %}
+{% for section in sections %}{% if section.kind == 'hero' %}{% set shared.portrait = section.payload.portrait|image_url %}{% endif %}{% endfor %}
+
+<main class="v2-main">
+  {% for section in sections %}
+    {% if section.kind == 'hero' %}{{ hero(section.payload, section.id) }}
+    {% elif section.kind == 'tietoa' %}{{ tietoa(section.payload, section.id, shared.portrait) }}
+    {% elif section.kind == 'palvelut' %}{{ palvelut(section.payload, section.id) }}
+    {% elif section.kind == 'vastaanottoajat' %}{{ vastaanottoajat(section.payload, section.id) }}
+    {% elif section.kind == 'yhteydenotto' %}{{ yhteydenotto(section.payload, section.id) }}
+    {% elif section.kind == 'sijainti' %}{{ sijainti(section.payload, section.id) }}
+    {% endif %}
+  {% endfor %}
+</main>
+
+<footer class="site-footer v2-footer">
+  <p class="copyright">{{ site_footer }}</p>
+  <a class="yllapito" href="{{ url_for('yllapito') }}">Ylläpito</a>
+</footer>
+
+{% if login_dialog %}{% include "login_dialog.html" %}{% endif %}
+{% include "contact_dialog.html" %}
+{% if preview %}<script src="{{ url_for('static', filename='preview.js') }}"></script>{% endif %}
+{% if direct_edit %}{% include "direct_edit_chrome.html" %}{% endif %}
+
+</body>
+</html>
