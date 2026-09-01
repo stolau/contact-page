@@ -17,6 +17,7 @@ import re
 from app.fields import FIELDS
 from app.sections import badge
 from app.seed import seed_if_empty
+from tests.conftest import PERSONA_PATTERN
 
 EN_DASH = "–"
 THIN_SPACE = " "
@@ -114,20 +115,16 @@ def test_hero_carries_the_three_site_chrome_keys_last(conn):
 
 
 def test_no_identity_string_survives_anywhere_in_the_seed(conn):
-    """The standing guard for LLM-COP-10. This is a GENERIC contact page: the
-    shipped seed must name no person, practice, registration or register. The
-    pattern is deliberately wider than the artifact's own gate, which misses
-    'anna.virtanen' because it has a dot where the pattern had a space."""
+    """The standing guard for LLM-COP-10. This is a GENERIC contact page, so
+    the shipped seed must name no person, practice, registration or register.
+    The pattern lives in tests/conftest.py — see PERSONA_PATTERN there for why
+    that is the only place in the suite allowed to spell it out."""
     seed_if_empty(conn)
     blob = "".join(
         row["published"] + row["draft"]
         for row in conn.execute("SELECT draft, published FROM sections")
     )
-    forbidden = re.compile(
-        r"anna|puheterap|2938471|valvira|virtanen|logopedia|afasia",
-        re.IGNORECASE,
-    )
-    assert forbidden.findall(blob) == []
+    assert re.findall(PERSONA_PATTERN, blob, re.IGNORECASE) == []
 
 
 def test_second_seed_call_inserts_nothing(conn):

@@ -16,6 +16,21 @@ from app import db as database
 ADMIN_USERNAME = "yllapitaja"
 ADMIN_PASSWORD = "oikea salasana 123"
 
+# The one place in the suite that names the mockup persona, on purpose.
+#
+# LLM-COP-10 removed a speech therapist's identity from a product that is a
+# GENERIC contact page. The guards in test_seed.py and test_db.py assert that
+# identity is ABSENT, and a guard has to name what it forbids — so this
+# constant exists once, here, and the release grep is run with
+# `--exclude=conftest.py`. Any other occurrence anywhere in app/ or tests/ is
+# a regression, which is exactly what that grep is looking for.
+#
+# It is deliberately wider than the artifact's own stated gate, which missed
+# "anna.virtanen": that has a dot where the stated pattern had a space.
+PERSONA_PATTERN = (
+    r"anna|puheterap|2938471|valvira|virtanen|logopedia|afasia"
+)
+
 
 @pytest.fixture
 def conn(tmp_path):

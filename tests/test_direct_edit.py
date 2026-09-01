@@ -44,7 +44,7 @@ DIRECT_URL = "/muokkaa/sivu"
 # not. Only the pair can prove the top bar reads the account row rather than
 # page copy — with two arbitrary names, a document-wide check could not fail.
 #
-# Before LLM-COP-10 these were the persona ("Anna Virtanen" / "anna.virtanen").
+# Before LLM-COP-10 both were the mockup persona's name and login handle.
 # PAGE_NAME_OWNER is now derived from the seeded title so the property is
 # preserved BY CONSTRUCTION rather than by two literals that happen to match.
 PAGE_NAME_OWNER = SEED_BY_KIND["hero"]["title"]

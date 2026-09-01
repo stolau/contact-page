@@ -9,6 +9,7 @@ from app.fields import FIELDS
 from app.sanitize import validate_payload
 from app.sections import badge
 from app.seed import SEED_SECTIONS
+from tests.conftest import PERSONA_PATTERN
 
 
 def _schema_dump(c):
@@ -211,5 +212,5 @@ def test_migration_4_does_not_plant_an_identity_string(tmp_path):
         for value in tuple(row)
         if value
     )
-    assert re.search(r"anna|puheterap|virtanen|valvira|2938471", blob, re.IGNORECASE) is None
+    assert re.search(PERSONA_PATTERN, blob, re.IGNORECASE) is None
     c.close()
