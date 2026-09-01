@@ -745,6 +745,41 @@ def test_a_row_claiming_svg_still_cannot_be_served(app, logged_in_admin, tmp_pat
     assert b"<script>" not in response.get_data()
 
 
+def test_the_serving_digest_pattern_refuses_even_a_row_that_matches(
+    app, logged_in_admin, tmp_path
+):
+    """The serving route's DIGEST_PATTERN check, on its own.
+
+    Every other non-digest case is caught by the row lookup finding nothing,
+    so deleting the pattern check leaves them all green — it is
+    defence-in-depth that nothing defends. Here the row EXISTS and its digest
+    column is not hex, so the lookup would succeed and the only thing left
+    standing between a URL segment and the Content-Disposition header it is
+    interpolated into is the pattern.
+    """
+    bogus = "x" * 64
+    directory = upload_dir(app)
+    os.makedirs(directory, exist_ok=True)
+    path = os.path.join(directory, f"{bogus}.png")
+    with open(path, "wb") as handle:
+        handle.write(VALID_PNG)
+    conn = database.connect(app.config["DATABASE"])
+    try:
+        conn.execute(
+            "INSERT INTO uploads (digest, stored_name, content_type, byte_size,"
+            " width, height, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (bogus, f"{bogus}.png", "image/png", len(VALID_PNG), 4, 4, 0),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    assert os.path.isfile(path)  # the file and the row both really exist
+    response = app.test_client().get(f"/kuvat/{bogus}")
+    assert response.status_code == 404
+    assert response.get_data() != VALID_PNG
+
+
 @pytest.mark.parametrize(
     "ref",
     [

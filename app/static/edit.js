@@ -326,6 +326,12 @@
       draft = deepCopy(lastSaved);
       clearErrors();
       buildForm();
+      // Peruuta is the third writer of draft.portrait, after Vaihda and
+      // Poista, so it owes the same refresh. Without it: Poista, then a
+      // failed save on some other field, then Peruuta — the picture is
+      // back on the page but its Poista button is not, and the only way
+      // back is to leave the section and return.
+      refreshMuotokuva();
       reloadPreview();
       savedNote.hidden = true;
       peruutaNote.hidden = false;

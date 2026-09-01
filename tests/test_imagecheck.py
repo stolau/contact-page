@@ -553,6 +553,28 @@ def test_refuses_a_png_whose_header_is_not_first():
     assert reason == "format"
 
 
+def test_refuses_a_png_with_no_header_chunk_at_all():
+    """A PNG carrying IDAT and IEND but never an IHDR.
+
+    This is the case that covers the walker's `elif first` arm on its own.
+    The test above it is caught by the `not first` check *inside* the IHDR
+    branch — a tEXt-then-IHDR file reaches IHDR and is refused there — so it
+    does not exercise the arm it is named for. Without a discriminating case
+    here, deleting `elif first: return None, FORMAT` leaves the whole module's
+    suite green while the parser reaches the ImageFacts construction with
+    dims still None and raises TypeError, which is a 500 on /api/kuvat rather
+    than a refusal.
+    """
+    data = (
+        PNG_SIGNATURE
+        + _chunk(b"IDAT", zlib.compress(b"\x00" * 100))
+        + _chunk(b"IEND", b"")
+    )
+    facts, reason = sniff_image(data)
+    assert facts is None
+    assert reason == "format"
+
+
 def test_refuses_bytes_after_iend_however_few():
     """PNG's no-appendix rule, tested at one byte as well as at 12 MiB.
 

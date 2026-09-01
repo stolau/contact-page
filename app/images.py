@@ -50,6 +50,7 @@ world-readable from the moment it lands, before any publish. See README.md.
 import hashlib
 import os
 import re
+import tempfile
 import time
 
 from flask import (
@@ -151,10 +152,20 @@ def upload():
     if not os.path.exists(path):
         # Write to a temp name in the same directory and rename: os.replace
         # is atomic within a filesystem, so a reader never sees a half file.
-        temp = f"{path}.{os.getpid()}.part"
-        with open(temp, "wb") as handle:
-            handle.write(facts.data)
-        os.replace(temp, path)
+        # mkstemp rather than a pid-derived name: two threads of ONE process
+        # uploading the same new digest would otherwise pick the same temp
+        # path, and the one that loses the race finds its file already
+        # renamed away and raises FileNotFoundError out of os.replace.
+        handle_fd, temp = tempfile.mkstemp(dir=directory, suffix=".part")
+        try:
+            with os.fdopen(handle_fd, "wb") as handle:
+                handle.write(facts.data)
+            os.replace(temp, path)
+        except BaseException:
+            # Never leave a .part behind on a failed write.
+            if os.path.exists(temp):
+                os.unlink(temp)
+            raise
     conn = _connect()
     try:
         conn.execute(
@@ -200,8 +211,14 @@ def kuva(digest):
         # The second control: a row claiming a type we do not serve is a
         # 404, not a download.
         return jsonify(error="not found"), 404
+    # The filename is RECOMPUTED from the digest (already matched against
+    # DIGEST_PATTERN above) and the allowlisted extension — never taken from
+    # the stored row. Werkzeug's safe_join would catch a planted traversal in
+    # stored_name anyway, but recomputing makes this module's own claim — that
+    # nothing client-derived reaches a path — true of the serving path by
+    # construction rather than by a dependency's grace.
     response = send_from_directory(
-        _upload_dir(), row["stored_name"], mimetype=row["content_type"]
+        _upload_dir(), f"{digest}.{extension}", mimetype=row["content_type"]
     )
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Content-Disposition"] = (
