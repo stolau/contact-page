@@ -53,7 +53,17 @@ from app.images import (
     image_url,
     referenced_digests,
 )
-from tests.conftest import delete_section, section_rows
+from tests.conftest import (
+    assert_absent_from_app,
+    delete_section,
+    section_rows,
+)
+
+# render_public is tests/test_page_v2.py's own renderer: it builds a public
+# document with exactly the context app/__init__.py:render_page hands the
+# templates. Imported rather than restated, so the alt-text case below asks
+# about the same document the public route would serve.
+from tests.test_page_v2 import V1_TEMPLATE, V2_TEMPLATE, render_public
 
 # ---------------------------------------------------------------------------
 # Fixtures — built or embedded, never read from disk
@@ -1134,6 +1144,63 @@ def test_the_portrait_survives_upload_publish_render_and_removal(
     assert client.get(f"/kuvat/{ref}").status_code == 404
     assert not os.path.isfile(path)
     assert ref not in digests_in_store(app)
+
+
+def test_an_uploaded_portrait_carries_its_alt_text_into_both_skins(
+    app, client, logged_in_admin
+):
+    """LLM-COP-25's group-1 claim, through the real routes: the picture and
+    the words that describe it reach BOTH public templates together.
+
+    The portrait shipped alt="" before this change, and page.html's own
+    comment said why — no alt-text field existed — so a photograph of a
+    person gave a screen reader nothing. The alt string here is checked to
+    appear nowhere in app/ first, so a template that hard-coded any
+    description would fail rather than look right.
+
+    THE ATTRIBUTE IS ASSERTED NEXT TO THE src, not as a bare substring of
+    the document. An alt attribute with no image behind it is not the
+    feature: the pairing is the claim, and the last block is the other half
+    of it — the digest in that src really serves the bytes that were
+    uploaded. tests/browser/ asks the same question of a real Chrome, where
+    naturalWidth can say the picture decoded; this asks it of the markup
+    both skins actually emit, which no browser test covers for V1 and V2 in
+    one place.
+
+    THREE <img> SITES, and the count is the point. V1 draws the portrait
+    once; V2 draws the same stored reference twice — the full-bleed hero
+    photograph and the tietoa band's portrait circle, which is fed by the
+    namespace hack at the bottom of page_v2.html rather than by the section
+    that stores it. That second site is the one an alt-text change can
+    silently miss.
+    """
+    alt = "Hymyilevä henkilö ikkunan ääressä, mustavalkoinen valokuva"
+    assert_absent_from_app(alt)
+
+    picture = _png(48, 48)
+    response = upload(logged_in_admin, picture, filename="muotokuva.png")
+    assert response.status_code == 200, response.get_data(as_text=True)
+    ref = response.get_json()["ref"]
+
+    save_draft(logged_in_admin, app, "hero", portrait=ref, portrait_alt=alt)
+    publish_all(logged_in_admin)
+
+    v1 = render_public(app, V1_TEMPLATE)
+    v2 = render_public(app, V2_TEMPLATE)
+    assert f'src="/kuvat/{ref}" alt="{alt}"' in v1
+    assert v2.count(f'src="/kuvat/{ref}" alt="{alt}"') == 2, v2.count(
+        f'alt="{alt}"'
+    )
+    # No empty alt is left behind on either skin: a second <img> still
+    # carrying alt="" would be the half-done edit this counts against.
+    assert 'alt=""' not in v1
+    assert 'alt=""' not in v2
+
+    # The bytes behind that src are the bytes that were uploaded.
+    served = fetch(app, ref)
+    assert served.status_code == 200
+    assert served.get_data() == picture
+    assert served.headers["Content-Type"] == "image/png"
 
 
 # ---------------------------------------------------------------------------

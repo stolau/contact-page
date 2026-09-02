@@ -38,7 +38,12 @@ import json
 import pytest
 
 from app import db as database
-from tests.browser.conftest import V2_STYLESHEET, set_hero_draft_style
+from tests.browser.conftest import (
+    V2_STYLESHEET,
+    png_bytes,
+    set_hero_draft_style,
+)
+from tests.conftest import assert_absent_from_app
 
 # Only page_v2.html emits this class — measured, eleven times there and
 # zero times in page.html — so it is what tells a served V2 apart from a
@@ -418,3 +423,150 @@ def test_no_bound_field_on_v2_is_covered_by_something_else(v2_page):
         }"""
     )
     assert covered == [], covered
+
+
+# --- the same picture, the same words, the OTHER skin (LLM-COP-25) ---------
+
+V2_PORTRAIT_ALT = "Ikkunan edessä seisova henkilö, otettu sivusta, päivänvalossa"
+V2_RENAMED_KICKER = "NÄIN AUTAN SINUA ETEENPÄIN"
+
+
+def section_id(app, kind):
+    conn = database.connect(app.config["DATABASE"])
+    try:
+        return conn.execute(
+            "SELECT id FROM sections WHERE kind = ?", (kind,)
+        ).fetchone()["id"]
+    finally:
+        conn.close()
+
+
+def put_draft(page, base_url, sid, payload):
+    """PUT one whole payload through the BROWSER's own authenticated session.
+
+    page.request shares the context's cookies, so this is the real route with
+    the real session — not a second client minted in Python, which would say
+    nothing about the page under test being signed in.
+    """
+    response = page.request.put(
+        f"{base_url}/api/sections/{sid}/draft",
+        data=payload,
+        headers={"Accept": "application/json"},
+    )
+    assert response.ok, response.text()
+
+
+def publish(page, base_url):
+    response = page.request.post(
+        f"{base_url}/api/publish", headers={"Accept": "application/json"}
+    )
+    assert response.ok, response.text()
+
+
+def test_the_portrait_and_its_alt_text_reach_both_v2_images(
+    v2_page, expect, live_app
+):
+    """Gate item 3 for the second skin: an uploaded image renders with its
+    alt text under V2 as well as V1.
+
+    V2 draws the ONE stored reference in two places — the full-bleed hero
+    photograph and the tietoa band's portrait circle, the second of them fed
+    by the shared-portrait namespace at the bottom of page_v2.html rather
+    than by the section that stores the value. Both are asserted, because
+    that second site is the one an alt-text change silently misses, and each
+    is asserted as a PAIR: the attribute AND naturalWidth, since an alt on an
+    image that never loaded describes nothing.
+
+    HOW THIS DIFFERS FROM THE V1 PROOF, said plainly rather than left to be
+    assumed. The V1 test in tests/browser/test_browser_panel.py drives the
+    owner's whole path — the file goes in through the real .vaihda-input and
+    the alt text is TYPED into the panel's Kuvan tekstivastine row. Here both
+    are planted through the real routes on the browser's own authenticated
+    session, because there is one panel and that row is already proven
+    typeable in it; what is new on this side is the rendering. This test's
+    claim is about page_v2.html, not about the editor.
+
+    The v2_page fixture is what makes it a claim about V2 at all: it refuses
+    to yield unless the served document really came back as the V2 skin, and
+    the public page is checked for the same link before anything is read off
+    it.
+    """
+    assert_absent_from_app(V2_PORTRAIT_ALT)
+    base = live_app.base_url
+
+    upload = v2_page.request.post(
+        f"{base}/api/kuvat",
+        multipart={
+            "kuva": {
+                "name": "muotokuva.png",
+                "mimeType": "image/png",
+                "buffer": png_bytes(56, 56),
+            }
+        },
+        headers={"Accept": "application/json"},
+    )
+    assert upload.ok, upload.text()
+    ref = upload.json()["ref"]
+
+    sid = section_id(live_app, "hero")
+    payload = drafts(live_app)[str(sid)]
+    payload["portrait"] = ref
+    payload["portrait_alt"] = V2_PORTRAIT_ALT
+    put_draft(v2_page, base, sid, payload)
+    publish(v2_page, base)
+
+    # The public page, which that publish has just made V2: the drafted style
+    # the fixture planted went public along with the picture.
+    public = v2_page.context.new_page()
+    public.goto(f"{base}/")
+    assert public.locator(V2_STYLESHEET).count() == 1, (
+        "the public page is not the V2 skin, so nothing below is about V2"
+    )
+
+    for selector in ("img.v2-hero-image", ".v2-band-media img.portrait-image"):
+        image = public.locator(selector)
+        expect(image).to_have_attribute("alt", V2_PORTRAIT_ALT)
+        public.wait_for_function(
+            """selector => {
+                const el = document.querySelector(selector);
+                return !!el && el.complete && el.naturalWidth > 0;
+            }""",
+            arg=selector,
+        )
+        assert image.get_attribute("src") == f"/kuvat/{ref}", selector
+    public.close()
+
+
+def test_a_renamed_section_label_reaches_the_public_v2_page(
+    v2_page, expect, live_app
+):
+    """Gate item 3's other half for the second skin.
+
+    Two bands, not one, because V2 draws its labels through two different
+    constructs: the tietoa macro's own <p> and the prose_band macro shared by
+    palvelut, vastaanottoajat and sijainti. A rename that reached one and not
+    the other is exactly the half-done edit worth catching here, and V1
+    cannot see it — V1 has no prose_band.
+    """
+    assert_absent_from_app(V2_RENAMED_KICKER)
+    base = live_app.base_url
+
+    for kind in ("tietoa", "palvelut"):
+        sid = section_id(live_app, kind)
+        payload = drafts(live_app)[str(sid)]
+        payload["section_label"] = V2_RENAMED_KICKER
+        put_draft(v2_page, base, sid, payload)
+    publish(v2_page, base)
+
+    public = v2_page.context.new_page()
+    public.goto(f"{base}/")
+    assert public.locator(V2_STYLESHEET).count() == 1
+    for kind in ("tietoa", "palvelut"):
+        expect(
+            public.locator(f'section[data-kind="{kind}"] .section-kicker')
+        ).to_have_text(V2_RENAMED_KICKER)
+    # ...and the words the template used to own left the page with them.
+    content = public.content()
+    assert "NÄIN TYÖSKENTELEN" not in content
+    assert "PALVELUT" not in content
+    public.close()

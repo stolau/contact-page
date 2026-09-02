@@ -29,12 +29,22 @@ FIELDS = {
         # blank_payload and the bootstrap all derive from FIELDS, so
         # declaring them here is the whole feature.
         #
-        # SITE-WIDE KEYS LIVE AT THE END OF THIS DICT, APPENDED IN THE ORDER
-        # THEY WERE INTRODUCED. The newest is last; nothing is ever inserted
-        # mid-list. Reason: validate_payload rebuilds a payload in
+        # THE NEWEST KEY OF ANY KIND IS APPENDED LAST, IN THE ORDER THE KEYS
+        # WERE INTRODUCED. Nothing is ever inserted mid-list, in this dict or
+        # in any other kind's. Reason: validate_payload rebuilds a payload in
         # declaration order (app/sanitize.py), so a mid-list key rewrites
-        # every stored hero payload on its first save and flips every hero
-        # badge to Luonnos.
+        # every stored payload of that kind on its first save and flips every
+        # one of its badges to Luonnos.
+        #
+        # The rule is general, not a property of the site-wide keys that
+        # happen to sit here: LLM-COP-25 appended hero.portrait_alt AFTER
+        # them, so the tail of this dict is no longer "the chrome keys". The
+        # price is paid in the panel — the generated form draws in this order
+        # (app/static/section-form.js), so Kuvan tekstivastine renders as the
+        # last row of the hero panel, under Alatunniste and far from the
+        # Muotokuva row that owns the picture. That is accepted: any other
+        # position rewrites every stored hero payload on the owner's first
+        # save. A display order is a panel-layout change, never a reorder here.
         #
         # Every such key also owes: a backfill migration (_migration_4, now
         # _migration_7); an entry in tests/test_direct_edit.py's
@@ -53,19 +63,28 @@ FIELDS = {
         # schema-driven form builder from drawing it, the hero.portrait
         # precedent; its editor is the panel's Ulkoasu tab.
         "style": {"type": "plain"},
+        # The portrait's alt text (LLM-COP-25). Hero CONTENT, not site-wide
+        # chrome, but appended after the chrome keys because appending is the
+        # only safe position — see the ordering rule above.
+        "portrait_alt": {"type": "plain"},
     },
     "tietoa": {
         "nostolause": {"type": "plain"},
         "leipäteksti": {"type": "rich"},
         "facts": {"type": "list", "item": {"label": "plain", "value": "plain"}},
+        # The section kicker becomes the owner's (LLM-COP-25). Appended last,
+        # here and on every other kind that grew one.
+        "section_label": {"type": "plain"},
     },
     "palvelut": {
         "services": {"type": "list", "item": "plain"},
         "more_label": {"type": "plain"},
+        "section_label": {"type": "plain"},
     },
     "vastaanottoajat": {
         "days": {"type": "list", "item": {"label": "plain", "hours": "plain"}},
         "booking_note": {"type": "plain"},
+        "section_label": {"type": "plain"},
     },
     "yhteydenotto": {
         "name_label": {"type": "plain"},
@@ -73,9 +92,17 @@ FIELDS = {
         "message_label": {"type": "plain"},
         "send_label": {"type": "plain"},
         "thanks": {"type": "plain"},
+        # LLM-COP-25: the section kicker, then the contact card's four
+        # fields — the first way this product can publish a phone number.
+        "section_label": {"type": "plain"},
+        "phone": {"type": "plain"},
+        "email": {"type": "plain"},
+        "body": {"type": "plain"},
+        "caveat": {"type": "plain"},
     },
     "sijainti": {
         "address": {"type": "plain"},
+        "section_label": {"type": "plain"},
     },
 }
 
@@ -111,6 +138,11 @@ FIELD_LABELS = {
         "brand": "Sivuston nimi",
         "page_title": "Selaimen otsikko",
         "footer": "Alatunniste",
+        # Unlike hero.portrait and hero.style, this one IS labelled: it
+        # renders as the <img>'s alt attribute, so there is nothing on the
+        # page for the in-place editor to make contenteditable and the
+        # generated form is its only editor.
+        "portrait_alt": "Kuvan tekstivastine",
     },
     "tietoa": {
         "nostolause": "Nostolause",
@@ -118,16 +150,19 @@ FIELD_LABELS = {
         "facts": "Faktat",
         "facts.label": "Otsikko",
         "facts.value": "Teksti",
+        "section_label": "Osion otsikko",
     },
     "palvelut": {
         "services": "Palvelut",
         "more_label": "Linkkiteksti",
+        "section_label": "Osion otsikko",
     },
     "vastaanottoajat": {
         "days": "Vastaanottoajat",
         "days.label": "Päivät",
         "days.hours": "Ajat",
         "booking_note": "Varausohje",
+        "section_label": "Osion otsikko",
     },
     "yhteydenotto": {
         "name_label": "Nimikentän otsikko",
@@ -135,9 +170,15 @@ FIELD_LABELS = {
         "message_label": "Viestikentän otsikko",
         "send_label": "Lähetä-painike",
         "thanks": "Kiitosviesti",
+        "section_label": "Osion otsikko",
+        "phone": "Puhelinnumero",
+        "email": "Sähköpostiosoite",
+        "body": "Esittelyteksti",
+        "caveat": "Huomautus",
     },
     "sijainti": {
         "address": "Osoite",
+        "section_label": "Osion otsikko",
     },
 }
 

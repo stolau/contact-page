@@ -15,9 +15,10 @@ from tests.browser.conftest import (
     V2_STYLESHEET,
     hero_draft,
     hero_row,
+    png_bytes,
     set_hero_draft_style,
 )
-from tests.conftest import section_rows
+from tests.conftest import assert_absent_from_app, section_rows
 
 # Any instant; only its stillness matters.
 FROZEN = "2026-01-01T09:00:00"
@@ -470,3 +471,152 @@ def test_choosing_kuvallinen_publishing_and_going_back_moves_nothing(
 
     assert style_bytes(live_app) == baseline
     assert row_badges(page, live_app.base_url) == baseline_badges
+
+
+# --- the portrait and its alt text, on the owner's own path (LLM-COP-25) ---
+
+# Words no template could have produced: asserted absent from app/ inside the
+# test, so an alt attribute that matched would have to have come from what was
+# typed. Deliberately ordinary Finnish prose, which is what an owner writes.
+PORTRAIT_ALT = "Vaaleahiuksinen henkilö sinisessä paidassa, rajattu olkapäistä"
+RENAMED_KICKER = "TÄLLAISTA TYÖ ON KANSSANI"
+
+
+def portrait_is_loaded(page, selector):
+    """True once the browser has DECODED the picture at `selector`.
+
+    naturalWidth, not the attribute: `src` and `alt` in the markup are what
+    the server sent, and a broken reference — a digest with no bytes behind
+    it, a serving route that 404s, a Content-Type the browser refuses —
+    leaves both attributes exactly as they are while the page shows nothing.
+    An alt attribute with no image behind it is not accessible alternative
+    text; it is a description of a picture that is not there.
+    """
+    page.wait_for_function(
+        """selector => {
+            const el = document.querySelector(selector);
+            return !!el && el.complete && el.naturalWidth > 0;
+        }""",
+        arg=selector,
+    )
+    return True
+
+
+def test_the_owner_uploads_a_portrait_types_its_alt_text_and_both_go_public(
+    page, expect, live_app, tmp_path
+):
+    """The whole of LLM-COP-25's group-1 claim, on the path the OWNER walks.
+
+    This is the answer to "can the owner actually set it", and nothing here
+    is short-cut. The picture goes in through the real .vaihda-input, whose
+    change handler (app/static/edit.js) performs the real POST /api/kuvat and
+    then the real draft save. The alt text is TYPED into the panel row
+    labelled Kuvan tekstivastine — the row exists only because the key
+    carries a FIELD_LABELS entry, and it is the only editor the value has,
+    since an alt attribute is not a text node the in-place editor can reach.
+    Julkaise is the real button and the real POST /api/publish. The public
+    page is then read in a second tab, so the panel is never reloaded and the
+    publish is the only thing that can have moved it.
+
+    Nothing in tests/browser/ uploaded a file before this test, so the
+    control had never been driven in a browser at all: every earlier proof
+    that /api/kuvat works goes through the Python test client, which builds
+    the multipart body itself rather than letting Chrome build it.
+
+    THE TWO ASSERTIONS AT THE END ARE ONE CLAIM. The alt attribute says the
+    words reached the markup; naturalWidth says the picture reached the
+    screen. Either alone is satisfied by a broken build — an alt on an image
+    that never loads, or an image with no description — and the feature is
+    the pair.
+
+    The clock is frozen so the 2 s autosave debounce is a thing this test
+    advances deliberately rather than a race it runs against.
+    """
+    assert_absent_from_app(PORTRAIT_ALT)
+    picture = tmp_path / "muotokuva.png"
+    picture.write_bytes(png_bytes())
+
+    page.goto(f"{live_app.base_url}/muokkaa")
+    freeze_clock(page)
+
+    # The upload row is hero-only and hidden for every other section
+    # (edit.js), so its visibility here is part of the claim that this is
+    # the owner's real path rather than a control reached by selector alone.
+    expect(page.locator(".muotokuva-row")).to_be_visible()
+
+    # setPortrait saves immediately rather than on the debounce, so the draft
+    # PUT is what says the upload came back and was written — one wait for
+    # both, and a failure to upload times out here rather than three
+    # assertions later.
+    with page.expect_response("**/api/sections/*/draft"):
+        page.set_input_files(".vaihda-input", str(picture))
+    expect(page.locator(".muotokuva-error")).to_be_hidden()
+
+    stored = hero_draft(live_app)["portrait"]
+    assert len(stored) == 64, f"portrait is not a digest: {stored!r}"
+
+    # The alt text, typed into the panel's own row.
+    panel_input(page, "Kuvan tekstivastine").fill(PORTRAIT_ALT)
+    with page.expect_response("**/api/sections/*/draft"):
+        page.clock.fast_forward("00:03")
+    assert hero_draft(live_app)["portrait_alt"] == PORTRAIT_ALT
+
+    with page.expect_response("**/api/publish"):
+        page.click(".julkaise-button")
+
+    public = page.context.new_page()
+    public.goto(f"{live_app.base_url}/")
+    image = public.locator("img.portrait-image")
+    expect(image).to_have_attribute("alt", PORTRAIT_ALT)
+    assert portrait_is_loaded(public, "img.portrait-image")
+    assert image.get_attribute("src") == f"/kuvat/{stored}"
+    public.close()
+
+
+def test_a_renamed_section_label_reaches_the_public_page(
+    page, expect, live_app
+):
+    """Group 3's claim in a real browser: the owner renames a kicker in the
+    panel and the new words are what a visitor reads.
+
+    tests/test_page.py proves the same thing server-side against strings
+    absent from app/. This adds the part a rendered document cannot show —
+    that the row is reachable and typeable in the panel of a section that is
+    NOT the hero (openSection rebuilds the form per kind), and that the value
+    survives the debounce, the publish and the round trip to the public page.
+
+    Palvelut, deliberately: its kicker is drawn by the shared prose_band
+    macro under V2 and by its own line under V1, and it is one of the three
+    criteria this change demoted on the spec.
+    """
+    assert_absent_from_app(RENAMED_KICKER)
+
+    page.goto(f"{live_app.base_url}/muokkaa")
+    freeze_clock(page)
+
+    # The other-sections list is how an owner reaches a non-hero panel. The
+    # rows carry no kind attribute, so they are found the way the owner finds
+    # them: by the name printed on them (SECTION_NAMES in app/fields.py).
+    page.locator(".muut-osiot-list li").filter(
+        has=page.locator(".muut-osiot-name", has_text="Palvelut")
+    ).first.click()
+    expect(page.locator(".section-name")).to_have_text("Palvelut")
+
+    panel_input(page, "Osion otsikko").fill(RENAMED_KICKER)
+    with page.expect_response("**/api/sections/*/draft"):
+        page.clock.fast_forward("00:03")
+    with page.expect_response("**/api/publish"):
+        page.click(".julkaise-button")
+
+    public = page.context.new_page()
+    public.goto(f"{live_app.base_url}/")
+    expect(
+        public.locator('section[data-kind="palvelut"] .section-kicker')
+    ).to_have_text(RENAMED_KICKER)
+    # The nav link that points at this section is NOT renameable: it comes
+    # from NAV_LABELS, which stays product chrome. Asserted so the known
+    # divergence is recorded by a test rather than discovered in a
+    # screenshot — and so a later unit that wires the nav to section_label
+    # trips this line instead of four spec criteria.
+    expect(public.locator("nav")).to_contain_text("Palvelut")
+    public.close()

@@ -462,6 +462,16 @@ def test_migration_5_leaves_a_row_that_is_already_reshaped_byte_identical(
     branches are indistinguishable, and the property that a migrated row is
     byte-identical to what a no-op save through validate_payload would store
     (app/sanitize.py, _validate_item) holds only by luck of the input.
+
+    _migration_5 ALONE, called directly, since LLM-COP-25 — the byte-identity
+    claim here is about migration 5's already-reshaped branch, and migrate()
+    now also runs migration 8, which legitimately appends section_label to
+    tietoa. It happens to stay green under migrate() today only because this
+    fixture is built from the live SEED_SECTIONS, which already carries that
+    key, so the setdefault is a no-op on it; that is an accident of the
+    fixture, not a property of migration 5. Splicing section_label onto
+    `before` instead would be the cheaper fix and would leave the test
+    asserting nothing about migration 5's branch at all.
     """
     payload = copy.deepcopy(dict(SEED_SECTIONS)["tietoa"])
     c = _v4_database(
@@ -471,7 +481,7 @@ def test_migration_5_leaves_a_row_that_is_already_reshaped_byte_identical(
     )
     before = tuple(_tietoa_row(c))
 
-    database.migrate(c)
+    database._migration_5(c)
 
     assert tuple(_tietoa_row(c)) == before
     # And the owner's labels survived, rather than being blanked by the
@@ -485,7 +495,7 @@ def test_migration_5_leaves_a_row_that_is_already_reshaped_byte_identical(
         for fact in reversed_keys["facts"]
     ]
     c = _v4_database(tmp_path / "reversed.sqlite3", reversed_keys)
-    database.migrate(c)
+    database._migration_5(c)
 
     row = _tietoa_row(c)
     facts = json.loads(row["draft"])["facts"]
@@ -616,10 +626,14 @@ def test_migration_7_backfills_style_without_flipping_any_badge(tmp_path):
     assert draft["style"] == ""
     assert json.loads(row["published"])["style"] == ""
 
-    # Key ORDER is the whole hazard, and "last" is the specific claim: style
-    # is declared last in FIELDS["hero"], so a setdefault that appended
-    # anywhere else would rewrite this row on the first save.
-    assert list(draft)[-1] == "style"
+    # Key ORDER is the whole hazard, and the claim is that each backfilled key
+    # lands where FIELDS declares it, so a setdefault that appended anywhere
+    # else would rewrite this row on the first save. style was the tail when
+    # migration 7 shipped; LLM-COP-25's migration 8 — which migrate() runs
+    # here too — appended portrait_alt after it, so the TAIL moved to the
+    # newest key while the rule ("appended, never inserted") did not change.
+    assert list(draft)[-1] == "portrait_alt"
+    assert list(draft)[-2] == "style"
     assert list(draft) == list(FIELDS["hero"])
     assert row["draft"] == row["published"]
     assert badge(row["state"], row["draft"], row["published"]) == "Julkaistu"
@@ -768,6 +782,18 @@ def test_migration_7_touches_no_other_kind(tmp_path):
     another kind makes that payload fail validate_payload's unknown-key check
     the moment the owner saves it — a section that cannot be saved, produced
     by an upgrade.
+
+    _migration_7 ALONE, called directly, since LLM-COP-25. _migration_8 is
+    the first migration in this codebase that touches more than one kind, and
+    it legitimately backfills tietoa, so migrate() here asks about migration 8
+    as much as about migration 7. It happens to stay green under migrate()
+    today only because the fixture is built from the live SEED_SECTIONS, which
+    already carries section_label, so migration 8's setdefault is a no-op on
+    it — an accident of the fixture, not a property of migration 7. The scoped
+    call is what makes the claim in the name true again. Re-baselining the
+    expected `text` against migration 8's output would be the cheaper fix and
+    would delete this guard permanently; it is written down here so nobody
+    takes it later.
     """
     c = _v6_database(tmp_path / "others.sqlite3", _v6_hero_payload())
     tietoa = copy.deepcopy(dict(SEED_SECTIONS)["tietoa"])
@@ -779,7 +805,7 @@ def test_migration_7_touches_no_other_kind(tmp_path):
     )
     c.commit()
 
-    database.migrate(c)
+    database._migration_7(c)
 
     row = c.execute(
         "SELECT draft, published, previous_published FROM sections"
@@ -793,21 +819,189 @@ def test_migration_7_touches_no_other_kind(tmp_path):
     c.close()
 
 
-def test_the_migration_head_is_seven(tmp_path):
+# --- migration 8: the schema round, on six kinds at once (LLM-COP-25) ------
+#
+# tests/test_prechange_upgrade.py asks the headline questions of a REAL
+# captured install: badges unchanged, validate_payload clean, byte-for-byte
+# splices, idempotence, and the served page still carrying the kickers. This
+# file's standing job is the branches that install cannot reach, and its
+# docstring at the top of the migration-7 block says so: a NULL column, and a
+# NON-NULL previous_published. Every previous_published in the artifact is
+# NULL, so nothing there exercises the third column at all.
+#
+# test_migration_7_backfills_previous_published already covers that column
+# for the HERO kind, and it covers it for migration 8 too — migrate() runs
+# both, and its `list(previous) == list(FIELDS["hero"])` goes red if
+# _migration_8 leaves previous_published out of its column tuple. What it
+# cannot cover is the five OTHER kinds, which is precisely where migration
+# 8's reach is new: it is the first migration in this file that touches more
+# than one kind. Restore copies previous_published verbatim into draft
+# (app/sectionlist.py), so a short payload there 400s the owner's next save —
+# on five kinds nothing else in the suite asks about.
+
+
+def _v7_hero_payload():
+    """A hero payload as a user_version-7 store actually held one: the
+    thirteen keys of the v6 era plus LLM-COP-22's style, and no portrait_alt.
+
+    A FROZEN LITERAL by construction, for the reason _v3_hero_payload states
+    — it extends _v6_hero_payload(), which is itself frozen, with the one key
+    migration 7 appends, written out here rather than read from FIELDS.
+    """
+    payload = _v6_hero_payload()
+    payload["style"] = ""
+    return payload
+
+
+# The four non-hero payloads as a v7 store held them, written out rather than
+# copied from SEED_SECTIONS. The live seed is not a pre-change fixture: it
+# already carries section_label, so a fixture built from it would hand
+# migration 8 rows that need no backfill and every assertion below would pass
+# against a migration that did nothing. (That is not hypothetical — it is
+# exactly why test_migration_7_touches_no_other_kind stayed green under
+# migrate() when it should not have.) The strings are an owner's, not the
+# seed's, so a backfill that overwrote stored content would be visible.
+_V7_NON_HERO_PAYLOADS = {
+    "tietoa": {
+        "nostolause": "Autan sinua löytämään sanat.",
+        "leipäteksti": "Työskentelen rauhallisesti ja pitkäjänteisesti.",
+        "facts": [
+            {"label": "Koulutus", "value": "Filosofian maisteri"},
+            {"label": "Kokemus", "value": "Kaksitoista vuotta"},
+        ],
+    },
+    "yhteydenotto": {
+        "name_label": "Nimi",
+        "email_label": "Sähköposti tai puhelin",
+        "message_label": "Viesti",
+        "send_label": "Lähetä",
+        "thanks": "Kiitos! Palaan asiaan pian.",
+    },
+    "sijainti": {"address": "Kauppakatu 1, Turku"},
+}
+
+
+# One key per kind whose value belongs to the OWNER, so "the migration left
+# stored content alone" is asserted against a value the migration has no
+# default for.
+_OWNER_MARKER = {
+    "hero": "title",
+    "tietoa": "nostolause",
+    "yhteydenotto": "thanks",
+    "sijainti": "address",
+}
+
+# What the older, restorable version says in that key. Distinct from anything
+# in the current payloads, so a previous_published that had merely been
+# overwritten with the draft would be visible rather than plausible.
+_RESTORABLE_MARKER = "Vanha teksti"
+
+
+def _v7_database(path, kinds):
+    """A database at exactly user_version 7 with one row per named kind, each
+    carrying a NON-NULL previous_published that differs from its published
+    text — the state a restore reads.
+
+    MIGRATIONS[:7] and an explicit PRAGMA, the idiom the fixtures above use,
+    so _migration_8 really is the only thing that has not run yet.
+    """
+    c = database.connect(str(path))
+    for migration in database.MIGRATIONS[:7]:
+        migration(c)
+    c.execute("PRAGMA user_version = 7")
+    for position, kind in enumerate(kinds, start=1):
+        if kind == "hero":
+            payload = _v7_hero_payload()
+            older = _v7_hero_payload()
+        else:
+            payload = copy.deepcopy(_V7_NON_HERO_PAYLOADS[kind])
+            older = copy.deepcopy(_V7_NON_HERO_PAYLOADS[kind])
+        older[_OWNER_MARKER[kind]] = _RESTORABLE_MARKER
+        text = json.dumps(payload, ensure_ascii=False)
+        c.execute(
+            "INSERT INTO sections (kind, position, state, draft, published,"
+            " previous_published) VALUES (?, ?, 'published', ?, ?, ?)",
+            (
+                kind,
+                position,
+                text,
+                text,
+                json.dumps(older, ensure_ascii=False),
+            ),
+        )
+    c.commit()
+    return c
+
+
+def test_migration_8_backfills_previous_published_on_every_kind(tmp_path):
+    """The branch the captured install cannot reach, on the five kinds
+    migration 8 is the first migration ever to touch.
+
+    Palauta edellinen versio copies previous_published verbatim into draft
+    (app/sectionlist.py), so a payload short of a declared key there is not a
+    cosmetic gap: the owner restores a version and the very next save 400s,
+    with nothing on screen to explain why. The failure this pins is a
+    _migration_8 whose column tuple names only draft and published — which
+    would leave every other assertion in the suite green.
+    """
+    kinds = ("hero", "tietoa", "yhteydenotto", "sijainti")
+    c = _v7_database(tmp_path / "prev8.sqlite3", kinds)
+    before = {
+        row["kind"]: badge(row["state"], row["draft"], row["published"])
+        for row in c.execute(
+            "SELECT kind, state, draft, published FROM sections"
+        )
+    }
+    assert set(before.values()) == {"Julkaistu"}
+
+    database.migrate(c)
+
+    rows = {
+        row["kind"]: row
+        for row in c.execute(
+            "SELECT kind, state, draft, published, previous_published"
+            " FROM sections"
+        )
+    }
+    for kind in kinds:
+        row = rows[kind]
+        previous = json.loads(row["previous_published"])
+        # The owner's own stored content is untouched...
+        assert previous[_OWNER_MARKER[kind]] == _RESTORABLE_MARKER, kind
+        # ...but every declared key is there, in declaration order, so a
+        # restore followed by a save cannot 400.
+        assert list(previous) == list(FIELDS[kind]), kind
+        assert validate_payload(kind, previous)[1] == {}, kind
+        # And restoring it really would store those exact bytes back: a
+        # payload that validates but re-serialises differently would flip the
+        # badge on the save after the restore.
+        clean, _errors = validate_payload(kind, previous)
+        assert json.dumps(clean, ensure_ascii=False) == (
+            row["previous_published"]
+        ), kind
+        # The other two columns moved together, so no badge moved with them.
+        assert row["draft"] == row["published"], kind
+        assert badge(row["state"], row["draft"], row["published"]) == (
+            before[kind]
+        ), kind
+    c.close()
+
+
+def test_the_migration_head_is_eight(tmp_path):
     """The head, named exactly once in the suite.
 
     Every other version assertion in this file is written as
     `len(database.MIGRATIONS)` on purpose, so migrations added later do not
     break tests that are not about them. This one is deliberately literal: it
-    is the single place a person adding migration 8 is told, by a red test,
+    is the single place a person adding migration 9 is told, by a red test,
     that a stamped store now upgrades one step further — and it pins that
     MIGRATIONS ends where the list says rather than where a stale PRAGMA does.
     """
-    assert len(database.MIGRATIONS) == 7
-    assert database.MIGRATIONS[6] is database._migration_7
+    assert len(database.MIGRATIONS) == 8
+    assert database.MIGRATIONS[7] is database._migration_8
 
     c = database.connect(str(tmp_path / "head.sqlite3"))
     database.migrate(c)
     (version,) = c.execute("PRAGMA user_version").fetchone()
-    assert version == 7
+    assert version == 8
     c.close()

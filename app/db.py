@@ -320,6 +320,89 @@ def _migration_7(conn):
             )
 
 
+def _migration_8(conn):
+    # The schema round (LLM-COP-25): renameable section labels on the five
+    # labelled kinds, the contact card's four fields, and the portrait's alt
+    # text. Ten new declared keys, so without a backfill validate_payload's
+    # required-key check rejects the owner's first save on every existing
+    # row — the hazard _migration_4 and _migration_7 exist for.
+    #
+    # THE FIRST MIGRATION IN THIS FILE THAT TOUCHES MORE THAN ONE KIND.
+    # Every predecessor is WHERE kind = '<one>'. Anything that asserts
+    # "migration N touches no other kind" must call its own migration
+    # directly rather than migrate(), or it is asserting this one's output
+    # instead of its own — three tests in the suite were rescoped for
+    # exactly that when this landed.
+    #
+    # THE RULE THE DEFAULTS FOLLOW: every default is the value that
+    # reproduces the page the install rendered a moment before the upgrade.
+    # A section label rendered its template literal, so the literal is the
+    # default — "" there would blank five kickers on every existing site on
+    # deploy. The four contact fields and portrait_alt rendered nothing, so
+    # "" is the default; backfilling the seed's instructive copy would make
+    # a live published page suddenly read "Lisää puhelinnumero", which is
+    # _migration_5's refusal to invent owner text applied here.
+    #
+    # The defaults are FROZEN LITERALS and no app.fields or app.seed is
+    # imported, for the reason _migration_4 states: a migration that reads
+    # the live schema changes behaviour whenever the schema next changes,
+    # which is not a migration. Each per-kind dict is in FIELDS declaration
+    # order, because setdefault APPENDS in iteration order and those two
+    # orders being equal is what keeps a backfilled row's key order equal to
+    # declaration order — which is what keeps draft == published byte-equal
+    # and every badge where it was.
+    #
+    # All three columns are rewritten in ONE pass by ONE pure function of
+    # the stored text, so draft == published before implies it after and
+    # badge() cannot flip. The converse collapse _migration_5 documents
+    # cannot arise: appending a fixed set of keys with fixed constant values
+    # is injective on the set of stored texts. previous_published is
+    # backfilled too — restore copies it verbatim into draft
+    # (app/sectionlist.py), and a short payload there would 400 the next
+    # save. A kind absent from the map below is left entirely alone.
+    defaults = {
+        "hero": {"portrait_alt": ""},
+        "tietoa": {"section_label": "NÄIN TYÖSKENTELEN"},
+        "palvelut": {"section_label": "PALVELUT"},
+        "vastaanottoajat": {"section_label": "VASTAANOTTOAJAT"},
+        "yhteydenotto": {
+            "section_label": "YHTEYDENOTTO",
+            "phone": "",
+            "email": "",
+            "body": "",
+            "caveat": "",
+        },
+        "sijainti": {"section_label": "SIJAINTI"},
+    }
+    columns = ("draft", "published", "previous_published")
+    rows = conn.execute(
+        "SELECT id, draft, published, previous_published, kind FROM sections"
+    ).fetchall()
+    for row in rows:
+        # Indexed positionally: a migration must not depend on the caller
+        # having set sqlite3.Row (app/db.py:110-113).
+        section_id = row[0]
+        kind_defaults = defaults.get(row[4])
+        if kind_defaults is None:
+            continue
+        for offset, column in enumerate(columns, start=1):
+            text = row[offset]
+            if not text:
+                continue
+            payload = json.loads(text)
+            for key, value in kind_defaults.items():
+                payload.setdefault(key, value)
+            new_text = json.dumps(payload, ensure_ascii=False)
+            # _migration_5's convention: a row already carrying the keys is
+            # byte-untouched by construction, not merely by luck.
+            if new_text == text:
+                continue
+            conn.execute(
+                f"UPDATE sections SET {column} = ? WHERE id = ?",
+                (new_text, section_id),
+            )
+
+
 MIGRATIONS = [
     _migration_1,
     _migration_2,
@@ -328,6 +411,7 @@ MIGRATIONS = [
     _migration_5,
     _migration_6,
     _migration_7,
+    _migration_8,
 ]
 
 

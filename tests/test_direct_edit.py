@@ -459,10 +459,20 @@ EXCLUDED_SCALARS = {
         " schema-driven panel form never draws it, the same shape as"
         " hero.portrait. Its editor is the panel's Ulkoasu tab."
     ),
+    ("hero", "portrait_alt"): (
+        "rendered as the portrait <img>'s alt attribute, not a text node, so"
+        " there is nothing for direct-edit.js to make contenteditable."
+        " Editable in the side panel (Kuvan tekstivastine) — which is why,"
+        " unlike hero.portrait and hero.style, it DOES carry a FIELD_LABELS"
+        " entry: the generated form is its only editor."
+    ),
 }
 
-BOUND_SCALAR_COUNT = 14
-EXCLUDED_SCALAR_COUNT = 9
+# 33 scalars across the six kinds since LLM-COP-25 added ten fields, nine of
+# them bound in both public templates (5 x section_label, and yhteydenotto's
+# phone/email/body/caveat) and portrait_alt excluded above.
+BOUND_SCALAR_COUNT = 23
+EXCLUDED_SCALAR_COUNT = 10
 
 
 def test_every_scalar_field_is_bound_or_excluded(direct_html):

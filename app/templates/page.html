@@ -25,14 +25,17 @@
 
 {% macro hero(p, sid='') -%}
 {# portrait holds a stored image reference; image_url answers a URL only for
-   a real digest, so anything else falls through to the placeholder. alt is
-   empty because there is no alt-text field yet and site_brand is unbound in
-   the macro-module context this file is imported into (app/sections.py). #}
+   a real digest, so anything else falls through to the placeholder. alt
+   comes from hero.portrait_alt (LLM-COP-25) — the owner's, typed into the
+   panel's Kuvan tekstivastine row, because a photograph of a person is
+   content and an empty alt tells a screen reader nothing. site_brand is
+   unbound in the macro-module context this file is imported into
+   (app/sections.py). #}
 {% set portrait_src = p.portrait|image_url %}
 <section id="{{ anchors['hero'] }}" class="hero" data-section="{{ sid }}" data-kind="hero">
   <div class="portrait{% if portrait_src %} has-image{% endif %}">
     {% if portrait_src %}
-    <img class="portrait-image" src="{{ portrait_src }}" alt="">
+    <img class="portrait-image" src="{{ portrait_src }}" alt="{{ p.portrait_alt }}">
     {% else %}
     <span class="portrait-icon" aria-hidden="true">&#128100;</span>
     <span class="portrait-label desktop-only">Muotokuva</span>
@@ -58,7 +61,7 @@
 
 {% macro tietoa(p, sid='') -%}
 <section id="{{ anchors['tietoa'] }}" class="about" data-section="{{ sid }}" data-kind="tietoa">
-  <p class="section-kicker about-kicker">NÄIN TYÖSKENTELEN</p>
+  <p class="section-kicker about-kicker" data-section="{{ sid }}" data-field="section_label">{{ p.section_label }}</p>
   <div class="about-columns">
     <p class="about-lead" data-section="{{ sid }}" data-field="nostolause">{{ p.nostolause }}</p>
     <div class="about-body" data-section="{{ sid }}" data-field="leipäteksti">{{ p['leipäteksti']|render_rich }}</div>
@@ -74,7 +77,7 @@
 
 {% macro palvelut(p, sid='') -%}
 <section id="{{ anchors['palvelut'] }}" class="services" data-section="{{ sid }}" data-kind="palvelut">
-  <p class="section-kicker">PALVELUT</p>
+  <p class="section-kicker" data-section="{{ sid }}" data-field="section_label">{{ p.section_label }}</p>
   <ul class="service-cards">
     {% for name in p.services %}{{ service_card(name) }}{% endfor %}
   </ul>
@@ -84,7 +87,7 @@
 
 {% macro vastaanottoajat(p, sid='') -%}
 <section id="{{ anchors['vastaanottoajat'] }}" class="hours-section" data-section="{{ sid }}" data-kind="vastaanottoajat">
-  <p class="section-kicker">VASTAANOTTOAJAT</p>
+  <p class="section-kicker" data-section="{{ sid }}" data-field="section_label">{{ p.section_label }}</p>
   <div class="hours">
     {% for day in p.days %}
     <div class="hours-row">
@@ -99,7 +102,19 @@
 
 {% macro yhteydenotto(p, sid='') -%}
 <section id="{{ anchors['yhteydenotto'] }}" class="contact" data-section="{{ sid }}" data-kind="yhteydenotto">
-  <p class="section-kicker">YHTEYDENOTTO</p>
+  <p class="section-kicker" data-section="{{ sid }}" data-field="section_label">{{ p.section_label }}</p>
+  {# The contact card's four fields (LLM-COP-25). V2's designs draw them;
+     V1 has no address describing them, but the V1/V2 binding fence
+     (tests/test_page_v2.py) means a field bound in one template is bound in
+     both, so V1 grows the four elements too. Emitted UNCONDITIONALLY, empty
+     or not: a conditional element removes the binding the in-place editor
+     needs, and a migrated store has all four empty. #}
+  <div class="contact-copy">
+    <p class="contact-body" data-section="{{ sid }}" data-field="body">{{ p.body }}</p>
+    <p class="contact-phone" data-section="{{ sid }}" data-field="phone">{{ p.phone }}</p>
+    <p class="contact-email" data-section="{{ sid }}" data-field="email">{{ p.email }}</p>
+    <p class="contact-caveat" data-section="{{ sid }}" data-field="caveat">{{ p.caveat }}</p>
+  </div>
   <form class="contact-form">
     <label>{{ p.name_label }}<input type="text" name="name"></label>
     <label>{{ p.email_label }}<input type="text" name="email"></label>
@@ -111,7 +126,7 @@
 
 {% macro sijainti(p, sid='') -%}
 <section id="{{ anchors['sijainti'] }}" class="location" data-section="{{ sid }}" data-kind="sijainti">
-  <p class="section-kicker">SIJAINTI</p>
+  <p class="section-kicker" data-section="{{ sid }}" data-field="section_label">{{ p.section_label }}</p>
   <p class="address" data-section="{{ sid }}" data-field="address">{{ p.address }}</p>
 </section>
 {%- endmacro %}

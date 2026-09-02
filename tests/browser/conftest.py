@@ -15,7 +15,9 @@ would let one test's state decide another's result.
 """
 
 import json
+import struct
 import threading
+import zlib
 
 import pytest
 from werkzeug.serving import make_server
@@ -85,6 +87,38 @@ def set_hero_draft_style(app, style):
         conn.commit()
     finally:
         conn.close()
+
+
+# --- a real picture, for the tests that upload one (LLM-COP-25) ------------
+#
+# A genuine PNG built byte by byte, not a fixture arranged to pass and not a
+# file checked into the tree: /api/kuvat reads the BYTES and refuses anything
+# whose header does not say PNG or JPEG, and a browser will only report
+# naturalWidth > 0 for something it can actually decode. Both of those are
+# claims this builder has to satisfy honestly.
+#
+# Duplicated from tests/test_images.py's builder rather than shared, which is
+# that file's own stated convention for exactly this — it says the duplication
+# with tests/test_imagecheck.py is deliberate, so that each module stands
+# alone. This directory imports nothing from the Python suite's test modules.
+
+
+def _png_chunk(kind, payload):
+    crc = zlib.crc32(kind + payload) & 0xFFFFFFFF
+    return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", crc)
+
+
+def png_bytes(width=48, height=48, colour=(0x2E, 0x6F, 0x9E)):
+    """A real, decodable PNG of the given size."""
+    raw = b"".join(b"\x00" + bytes(colour) * width for _ in range(height))
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + _png_chunk(
+            b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+        )
+        + _png_chunk(b"IDAT", zlib.compress(raw))
+        + _png_chunk(b"IEND", b"")
+    )
 
 
 @pytest.fixture(scope="session")

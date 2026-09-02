@@ -20,6 +20,7 @@ from app.sections import initials
 from app.seed import SEED_SECTIONS
 from tests.conftest import (
     PERSONA_PATTERN,
+    assert_absent_from_app,
     edit_published_payload,
     element_text,
     set_section_state,
@@ -30,11 +31,26 @@ SEED_BY_KIND = dict(SEED_SECTIONS)
 
 # --- whole-document byte-exact contains-text criteria -----------------------
 #
-# LLM-COP-10 split the old 54-row DOCUMENT_CRITERIA table in two, and
-# LLM-COP-26 took two more rows out of what was left. 7 rows stay below; of the
-# rest, 12 became SEEDED_RENDERS, 32 are covered by the three list-driven tests
-# (fact cards, about facts, services), which assert every stored item rather
-# than a hand-picked few, and 3 became CTA_RENDERS further down.
+# LLM-COP-10 split the old 54-row DOCUMENT_CRITERIA table in two, LLM-COP-26
+# took two more rows out of what was left, and LLM-COP-25 took three: the
+# section kickers became sijainti/tietoa/palvelut/vastaanottoajat/yhteydenotto
+# .section_label, a field the panel offers as "Osion otsikko", so the words are
+# the owner's. 4 rows stay below; of the rest, 15 became SEEDED_RENDERS, 32 are
+# covered by the three list-driven tests (fact cards, about facts, services),
+# which assert every stored item rather than a hand-picked few, and 3 became
+# CTA_RENDERS further down.
+#
+# The fourth criterion LLM-COP-25 demoted on the server,
+# cp-main-edit.preview-pane.preview-card.preview-palvelut-label, has no row
+# anywhere in this suite: the section-list preview card renders the public
+# macro (app/templates/_section_row.html), so it follows the stored label with
+# no test of its own. That demotion is spec-only.
+#
+# test_nav_links below is deliberately NOT touched. Its four addresses pin
+# NAV_LABELS' words (app/fields.py), which stay hardcoded product chrome after
+# LLM-COP-25 — so an owner who renames a kicker still sees the old word in the
+# nav link pointing at it. Making nav labels editable is a later unit, and it
+# inherits four more demotions on cp-main.header.nav-links.
 #
 # Byte-exact below: strings the TEMPLATE owns, which no admin can edit.
 # "Ota yhteyttä" used to be the one exception, on the ground that the brief
@@ -64,11 +80,8 @@ SEED_BY_KIND = dict(SEED_SECTIONS)
 DOCUMENT_CRITERIA = [
     ("cp-main.hero.portrait-placeholder-0", "Muotokuva"),
     ("cp-main.hero.portrait-placeholder-1", "browse files"),
-    ("cp-main.about-section.about-kicker", "NÄIN TYÖSKENTELEN"),
     ("cp-main-phone.phone-hero.phone-portrait-0", "Kuva"),
     ("cp-main-phone.phone-hero.phone-portrait-1", "browse files"),
-    ("cp-main-phone.phone-palvelut.phone-palvelut-label", "PALVELUT"),
-    ("cp-main-phone.phone-vastaanotto.phone-vastaanotto-label", "VASTAANOTTOAJAT"),
 ]
 
 # (address, kind, field) — the served page must carry the stored string.
@@ -89,6 +102,19 @@ SEEDED_RENDERS = [
     ),
     ("cp-main.header.brand", "hero", "brand"),
     ("cp-main-phone.phone-footer.phone-copyright", "hero", "footer"),
+    # The three demoted kickers (LLM-COP-25). They now assert that the STORED
+    # label reaches the page, never what it says.
+    ("cp-main.about-section.about-kicker", "tietoa", "section_label"),
+    (
+        "cp-main-phone.phone-palvelut.phone-palvelut-label",
+        "palvelut",
+        "section_label",
+    ),
+    (
+        "cp-main-phone.phone-vastaanotto.phone-vastaanotto-label",
+        "vastaanottoajat",
+        "section_label",
+    ),
 ]
 
 
@@ -395,6 +421,115 @@ def test_cta_labels_are_data_the_owner_can_change(app, client):
     header_cta = element_text(after, "button", cls="header-contact")
     assert header_cta is not None, "no button.header-contact in the served page"
     assert "Ota yhteyttä" in header_cta
+
+
+# The five renamed kickers and the four contact values, as strings that
+# appear NOWHERE in app/ — asserted, not assumed, by assert_absent_from_app.
+# That is what makes the two tests below fail against an implementation that
+# kept its template literal: a rename to words the template could itself have
+# produced proves nothing at all.
+RENAMED_LABELS = {
+    "tietoa": "TYÖTAPANI PÄHKINÄNKUORESSA",
+    "palvelut": "MITÄ TARJOAN ASIAKKAILLE",
+    "vastaanottoajat": "MILLOIN OLEN TAVATTAVISSA",
+    "yhteydenotto": "OTA ROHKEASTI YHTEYTTÄ",
+    "sijainti": "MISTÄ MINUT LÖYTÄÄ",
+}
+
+CONTACT_VALUES = {
+    "phone": "040 000 0000 arkisin",
+    "email": "yhteys@esimerkkidomain.invalid",
+    "body": "Vastaan viesteihin yleensä kahden arkipäivän kuluessa.",
+    "caveat": "Kiireellisissä asioissa soita, älä kirjoita.",
+}
+
+
+def test_section_labels_are_data_the_owner_can_change(app, client):
+    """LLM-COP-25's central claim for group 3, asserted without reference to
+    the seed: all five section kickers are stored fields.
+
+    Until this change they were template literals at page.html:61, 77, 87,
+    102 and 114 with no data-field, and LLM-COP-19 proved no owner could
+    rename them. So the test rewrites all five published labels to strings
+    that exist nowhere in app/ and looks for them on the served page. It
+    fails against any implementation that still renders a literal — including
+    one that binds four of the five, which is the likelier mistake.
+
+    ALL FIVE, not the three that had spec criteria. Nothing in the suite
+    covered the yhteydenotto or sijainti kickers before, so trimming this to
+    the demoted three would leave the two nobody was watching still unwatched.
+
+    The last block is the one that must NOT follow the field, and it is not
+    decoration. NAV_LABELS (app/fields.py) stays hardcoded product chrome
+    after this change: an owner who renames the sijainti kicker still sees
+    "Sijainti" in the nav link pointing at it. That divergence is a known,
+    named consequence — and if a later unit wires the nav to section_label,
+    this assertion is what says so out loud instead of letting four spec
+    criteria on cp-main.header.nav-links quietly become false.
+    """
+    assert_absent_from_app(*RENAMED_LABELS.values())
+
+    for kind, label in RENAMED_LABELS.items():
+        edit_published_payload(
+            app, kind, lambda payload, label=label: payload.update(
+                section_label=label
+            )
+        )
+
+    after = client.get("/").get_data(as_text=True)
+    for kind, label in RENAMED_LABELS.items():
+        assert label in after, kind
+    # ...and every word the template used to own is gone with them. Both
+    # halves are needed: without this one a build that rendered the literal
+    # AND the stored value — a half-done binding that appended rather than
+    # replaced — would pass on the first loop alone.
+    for old in (
+        "NÄIN TYÖSKENTELEN",
+        "PALVELUT",
+        "VASTAANOTTOAJAT",
+        "YHTEYDENOTTO",
+        "SIJAINTI",
+    ):
+        assert old not in after, old
+
+    nav = element_text(after, "nav")
+    assert nav is not None, "no <nav> in the served page"
+    assert "Sijainti" in nav
+    assert RENAMED_LABELS["sijainti"] not in nav
+
+
+def test_the_contact_cards_four_fields_are_data_the_owner_can_change(
+    app, client
+):
+    """LLM-COP-25's central claim for group 2: the contact card's phone,
+    email, body and caveat are stored fields on yhteydenotto.
+
+    Before this change the kind stored none of them — LLM-COP-23 reported the
+    V2 addresses unsatisfied rather than faking them — so there was no way to
+    publish a phone number at all. Each value is a string absent from app/,
+    so a hardcoded element would fail here rather than pass by looking right.
+
+    Each is read out of its OWN element rather than as a bare substring of
+    the document, because the claim is that four separate bindings exist: a
+    single element carrying all four values concatenated would satisfy a
+    substring check and leave three fields uneditable in place.
+    """
+    assert_absent_from_app(*CONTACT_VALUES.values())
+
+    edit_published_payload(
+        app, "yhteydenotto", lambda payload: payload.update(**CONTACT_VALUES)
+    )
+
+    after = client.get("/").get_data(as_text=True)
+    for field, cls in (
+        ("body", "contact-body"),
+        ("phone", "contact-phone"),
+        ("email", "contact-email"),
+        ("caveat", "contact-caveat"),
+    ):
+        text = element_text(after, "p", cls=cls)
+        assert text is not None, f"no p.{cls} in the served page"
+        assert text.strip() == CONTACT_VALUES[field], cls
 
 
 def test_fact_card_count_follows_the_data(app, client):
