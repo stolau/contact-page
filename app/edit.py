@@ -16,6 +16,7 @@ from flask import Blueprint, current_app, jsonify, render_template, request
 from . import auth
 from . import db as database
 from .fields import ANCHORS, FIELD_LABELS, FIELDS, NAV_LABELS, SECTION_NAMES
+from .images import collect_unreferenced
 from .sanitize import validate_payload
 from .sections import badge, draft_sections, publish_dirty, site_chrome
 from .styles import STYLE_CHOICES, template_for
@@ -105,6 +106,10 @@ def put_draft(section_id):
         )
         conn.commit()
         auth.audit(conn, f"draft saved section={section_id}")
+        # This write can have dropped the previous draft's digest
+        # (LLM-COP-27). The picture goes only if no other column of any
+        # section still names it and it is past the retention floor.
+        collect_unreferenced(conn)
         return jsonify(
             saved_at=int(time.time()),
             badge=badge(row["state"], text, row["published"]),
@@ -125,6 +130,13 @@ def publish():
             conn,
             "publish sections=" + (",".join(str(i) for i in ids) or "none"),
         )
+        # Publishing a dirty section overwrites its previous_published, and
+        # that is the exact moment a picture reachable only by a rollback
+        # becomes garbage (LLM-COP-27). Collect here rather than inside
+        # publish_dirty: this route is its only caller, and app/sections.py
+        # stays untouched. A publish with nothing dirty moves no column and
+        # collects nothing, correctly.
+        collect_unreferenced(conn)
         return jsonify(published=ids)
     finally:
         conn.close()

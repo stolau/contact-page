@@ -36,6 +36,7 @@ import io
 import json
 import os
 import struct
+import time
 import zlib
 
 import pytest
@@ -43,8 +44,16 @@ from werkzeug.test import EnvironBuilder
 
 from app import auth
 from app import db as database
-from app.images import MAX_UPLOAD_BYTES, MESSAGES, image_url
-from tests.conftest import section_rows
+from app.images import (
+    MAX_UPLOAD_BYTES,
+    MESSAGES,
+    RETENTION_GRACE_SECONDS,
+    _digests_from_rows,
+    collect_unreferenced,
+    image_url,
+    referenced_digests,
+)
+from tests.conftest import delete_section, section_rows
 
 # ---------------------------------------------------------------------------
 # Fixtures — built or embedded, never read from disk
@@ -169,6 +178,152 @@ def upload_rows(app):
 
 def hero_row(app):
     return next(r for r in section_rows(app) if r["kind"] == "hero")
+
+
+def section_row(app, kind):
+    return next(r for r in section_rows(app) if r["kind"] == kind)
+
+
+def digests_in_store(app):
+    return {row["digest"] for row in upload_rows(app)}
+
+
+def stored_path(app, digest, extension="png"):
+    """Where the store keeps one digest's blob — recomputed from the digest
+    and an allowlisted extension, exactly as the serving route recomputes it,
+    never read out of the row."""
+    return os.path.join(upload_dir(app), f"{digest}.{extension}")
+
+
+def fetch(app, digest):
+    """GET /kuvat/<digest> through the real, public serving route."""
+    return app.test_client().get(f"/kuvat/{digest}")
+
+
+def referenced_now(app):
+    """referenced_digests over the app's own database file."""
+    conn = database.connect(app.config["DATABASE"])
+    try:
+        return referenced_digests(conn)
+    finally:
+        conn.close()
+
+
+def payload_rows(app):
+    """The three payload columns of every section, as the collector reads
+    them."""
+    conn = database.connect(app.config["DATABASE"])
+    try:
+        return conn.execute(
+            "SELECT draft, published, previous_published FROM sections"
+        ).fetchall()
+    finally:
+        conn.close()
+
+
+def collect(app):
+    """Drive collect_unreferenced directly, on a real connection to the app's
+    own database, inside an app context — the collector recomputes its paths
+    from UPLOAD_DIR, so it needs one."""
+    with app.app_context():
+        conn = database.connect(app.config["DATABASE"])
+        try:
+            return collect_unreferenced(conn)
+        finally:
+            conn.close()
+
+
+def age(app, digest, seconds=RETENTION_GRACE_SECONDS + 60):
+    """Move one upload's created_at back — what the passage of time does, done
+    to the one datum the retention floor reads and to nothing else.
+
+    This is not a rigged fixture. The route, the store, the bytes, the
+    payloads and every assertion around it stay real; arranging the clock is
+    the only way to test a time-based rule without sleeping for a quarter of
+    an hour in the gate.
+
+    ONE THING A FUTURE TEST AUTHOR MUST KNOW: re-uploading the same bytes
+    UN-AGES the digest. POST /api/kuvat refreshes uploads.created_at on
+    conflict, so the row records the last time the digest was handed out, not
+    the first — that is the whole of LLM-COP-27's dedup fix. A test that ages
+    a digest, re-uploads it, and then expects it to stay collectable is
+    re-asserting the bug, not a behaviour.
+    """
+    conn = database.connect(app.config["DATABASE"])
+    try:
+        cursor = conn.execute(
+            "UPDATE uploads SET created_at = created_at - ? WHERE digest = ?",
+            (seconds, digest),
+        )
+        assert cursor.rowcount == 1, f"no upload row to age for {digest}"
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def upload_aged(app, admin, picture):
+    """Upload one picture through the real route and age it at once — the
+    convention of the collection section below."""
+    response = upload(admin, picture)
+    assert response.status_code == 200, response.get_data(as_text=True)
+    ref = response.get_json()["ref"]
+    age(app, ref)
+    return ref
+
+
+def put_payload(admin, app, kind, payload):
+    """PUT one whole payload to a section's draft, the way the panel does."""
+    row = section_row(app, kind)
+    response = admin.put(
+        f"/api/sections/{row['id']}/draft", json=payload, headers=JSON_ACCEPT
+    )
+    assert response.status_code == 200, response.get_data(as_text=True)
+    return response
+
+
+def save_draft(admin, app, kind, **changes):
+    """Read the stored draft, change the named fields, PUT the whole payload
+    back — a real collecting write (app/edit.py:put_draft)."""
+    payload = json.loads(section_row(app, kind)["draft"])
+    payload.update(changes)
+    return put_payload(admin, app, kind, payload)
+
+
+def publish_all(admin):
+    """POST /api/publish, and answer the ids it really published."""
+    response = admin.post("/api/publish", headers=JSON_ACCEPT)
+    assert response.status_code == 200, response.get_data(as_text=True)
+    return response.get_json()["published"]
+
+
+# Four distinct, genuine PNGs — different sizes, so different bytes and
+# different digests. Nothing here is a fixture arranged to pass.
+PICTURE_X = _png(70, 70)
+PICTURE_Y = _png(71, 71)
+PICTURE_Z = _png(72, 72)
+PICTURE_W = _png(73, 73)
+
+
+def portrait_pushed_into_previous_published(app, admin):
+    """Upload X and Y, age both, publish each in turn, and return (x, y).
+
+    Leaves the hero at draft = published = PY, previous_published = PX, which
+    is the state cases 1, 2 and 4 each need and none of them may inherit from
+    another: they are separate test functions and pytest guarantees no
+    ordering, least of all under -k.
+
+    Both digests are aged, per the convention below, so every verdict a caller
+    later reaches about either of them is the count's doing and never the
+    retention floor's.
+    """
+    x = upload_aged(app, admin, PICTURE_X)
+    save_draft(admin, app, "hero", portrait=x)
+    publish_all(admin)
+
+    y = upload_aged(app, admin, PICTURE_Y)
+    save_draft(admin, app, "hero", portrait=y)
+    publish_all(admin)
+    return x, y
 
 
 def tree(root):
@@ -889,6 +1044,13 @@ def test_the_portrait_survives_upload_publish_render_and_removal(
     assert on_disk == picture
     assert hashlib.sha256(on_disk).hexdigest() == ref
 
+    # 3a. Age it (LLM-COP-27). A freshly uploaded digest is retained for
+    #     RETENTION_GRACE_SECONDS whatever the count says, so an unaged
+    #     picture would survive steps 9a and 9b for a reason that has nothing
+    #     to do with references. Everything this test later concludes about
+    #     retention has to be the COUNT's doing, not the floor's.
+    age(app, ref)
+
     # 4. put the reference in the hero draft
     hero = hero_row(app)
     payload = json.loads(hero["draft"])
@@ -934,11 +1096,730 @@ def test_the_portrait_survives_upload_publish_render_and_removal(
     assert "portrait-icon" in page
     assert "or browse files" in page
 
-    # 9. THE ORPHAN, asserted rather than merely written down in the README.
-    #    Poista removes the picture from the page, not from disk: there is no
-    #    delete route and no garbage collection, so the bytes stay world-
-    #    readable at a stable URL forever. A reviewer should see this fail the
-    #    day someone implements deletion, and update the README in the same
-    #    commit.
+    # 9. THE REMOVAL REACHES DISK — but one publish later, not now
+    #    (LLM-COP-27). Taking the picture off the page is not yet taking it
+    #    off disk, because after step 8 the hero holds draft = published = the
+    #    portrait-less payload while previous_published still holds the one
+    #    naming this digest — and Palauta edellinen versio would bring it
+    #    back. The bytes go at the publish PAST that, the moment
+    #    previous_published is overwritten and no column of any section names
+    #    the digest any more. `ref` was aged at step 3a, so each verdict below
+    #    is about the reference count and nothing else.
+
+    # 9a. still served, because previous_published still names it
     assert client.get(f"/kuvat/{ref}").status_code == 200
     assert os.path.isfile(path)
+
+    # 9b. make the hero genuinely dirty again — app/sections.py:116 publishes
+    #     only sections whose draft differs from their published payload, so
+    #     without a real change the next publish moves no column at all. This
+    #     PUT runs a collection; previous_published has not moved, so the
+    #     picture must survive it. That is what makes "collected only when the
+    #     LAST column stops naming it" observable rather than merely claimed.
+    payload["title"] = "Uusi otsikko"
+    response = logged_in_admin.put(
+        f"/api/sections/{hero['id']}/draft", json=payload, headers=JSON_ACCEPT
+    )
+    assert response.status_code == 200, response.get_data(as_text=True)
+    assert client.get(f"/kuvat/{ref}").status_code == 200
+    assert os.path.isfile(path)
+
+    # 9c. publish past it: the hero is dirty, so previous_published takes the
+    #     portrait-less published payload and the last reference is gone.
+    response = logged_in_admin.post("/api/publish", headers=JSON_ACCEPT)
+    assert response.status_code == 200
+    assert hero["id"] in response.get_json()["published"]
+
+    # 9d. collected: no route, no file, no row.
+    assert client.get(f"/kuvat/{ref}").status_code == 404
+    assert not os.path.isfile(path)
+    assert ref not in digests_in_store(app)
+
+
+# ---------------------------------------------------------------------------
+# Collection (LLM-COP-27): an upload leaves when nothing names it any more
+#
+# THE CONVENTION OF THIS SECTION, and it is load-bearing: EVERY UPLOAD IS
+# AGED THE MOMENT IT IS MADE, UNLESS ITS FRESHNESS IS THE POINT OF THE TEST.
+#
+# Two independent things retain a picture — the count (some section payload
+# still names it) and the retention floor (POST /api/kuvat answered that
+# digest less than RETENTION_GRACE_SECONDS ago). So a "the picture survives"
+# assertion over a FRESH upload passes whatever the count says, and proves
+# nothing about the count. Aging first is what makes every survival verdict
+# below the count's doing. `upload_aged` exists so that is the easy path.
+#
+# Exactly three tests keep an upload fresh on purpose — case 5's explicit
+# delete, and case 6's two arms — and each says in its docstring why.
+#
+# Nothing here is mocked, per this module's opening paragraph: real routes, a
+# real SQLite file, real bytes in the real UPLOAD_DIR. The ONE thing ever
+# arranged is a single upload's created_at, through `age`.
+# ---------------------------------------------------------------------------
+
+
+# --- the extractor: referenced_digests / _digests_from_rows ----------------
+
+
+def test_a_digest_in_the_hero_portrait_is_referenced(app, logged_in_admin):
+    ref = upload_aged(app, logged_in_admin, PICTURE_X)
+    assert ref not in referenced_now(app)
+    save_draft(logged_in_admin, app, "hero", portrait=ref)
+    assert ref in referenced_now(app)
+
+
+def test_a_digest_typed_into_a_plain_text_field_is_referenced(
+    app, logged_in_admin
+):
+    """The generic extractor, asserted rather than assumed.
+
+    referenced_digests scans the RAW stored text of the three payload columns:
+    it knows nothing about FIELDS, nothing about `portrait`, and does not
+    parse JSON. sijainti.address is a plain field with no cap
+    (app/fields.py:78) stored verbatim (app/sanitize.py:179), so a digest put
+    there through the real draft route is counted exactly like one in
+    hero.portrait. That is the decision, not a workaround: a field-specific
+    extractor would under-count silently the day a second image field exists,
+    and under-counting deletes a live picture.
+    """
+    ref = upload_aged(app, logged_in_admin, PICTURE_X)
+    save_draft(logged_in_admin, app, "sijainti", address=ref)
+    assert ref in referenced_now(app)
+
+
+def test_a_digest_only_in_previous_published_is_referenced(
+    app, logged_in_admin
+):
+    """previous_published is a first-class counted column, because Palauta
+    edellinen versio restores from it: a picture named only there is still
+    reachable and must be counted."""
+    x, _ = portrait_pushed_into_previous_published(app, logged_in_admin)
+    hero = section_row(app, "hero")
+    assert x not in hero["draft"]
+    assert x not in hero["published"]
+    assert x in hero["previous_published"]
+    assert x in referenced_now(app)
+
+
+def test_null_payload_columns_do_not_raise(app):
+    """A freshly seeded store has previous_published NULL on all six rows —
+    the ordinary state, and the one a naive extractor blows up on."""
+    rows = payload_rows(app)
+    assert len(rows) == 6
+    assert all(row["previous_published"] is None for row in rows)
+    assert _digests_from_rows(rows) == set()
+    assert referenced_now(app) == set()
+
+
+def test_a_stored_upload_names_itself_nowhere(app, logged_in_admin):
+    """The count reads `sections` and only `sections`. Scanning
+    uploads.stored_name would pin the entire store by construction, and the
+    collector would then never collect anything — a bug that looks exactly
+    like the feature working."""
+    ref = upload_aged(app, logged_in_admin, PICTURE_X)
+    assert ref in digests_in_store(app)
+    assert referenced_now(app) == set()
+
+
+def test_the_extractor_unites_all_three_columns_under_one_rule(
+    app, logged_in_admin
+):
+    """One extraction rule, not two: referenced_digests is _digests_from_rows
+    over its own SELECT, and the collector is the same helper over the rows it
+    already fetched. A drift where the DESTROYING function found fewer digests
+    than the checking one would be a hole, so the two are asserted equal over
+    a store where the three columns hold different digests."""
+    x, y = portrait_pushed_into_previous_published(app, logged_in_admin)
+    assert _digests_from_rows(payload_rows(app)) == referenced_now(app)
+    assert {x, y} <= referenced_now(app)
+
+
+# --- the collector, driven directly ----------------------------------------
+
+
+def plant_upload(app, digest, stored_name, content_type, data):
+    """Plant a row and its file straight into the store, bypassing the route
+    — the shape tests/test_images.py:716-745 and :748-780 already use.
+
+    created_at is 0: as far past the retention floor as a row can be, so
+    nothing but the collector's own refusal can save it.
+    """
+    directory = upload_dir(app)
+    os.makedirs(directory, exist_ok=True)
+    path = os.path.join(directory, stored_name)
+    with open(path, "wb") as handle:
+        handle.write(data)
+    conn = database.connect(app.config["DATABASE"])
+    try:
+        conn.execute(
+            "INSERT INTO uploads (digest, stored_name, content_type, byte_size,"
+            " width, height, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (digest, stored_name, content_type, len(data), 100, 100, 0),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return path
+
+
+def test_the_collector_takes_the_unreferenced_and_leaves_the_referenced(
+    app, logged_in_admin
+):
+    """One aged referenced digest and one aged unreferenced one, collected in
+    a single call: exactly one row and one file go, and the other pair is
+    untouched. Both are aged, so the difference between them is the count."""
+    kept = upload(logged_in_admin, PICTURE_X).get_json()["ref"]
+    save_draft(logged_in_admin, app, "hero", portrait=kept)
+    # Uploaded AFTER that write, so no route's collection has swept it yet.
+    orphan = upload(logged_in_admin, PICTURE_Y).get_json()["ref"]
+    age(app, kept)
+    age(app, orphan)
+    assert kept in referenced_now(app)
+    assert orphan not in referenced_now(app)
+
+    assert collect(app) == [orphan]
+
+    assert orphan not in digests_in_store(app)
+    assert not os.path.isfile(stored_path(app, orphan))
+    assert fetch(app, orphan).status_code == 404
+
+    assert kept in digests_in_store(app)
+    assert os.path.isfile(stored_path(app, kept))
+    assert fetch(app, kept).status_code == 200
+
+
+def test_a_row_claiming_svg_is_not_collected(app):
+    """A row the collector cannot name is skipped ENTIRELY — row and file
+    both left alone.
+
+    image/svg+xml is not in SERVE_ALLOWLIST, so no extension can be computed
+    and no path exists to unlink. A defensive branch that DESTROYS is exactly
+    the one a reviewer suspicious of over-collection should distrust, so this
+    one refuses instead. Nothing is reachable either way: the serving route
+    already 404s such a row (:716-745). Being wrong here leaves a file, not a
+    hole.
+    """
+    digest = hashlib.sha256(XSS_SVG).hexdigest()
+    path = plant_upload(app, digest, f"{digest}.svg", "image/svg+xml", XSS_SVG)
+    assert digest not in referenced_now(app)
+
+    assert collect(app) == []
+
+    assert digest in digests_in_store(app)
+    assert os.path.isfile(path)
+
+
+def test_a_row_whose_digest_is_not_a_digest_is_not_collected(app):
+    """The same refusal on the other unnameable row: the collector checks
+    DIGEST_PATTERN.fullmatch — not match — before it computes a path, so a
+    64-character non-digest, or a 64-hex PREFIX of some longer stored value,
+    can never become a path something is unlinked from."""
+    bogus = "x" * 64
+    path = plant_upload(app, bogus, f"{bogus}.png", "image/png", VALID_PNG)
+    assert bogus not in referenced_now(app)
+
+    assert collect(app) == []
+
+    assert bogus in digests_in_store(app)
+    assert os.path.isfile(path)
+
+
+def test_an_empty_sections_table_authorises_nothing(app, logged_in_admin):
+    """The guard, in the one place the destruction is.
+
+    An empty `sections` gives an empty referenced set, which without this
+    guard reads as "nothing is named, delete the whole store". Unreachable
+    today — seed_if_empty always inserts six — but one `if` buys it back in
+    the retaining direction.
+    """
+    ref = upload_aged(app, logged_in_admin, PICTURE_X)
+    for kind in (
+        "hero",
+        "tietoa",
+        "palvelut",
+        "vastaanottoajat",
+        "yhteydenotto",
+        "sijainti",
+    ):
+        delete_section(app, kind)
+    assert section_rows(app) == []
+
+    assert collect(app) == []
+
+    assert ref in digests_in_store(app)
+    assert os.path.isfile(stored_path(app, ref))
+
+
+# --- the retention floor ---------------------------------------------------
+
+
+def test_the_retention_grace_is_fifteen_minutes():
+    """Pinned, so a change to the value is deliberate — the shape
+    test_the_cap_is_five_megabytes_and_is_not_applied_app_wide already uses.
+
+    The floor has to outlast the longest plausible gap between an upload
+    landing and the write that names it: a 2 s autosave debounce
+    (app/static/autosave.js:56) on top of a body that may be 5 MB, which is
+    roughly thirteen minutes at a poor-but-real mobile uplink, plus the one
+    further PUT setPortrait issues. The two errors are not symmetrical — too
+    short destroys a picture the owner is actively placing (a hole), too long
+    leaves an abandoned one on disk for a quarter of an hour (a file) — so the
+    value is rounded generously toward retaining.
+    """
+    assert RETENTION_GRACE_SECONDS == 15 * 60
+
+
+def test_a_fresh_orphan_is_retained_until_the_grace_expires(
+    app, logged_in_admin
+):
+    """Both directions in one test, and the second half is the point.
+
+    The first half alone could pass for any number of reasons; what proves the
+    retention was the FLOOR is that the only thing changed between the two
+    halves is created_at. Same picture, same unreferenced state, same
+    collecting write, opposite verdicts.
+    """
+    ref = upload(logged_in_admin, PICTURE_X).get_json()["ref"]  # fresh: the subject
+    path = stored_path(app, ref)
+    assert ref not in referenced_now(app)  # only the floor can save it
+
+    # a real collecting write, on a section that does not name it
+    save_draft(logged_in_admin, app, "sijainti", address="Katutie 1")
+    assert ref in digests_in_store(app)
+    assert os.path.isfile(path)
+    assert fetch(app, ref).status_code == 200
+
+    age(app, ref)
+    save_draft(logged_in_admin, app, "sijainti", address="Katutie 2")
+    assert ref not in digests_in_store(app)
+    assert not os.path.isfile(path)
+    assert fetch(app, ref).status_code == 404
+
+
+def test_re_uploading_the_same_bytes_refreshes_the_retention_clock(
+    app, logged_in_admin
+):
+    """The dedup path's timestamp, which is what makes the floor's promise
+    true as written.
+
+    The floor protects "a digest POST /api/kuvat has just answered", not "a
+    first upload of some bytes". Those differ by exactly the dedup path: the
+    route short-circuits the file write and takes ON CONFLICT, so without the
+    refresh a re-uploaded orphan is already past the floor at the instant the
+    route hands it to the owner. Aging between the two uploads is what makes
+    the comparison deterministic rather than a one-second race.
+    """
+    first = upload(logged_in_admin, PICTURE_X, filename="a.png")
+    ref = first.get_json()["ref"]
+    age(app, ref)
+    before = upload_rows(app)[0]["created_at"]
+
+    second = upload(logged_in_admin, PICTURE_X, filename="completely-other.png")
+    assert second.status_code == 200
+    assert second.get_json()["ref"] == ref
+
+    rows = upload_rows(app)
+    assert len(rows) == 1  # an upsert, not a second row
+    assert stored_files(app) == [f"{ref}.png"]
+    after = rows[0]["created_at"]
+    assert after > before
+    assert abs(after - int(time.time())) <= 5
+
+
+# --- the gate cases, each through real routes ------------------------------
+
+
+def test_an_image_named_only_by_previous_published_survives(
+    app, logged_in_admin
+):
+    """Gate case 1. The rollback window is exactly as deep as
+    previous_published, and everything at that depth must still be there."""
+    x, _ = portrait_pushed_into_previous_published(app, logged_in_admin)
+
+    # the precondition, stated by the test rather than assumed
+    for row in section_rows(app):
+        for column in ("draft", "published", "previous_published"):
+            here = x in (row[column] or "")
+            expected = row["kind"] == "hero" and column == "previous_published"
+            assert here is expected, f"{row['kind']}.{column} names X: {here}"
+
+    assert x in digests_in_store(app)
+    assert os.path.isfile(stored_path(app, x))
+    assert fetch(app, x).status_code == 200
+
+
+def test_publishing_past_a_previous_version_collects_only_what_nothing_names(
+    app, logged_in_admin
+):
+    """Gate case 2, both halves in one test so "collects" and "only what
+    nothing names" fail separately. All three digests are aged, so every
+    verdict here is the count's and none of it is the floor's."""
+    x, y = portrait_pushed_into_previous_published(app, logged_in_admin)
+    z = upload_aged(app, logged_in_admin, PICTURE_Z)
+    save_draft(logged_in_admin, app, "hero", portrait=z)
+    publish_all(logged_in_admin)
+    # hero: draft = published = PZ, previous_published = PY. Nothing names X.
+
+    assert x not in digests_in_store(app)
+    assert not os.path.isfile(stored_path(app, x))
+    assert fetch(app, x).status_code == 404
+
+    for surviving in (y, z):
+        assert surviving in digests_in_store(app)
+        assert os.path.isfile(stored_path(app, surviving))
+        assert fetch(app, surviving).status_code == 200
+
+
+def test_two_sections_sharing_a_digest_survive_one_removing_it(
+    app, logged_in_admin
+):
+    """Gate case 3 — the invisible sharing hazard.
+
+    Identical bytes are ONE file and ONE row (app/images.py:164-186), so two
+    sections naming the same digest name the same blob. The count is over
+    digests and never over sections, exactly so the collector is never asked
+    "who owned this file" — a question it could answer wrongly. Here the hero
+    lets go of X entirely and sijainti still names it, so X must stay.
+    """
+    x = upload_aged(app, logged_in_admin, PICTURE_X)
+    save_draft(logged_in_admin, app, "hero", portrait=x)
+    save_draft(logged_in_admin, app, "sijainti", address=x)
+    publish_all(logged_in_admin)
+
+    save_draft(logged_in_admin, app, "hero", portrait="")
+    publish_all(logged_in_admin)  # hero: previous_published = PX, published = P0
+
+    save_draft(logged_in_admin, app, "hero", title="Uusi otsikko")
+    publish_all(logged_in_admin)  # hero: previous_published = P0. X is gone from it.
+
+    # The precondition, per column, so a future change that makes the hero pin
+    # X again fails HERE rather than quietly making the next block vacuous.
+    hero = section_row(app, "hero")
+    assert x not in hero["draft"], "hero.draft still names X"
+    assert x not in hero["published"], "hero.published still names X"
+    assert x not in (
+        hero["previous_published"] or ""
+    ), "hero.previous_published still names X"
+    sijainti = section_row(app, "sijainti")
+    assert x in sijainti["draft"], "the surviving reference should be sijainti's"
+    assert x in sijainti["published"]
+
+    # X survives — and by the assertions above, only sijainti's contribution
+    # to the union can be keeping it. An extractor that scanned the hero row
+    # alone fails right here.
+    assert x in digests_in_store(app)
+    assert os.path.isfile(stored_path(app, x))
+    assert fetch(app, x).status_code == 200
+
+    # The negative control, in one observation: the collector demonstrably
+    # ran, demonstrably deletes, and demonstrably left X alone. W is aged, or
+    # the floor would retain it and the control would fail for a reason that
+    # has nothing to do with the collector.
+    w = upload_aged(app, logged_in_admin, PICTURE_W)
+    save_draft(logged_in_admin, app, "hero", title="Vielä uudempi otsikko")
+    assert w not in digests_in_store(app)
+    assert not os.path.isfile(stored_path(app, w))
+    assert fetch(app, w).status_code == 404
+    assert fetch(app, x).status_code == 200
+
+
+def test_a_rollback_finds_its_picture_and_the_public_page_shows_it_again(
+    app, client, logged_in_admin
+):
+    """Gate case 4. The rollback is proved by the public page rendering the
+    picture, not by a row count."""
+    x, _ = portrait_pushed_into_previous_published(app, logged_in_admin)
+    hero = section_row(app, "hero")
+
+    response = logged_in_admin.post(
+        f"/api/sections/{hero['id']}/restore", headers=JSON_ACCEPT
+    )
+    assert response.status_code == 200, response.get_data(as_text=True)
+    assert response.get_json()["payload"]["portrait"] == x
+    publish_all(logged_in_admin)
+
+    assert f'src="/kuvat/{x}"' in client.get("/").get_data(as_text=True)
+    served = fetch(app, x)
+    assert served.status_code == 200
+    assert served.get_data() == PICTURE_X
+
+
+def test_a_stale_autosave_landing_during_an_upload_does_not_destroy_the_picture(
+    app, client, logged_in_admin
+):
+    """Gate case 6, arm A — the window the floor exists for.
+
+    X is deliberately FRESH: its freshness is the whole subject, and aging it
+    here would age away the hazard. The three requests are in the exact order
+    shipped client code produces them, and no threads are needed, because the
+    hazard is about ORDER and not concurrency — app/static/edit.js writes
+    draft.portrait only inside the upload's .then (:306) and the Vaihda change
+    handler never cancels the armed autosave (:277-309), so a 2 s debounce
+    really can fire in the middle of a 5 MB upload.
+
+    Against a collector with no floor this fails at step 3, and the picture
+    the owner is placing is gone with no error anywhere.
+    """
+    # what the keystroke that armed the timer left in the draft
+    stale = json.loads(section_row(app, "hero")["draft"])
+    stale["title"] = "Kesken jäänyt otsikko"
+
+    # 1. the upload lands; setPortrait has not run, so nothing names X yet
+    ref = upload(logged_in_admin, PICTURE_X).get_json()["ref"]
+    assert ref not in referenced_now(app)
+
+    # 2. the stale timer fires: a real collecting write, with a pre-upload
+    #    payload that does not mention X
+    put_payload(logged_in_admin, app, "hero", stale)
+
+    # 3. the picture the owner is placing is still there
+    assert ref in digests_in_store(app)
+    assert os.path.isfile(stored_path(app, ref))
+    assert fetch(app, ref).status_code == 200
+
+    # 4. the upload's .then lands late, 5. and the owner publishes
+    save_draft(logged_in_admin, app, "hero", portrait=ref)
+    publish_all(logged_in_admin)
+    assert f'src="/kuvat/{ref}"' in client.get("/").get_data(as_text=True)
+    assert fetch(app, ref).get_data() == PICTURE_X
+
+
+def test_a_stale_autosave_does_not_destroy_a_picture_the_owner_just_re_uploaded(
+    app, client, logged_in_admin
+):
+    """Gate case 6, arm B — the same window after a DEDUPED re-upload.
+
+    The owner uploaded A an hour ago and the .then never landed (an expired
+    session, a closed tab), so A is an ancient orphan: a row and a file older
+    than the grace, named by nothing. Nothing collected it, because collection
+    runs only inside the three writes that can drop a reference. Then they
+    come back and pick the same file again.
+
+    A is aged BEFORE the second upload, and that ordering is what gives this
+    arm its power: the subject is that the re-upload RESTORES freshness to an
+    aged digest. Aging afterwards would undo the very refresh being asserted,
+    and would fail against the fixed design too. Against ON CONFLICT DO
+    NOTHING, A's created_at stays ancient, step 3's write finds it
+    unreferenced and past the floor, and step 4 fails on all three counts.
+    """
+    stale = json.loads(section_row(app, "hero")["draft"])
+    stale["title"] = "Kesken jäänyt otsikko"
+
+    # 1. the abandoned upload, and the hour the owner spent away
+    a = upload(logged_in_admin, PICTURE_X).get_json()["ref"]
+    age(app, a)
+    assert a not in referenced_now(app)
+
+    # 2. the same bytes again — and the test STATES it took the dedup path
+    second = upload(logged_in_admin, PICTURE_X, filename="sama-kuva.png")
+    assert second.status_code == 200
+    assert second.get_json()["ref"] == a
+    assert len(upload_rows(app)) == 1
+    assert stored_files(app) == [f"{a}.png"]
+
+    # 3. the stale autosave timer, exactly as in arm A
+    put_payload(logged_in_admin, app, "hero", stale)
+
+    # 4. A survives, because the response the owner is acting on is seconds old
+    assert a in digests_in_store(app)
+    assert os.path.isfile(stored_path(app, a))
+    assert fetch(app, a).status_code == 200
+
+    # 5. the .then lands, the owner publishes, the picture is on the page
+    save_draft(logged_in_admin, app, "hero", portrait=a)
+    publish_all(logged_in_admin)
+    assert f'src="/kuvat/{a}"' in client.get("/").get_data(as_text=True)
+    assert fetch(app, a).get_data() == PICTURE_X
+
+
+# --- the explicit delete ---------------------------------------------------
+
+
+def test_an_explicit_delete_removes_the_row_and_the_file_together(
+    app, logged_in_admin
+):
+    """Gate case 5 — and, because the picture is deliberately FRESH, the proof
+    that the owner's explicit intent bypasses the retention floor.
+
+    That bypass is load-bearing rather than a convenience: with a fifteen
+    minute floor, this route is the only way in the design to take back a
+    wrong photograph immediately, which is the whole point of an artifact
+    filed as security. The floor protects a digest whose reference has not
+    landed yet — a machine race the owner cannot see. This is the opposite:
+    the owner naming one digest and saying remove it.
+    """
+    ref = upload(logged_in_admin, PICTURE_X).get_json()["ref"]
+    assert os.path.isfile(stored_path(app, ref))
+
+    response = logged_in_admin.delete(f"/api/kuvat/{ref}", headers=JSON_ACCEPT)
+    assert response.status_code == 200, response.get_data(as_text=True)
+
+    assert upload_rows(app) == []
+    assert stored_files(app) == []
+    assert fetch(app, ref).status_code == 404
+
+
+def test_an_explicit_delete_refuses_a_picture_the_page_still_names(
+    app, logged_in_admin
+):
+    """409, not a force: the route takes a digest and knows nothing about
+    sections, so a force would leave a payload naming a missing file — a 404
+    where a picture was. Refusing makes that structurally impossible."""
+    ref = upload(logged_in_admin, PICTURE_X).get_json()["ref"]
+    save_draft(logged_in_admin, app, "hero", portrait=ref)
+
+    response = logged_in_admin.delete(f"/api/kuvat/{ref}", headers=JSON_ACCEPT)
+    assert response.status_code == 409
+    assert response.get_json()["error"] == MESSAGES["in_use"]
+
+    assert ref in digests_in_store(app)
+    assert os.path.isfile(stored_path(app, ref))
+    assert fetch(app, ref).status_code == 200
+
+
+def test_delete_without_a_session_answers_401_and_not_a_redirect(client):
+    """The same trap the upload route pins at :191-217: a request that does
+    not say it wants JSON is REDIRECTED rather than refused, and fetch follows
+    a redirect transparently and then throws on an HTML body."""
+    response = client.delete(f"/api/kuvat/{'a' * 64}", headers=JSON_ACCEPT)
+    assert response.status_code == 401
+    assert response.get_json()["error"] == "unauthorized"
+
+
+@pytest.mark.parametrize(
+    "ref",
+    [
+        pytest.param("b" * 64, id="unknown-digest"),
+        pytest.param("A" * 64, id="uppercase"),
+        pytest.param("g" * 64, id="non-hex"),
+    ],
+)
+def test_deleting_something_that_is_not_a_stored_digest_is_a_404(
+    logged_in_admin, ref
+):
+    response = logged_in_admin.delete(f"/api/kuvat/{ref}", headers=JSON_ACCEPT)
+    assert response.status_code == 404
+
+
+# --- the guards ------------------------------------------------------------
+
+
+def test_an_upload_collects_nothing_not_even_an_old_orphan(
+    app, logged_in_admin
+):
+    """POST /api/kuvat must not collect, and this is the criterion that can
+    fail if somebody adds a call to it.
+
+    A is an aged, unreferenced orphan, so the floor is not what saves it: an
+    upload route that collected would sweep A inside B's request. Asserting
+    instead that a FRESH upload survives its own request would prove nothing,
+    because the floor retains it either way.
+    """
+    a = upload_aged(app, logged_in_admin, PICTURE_X)
+    b = upload(logged_in_admin, PICTURE_Y).get_json()["ref"]
+
+    assert {a, b} <= digests_in_store(app)
+    assert os.path.isfile(stored_path(app, a))
+    assert os.path.isfile(stored_path(app, b))
+    assert fetch(app, a).status_code == 200
+    assert fetch(app, b).status_code == 200
+
+
+def test_a_collecting_draft_save_moves_no_other_payload(app, logged_in_admin):
+    """badge() compares raw stored JSON, so a byte of drift in a payload would
+    mark an untouched section dirty forever. The collector's only SQL against
+    a section is a SELECT; this asserts that byte-for-byte anyway, over a
+    write that really did collect."""
+    ref = upload_aged(app, logged_in_admin, PICTURE_X)
+    before = section_rows(app)
+
+    save_draft(logged_in_admin, app, "hero", title="Uusi otsikko")
+
+    # the write really collected — otherwise this test proves nothing
+    assert ref not in digests_in_store(app)
+    assert not os.path.isfile(stored_path(app, ref))
+
+    after = section_rows(app)
+    assert len(before) == len(after)
+    for old, new in zip(before, after):
+        if old["kind"] == "hero":
+            assert new["draft"] != old["draft"]  # the one row the PUT changed
+            assert {k: v for k, v in old.items() if k != "draft"} == {
+                k: v for k, v in new.items() if k != "draft"
+            }
+        else:
+            assert old == new, f"section {old['kind']} moved under a collection"
+
+
+def test_hiding_a_section_does_not_collect_its_picture(app, logged_in_admin):
+    """POST /api/sections/<id>/state writes `state` and nothing else, so a
+    hidden section still pins its picture — and unhiding must find it. The
+    picture is aged, so this is the count keeping it and not the floor."""
+    x = upload_aged(app, logged_in_admin, PICTURE_X)
+    save_draft(logged_in_admin, app, "hero", portrait=x)
+    publish_all(logged_in_admin)
+
+    hero = section_row(app, "hero")
+    response = logged_in_admin.post(
+        f"/api/sections/{hero['id']}/state",
+        json={"state": "hidden"},
+        headers=JSON_ACCEPT,
+    )
+    assert response.status_code == 200, response.get_data(as_text=True)
+    assert section_row(app, "hero")["state"] == "hidden"
+
+    # a real collecting write elsewhere, while the hero is hidden
+    save_draft(logged_in_admin, app, "sijainti", address="Katutie 3")
+
+    assert x in digests_in_store(app)
+    assert os.path.isfile(stored_path(app, x))
+    assert fetch(app, x).status_code == 200
+
+
+def test_a_restore_collects_the_draft_it_discarded(app, logged_in_admin):
+    """The third collecting write path, driven on its own.
+
+    Palauta edellinen versio replaces the draft wholesale, so the digest the
+    discarded draft named can be this store's last reference to a picture. Z
+    is aged and lives in NO column but that draft, so the collection has to
+    happen inside the restore request itself — case 4 reaches the collector
+    through the publish that follows its restore, and so proves nothing about
+    this call site.
+
+    The second half is the other direction, and it is why this test is not
+    only about under-collection: X and Y are still named after the restore and
+    must survive it. A destroying call site that over-collected would have
+    nothing else in the suite to catch it.
+    """
+    x, y = portrait_pushed_into_previous_published(app, logged_in_admin)
+    # hero: draft = published = PY, previous_published = PX
+    z = upload_aged(app, logged_in_admin, PICTURE_Z)
+    save_draft(logged_in_admin, app, "hero", portrait=z)
+
+    # the precondition, per column: only the draft names Z
+    for row in section_rows(app):
+        for column in ("draft", "published", "previous_published"):
+            here = z in (row[column] or "")
+            expected = row["kind"] == "hero" and column == "draft"
+            assert here is expected, f"{row['kind']}.{column} names Z: {here}"
+    assert z in digests_in_store(app)
+
+    hero = section_row(app, "hero")
+    response = logged_in_admin.post(
+        f"/api/sections/{hero['id']}/restore", headers=JSON_ACCEPT
+    )
+    assert response.status_code == 200, response.get_data(as_text=True)
+    assert response.get_json()["payload"]["portrait"] == x  # PX is back in the draft
+
+    # the discarded draft's picture goes, in this request
+    assert z not in referenced_now(app)
+    assert z not in digests_in_store(app)
+    assert not os.path.isfile(stored_path(app, z))
+    assert fetch(app, z).status_code == 404
+
+    # and nothing else does: X is now in draft and previous_published, Y in
+    # published, so both are still named and both must still be served.
+    for surviving in (x, y):
+        assert surviving in digests_in_store(app)
+        assert os.path.isfile(stored_path(app, surviving))
+        assert fetch(app, surviving).status_code == 200

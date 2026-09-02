@@ -69,17 +69,33 @@ no image dependency), stored under `instance/uploads/` named by the SHA-256
 of the bytes we stored, and served from `/kuvat/<digest>`. The section
 payload carries only that digest, so drafts and publishes stay small.
 
-Three things about that storage are worth knowing before you rely on it:
+Four things about that storage are worth knowing before you rely on it:
 
 - **`instance/` is gitignored and is not backed up, so uploads are lost on
-  redeploy** — exactly as the database already is.
-- **An upload is permanent and world-readable from the moment it lands,
-  before any publish.** There is no delete route and no garbage collection:
-  every picture the owner ever previewed stays on disk at a stable public
-  URL, even one that was never published.
-- **Poista removes the picture from the page, not from disk.** A real delete
-  needs refcounting a digest across the draft *and* published payloads of
-  every section, plus a decision about what a rollback means.
+  redeploy** — exactly as the database already is. Deletion below is
+  therefore irreversible, and everything about it is built to fail towards
+  keeping a file rather than losing one.
+- **A picture leaves when nothing names it any more.** Every digest is
+  counted across the `draft`, `published` *and* `previous_published`
+  payloads of every section, and the row and the file go together the moment
+  the count reaches zero. The counting happens inside the three writes that
+  can drop a reference — a draft save, a Julkaise, a *Palauta edellinen
+  versio* — and nowhere else: there is no timer and no sweep at startup.
+  Because `previous_published` counts, a replaced picture survives exactly
+  one more publish, which is the depth *Palauta edellinen versio* can reach;
+  the publish past that collects it.
+- **A freshly uploaded picture is held for fifteen minutes whatever the
+  count says.** An upload lands before the save that names it, so without
+  that floor an autosave firing in between would collect the picture the
+  owner is placing. The clock runs from the last time `POST /api/kuvat`
+  answered that digest, not from the first upload of those bytes — so
+  re-uploading a picture restarts it.
+- **Poista takes the picture off the page, and the file follows on the
+  save** — once nothing else names the digest and the floor has passed. To
+  remove one immediately, `DELETE /api/kuvat/<digest>` with an admin session
+  deletes the row and the file at once, bypassing the floor; it answers
+  `409` instead if a payload still names the digest. There is no panel
+  button for it, because there is no screen listing stored uploads.
 
 ## Develop
 
