@@ -34,7 +34,11 @@ from flask import render_template
 from app import db as database
 from app.fields import ANCHORS, FIELDS, NAV_LABELS
 from app.sections import site_chrome, visible_sections
-from tests.conftest import PERSONA_PATTERN, edit_published_payload
+from tests.conftest import (
+    PERSONA_PATTERN,
+    assert_absent_from_app,
+    edit_published_payload,
+)
 
 V2_TEMPLATE = "page_v2.html"
 V1_TEMPLATE = "page.html"
@@ -246,6 +250,91 @@ def test_a_non_digest_portrait_falls_back_to_the_placeholder(app):
 
     assert "etc/passwd" not in html
     assert "Muotokuva" in html
+
+
+# --- the section labels and the contact card are the owner's now ------------
+#
+# Until LLM-COP-25 this template owned five literal strings and its own header
+# comment said so. They are stored fields on both skins now, so the rule this
+# file has always held to — assert that the STORED value reaches the page,
+# never what it says — finally applies to them as well. The values below are
+# checked to appear nowhere in app/ first, which is what makes these fail
+# against a template that kept its literal.
+
+
+def test_each_v2_band_renders_its_stored_section_label(app):
+    """All five, and the count matters as much as the strings.
+
+    V2 draws these labels through three different constructs: the tietoa
+    macro's own <p>, the prose_band macro shared by palvelut, vastaanottoajat
+    and sijainti, and the contact card's kicker. A test that checked one band
+    would say nothing about the other two constructs, and the prose_band one
+    is the one that took a call-site change at three call sites — the shape a
+    half-done edit takes.
+    """
+    labels = {
+        "tietoa": "TÄSTÄ ON KYSE",
+        "palvelut": "TARJOAMANI PALVELUKOKONAISUUDET",
+        "vastaanottoajat": "TAVATTAVISSA NÄINÄ AIKOINA",
+        "yhteydenotto": "LAITA VIESTIÄ",
+        "sijainti": "LÖYDÄT MINUT TÄÄLTÄ",
+    }
+    assert_absent_from_app(*labels.values())
+
+    for kind, label in labels.items():
+        edit_published_payload(
+            app, kind, lambda p, label=label: p.update(section_label=label)
+        )
+
+    html = render_public(app, V2_TEMPLATE)
+    for kind, label in labels.items():
+        assert label in html, kind
+    for old in (
+        "NÄIN TYÖSKENTELEN",
+        "PALVELUT",
+        "VASTAANOTTOAJAT",
+        "YHTEYDENOTTO",
+        "SIJAINTI",
+    ):
+        assert old not in html, old
+
+
+def test_the_v2_contact_card_renders_its_four_stored_values(app):
+    """v2-cp-section-contact.contact-band.contact-card's body, caveat and two
+    action rows, which LLM-COP-23 reported unsatisfied because the kind
+    stored none of them.
+
+    Every element is emitted unconditionally, so the second half asserts the
+    empty case as well: a conditional element would take the binding the
+    in-place editor needs off the page for exactly the install that most
+    needs it — a MIGRATED one, where all four are backfilled empty.
+    """
+    values = {
+        "phone": "050 123 4567 iltapäivisin",
+        "email": "posti@toinenesimerkki.invalid",
+        "body": "Kirjoita muutamalla lauseella, mistä on kyse.",
+        "caveat": "Älä liitä viestiin salassa pidettäviä liitteitä.",
+    }
+    assert_absent_from_app(*values.values())
+
+    edit_published_payload(app, "yhteydenotto", lambda p: p.update(**values))
+    html = render_public(app, V2_TEMPLATE)
+    for value in values.values():
+        assert value in html, value
+
+    edit_published_payload(
+        app,
+        "yhteydenotto",
+        lambda p: p.update(phone="", email="", body="", caveat=""),
+    )
+    empty = render_public(app, V2_TEMPLATE)
+    for cls in (
+        "v2-contact-body",
+        "v2-contact-caveat",
+        "v2-contact-phone",
+        "v2-contact-email",
+    ):
+        assert cls in empty, cls
 
 
 # --- the lists are the owner's, so only their arity is asserted -------------

@@ -42,6 +42,7 @@ import json
 
 from app import create_app
 from app import db as database
+from app.fields import FIELDS
 from app.sanitize import validate_payload
 from app.sections import badge
 from app.styles import STYLE_TEMPLATES
@@ -132,6 +133,46 @@ FULLY_UPGRADED_HERO_DRAFT = (
 # len(', "style": ""'). Stated as a number so a changed separator fails with
 # an arithmetic complaint rather than a wall of JSON.
 STYLE_KEY_LENGTH = 13
+
+# What _migration_8 appends to each kind's stored text, written as the exact
+# SUFFIX the text grows — separators, spacing, order and unescaped Ä included.
+#
+# These are the module's discipline applied to the second migration: the
+# expectation is a string, spliced in front of the frozen row's closing brace,
+# while the actual comes out of the migration's json.loads -> setdefault ->
+# json.dumps round trip. ensure_ascii=True would turn Ä into Ä here,
+# sort_keys=True would move section_label out of last place, and a changed
+# separator would write ',"section_label"' — every one of them shows up as a
+# diff, and none of them would be visible to an expectation built the way the
+# code builds it.
+#
+# The VALUES are the other half of the claim: each section label is the
+# literal the template used to own, because a default of "" would blank five
+# kickers on every existing site the moment it deployed. The contact four and
+# portrait_alt are "" because they rendered nothing before the upgrade, and
+# backfilling the seed's instructive copy would make a live published page
+# suddenly read "Lisää puhelinnumero".
+MIGRATION_8_SUFFIXES = {
+    "hero": ', "portrait_alt": ""}',
+    "tietoa": ', "section_label": "NÄIN TYÖSKENTELEN"}',
+    "palvelut": ', "section_label": "PALVELUT"}',
+    "vastaanottoajat": ', "section_label": "VASTAANOTTOAJAT"}',
+    "yhteydenotto": (
+        ', "section_label": "YHTEYDENOTTO", "phone": "", "email": "",'
+        ' "body": "", "caveat": ""}'
+    ),
+    "sijainti": ', "section_label": "SIJAINTI"}',
+}
+
+# The five kickers this migration turns from template literals into stored
+# data. Named once, here, so the two tests below cannot disagree about them.
+SECTION_LABELS = {
+    "tietoa": "NÄIN TYÖSKENTELEN",
+    "palvelut": "PALVELUT",
+    "vastaanottoajat": "VASTAANOTTOAJAT",
+    "yhteydenotto": "YHTEYDENOTTO",
+    "sijainti": "SIJAINTI",
+}
 
 
 def frozen_v6_store(path):
@@ -313,6 +354,154 @@ def test_the_frozen_v6_install_leaves_every_non_hero_row_byte_untouched(
         assert stored[kind]["previous_published"] == previous, kind
         assert "style" not in json.loads(draft), kind
     conn.close()
+
+
+def test_migration_8_appends_its_keys_to_every_frozen_row_byte_for_byte(
+    tmp_path,
+):
+    """_migration_8 ALONE, over the real stored text of all six rows.
+
+    The sibling of test_migration_7_appends_style..., and scoped the same
+    way — but where that one asks about one kind, this one asks about six,
+    because _migration_8 is the first migration in this codebase that reaches
+    past a single WHERE kind = '...'. Every expectation is a SPLICE of the
+    frozen literal (MIGRATION_8_SUFFIXES above), never a round trip through
+    the json.dumps the migration itself calls.
+
+    Run after _migration_7 rather than instead of it, because that is the
+    order a real install upgrades in and the hero's expectation is a splice
+    ON TOP of migration 7's own spliced result: FROZEN -> +style ->
+    +portrait_alt, three literals, none of them produced by the code under
+    test.
+    """
+    conn = frozen_v6_store(tmp_path / "eight.sqlite3")
+
+    database._migration_7(conn)
+    database._migration_8(conn)
+
+    stored = rows_by_kind(conn)
+    assert stored["hero"]["draft"] == FULLY_UPGRADED_HERO_DRAFT
+    assert stored["hero"]["published"] == FULLY_UPGRADED_HERO_DRAFT
+    for kind, _position, _state, draft, published, _previous in FROZEN_V6_ROWS:
+        if kind == "hero":
+            continue  # its pre-text is migration 7's output, spliced above
+        suffix = MIGRATION_8_SUFFIXES[kind]
+        assert stored[kind]["draft"] == draft[:-1] + suffix, kind
+        assert stored[kind]["published"] == published[:-1] + suffix, kind
+
+    # Appended LAST for every kind, which is what keeps the stored key order
+    # equal to the schema's declaration order and the owner's first save a
+    # no-op. This one expectation IS read from the live schema on purpose:
+    # it is a different claim from the byte splices above — not "these are
+    # the bytes" but "the bytes agree with what app/fields.py declares".
+    for kind, row in stored.items():
+        assert list(json.loads(row["draft"]))[-1] == list(FIELDS[kind])[-1], kind
+        assert list(json.loads(row["draft"])) == list(FIELDS[kind]), kind
+
+    # tietoa's two columns differed before the upgrade (the artifact is
+    # deliberately dirty there) and must still differ afterwards, by exactly
+    # the same suffix on each — a migration that collapsed them would turn
+    # that row's Luonnos into Julkaistu.
+    assert stored["tietoa"]["draft"] != stored["tietoa"]["published"]
+    assert len(stored["tietoa"]["draft"]) - len(FROZEN_V6_ROWS[1][3]) == (
+        len(stored["tietoa"]["published"]) - len(FROZEN_V6_ROWS[1][4])
+    )
+    conn.close()
+
+
+def test_migration_8_is_idempotent(tmp_path):
+    """_migration_8 called DIRECTLY a second time moves not one byte.
+
+    Directly, not migrate() twice: migrate() twice is a no-op by PRAGMA
+    user_version alone, so it says nothing about what this migration does to
+    a row it has already rewritten — the branch that matters when a store is
+    migrated on a newer build's data.
+
+    The last block is what byte-stability alone cannot show. On a row whose
+    section_label still holds the migration's own default, an ASSIGNMENT
+    writes the same bytes as a setdefault, so the two are indistinguishable.
+    Plant a label the owner has actually chosen and re-run: setdefault leaves
+    it, an assignment silently reverts the owner's rename on the next upgrade.
+    """
+    conn = frozen_v6_store(tmp_path / "twice8.sqlite3")
+    database.migrate(conn)
+    first = {kind: tuple(row) for kind, row in rows_by_kind(conn).items()}
+    # The first pass really did change a non-hero row — otherwise a second
+    # pass matching it would be true of a migration that does nothing at all.
+    assert json.loads(first["palvelut"][3])["section_label"] == "PALVELUT"
+
+    database._migration_8(conn)
+
+    assert {kind: tuple(row) for kind, row in rows_by_kind(conn).items()} == first
+
+    renamed = dict(json.loads(first["palvelut"][3]), section_label="Mitä teen")
+    conn.execute(
+        "UPDATE sections SET draft = ? WHERE kind = 'palvelut'",
+        (json.dumps(renamed, ensure_ascii=False),),
+    )
+    conn.commit()
+
+    database._migration_8(conn)
+
+    assert json.loads(rows_by_kind(conn)["palvelut"]["draft"])[
+        "section_label"
+    ] == "Mitä teen"
+    conn.close()
+
+
+def test_the_upgraded_install_still_renders_the_section_labels(tmp_path):
+    """The claim an existing owner cares about: the upgrade does not blank
+    their kickers.
+
+    Everything above is about bytes in a column. This is the same install
+    served through the real route by the real app, asking whether the words
+    that were on the owner's page a moment before the upgrade are still on it
+    afterwards. A migration that backfilled "" would pass every byte and
+    badge test in this file by writing a consistent empty string into both
+    columns, and would take five headings off every deployed site.
+
+    FOUR labels off the page, not five. The captured install has sijainti
+    HIDDEN (FROZEN_BADGES says Piilotettu), so its band is not on the public
+    page at all — yet its stored payload must still have gained the key, or
+    showing that section again would 400 on the owner's next save. So four
+    are read off the served document and the fifth out of the store.
+
+    WHAT THIS TEST DOES NOT PROVE, said plainly rather than implied: it does
+    not show the words came from the store. A build that still carried the
+    five template literals would render the same four strings and pass here.
+    That is a different claim and it has its own test —
+    tests/test_page.py:test_section_labels_are_data_the_owner_can_change,
+    which rewrites all five to strings that appear nowhere in app/. The two
+    together are what "renameable, and the upgrade did not blank them" means;
+    neither is sufficient alone.
+    """
+    instance = tmp_path / "instance"
+    instance.mkdir()
+    frozen_v6_store(instance / "site.sqlite3").close()
+
+    # create_app migrates the store it opens: THIS call is the upgrade.
+    app = create_app(instance_path=str(instance))
+    response = app.test_client().get("/")
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+
+    for kind, label in SECTION_LABELS.items():
+        if kind == "sijainti":
+            continue
+        assert label in html, kind
+
+    conn = database.connect(app.config["DATABASE"])
+    try:
+        stored = rows_by_kind(conn)
+    finally:
+        conn.close()
+    assert stored["sijainti"]["state"] == "hidden"
+    assert json.loads(stored["sijainti"]["published"])["section_label"] == (
+        "SIJAINTI"
+    )
+    # ...and, being hidden, its label is genuinely off the page: the upgrade
+    # backfilled a hidden row without un-hiding it.
+    assert "SIJAINTI" not in html
 
 
 def test_every_stored_payload_still_round_trips_through_a_no_op_save(tmp_path):

@@ -5,6 +5,7 @@ extractor concatenates raw text nodes without normalizing whitespace.
 """
 
 import json
+import os
 from html.parser import HTMLParser
 
 import pytest
@@ -147,6 +148,48 @@ def element_text(html, tag, cls=None):
     if not parser.found:
         return None
     return "".join(parser.parts)
+
+
+APP_ROOT = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app"
+)
+
+
+def assert_absent_from_app(*strings):
+    """Every string given must appear NOWHERE under app/.
+
+    This is what makes an "the owner can change this" test falsifiable, and
+    it is checked rather than promised in a docstring. A test that rewrites a
+    stored field to a string the product could have rendered on its own
+    proves nothing: it stays green against an implementation that kept the
+    template literal and never read the store at all. The three tests that
+    already make this claim (test_site_chrome_is_data_the_owner_can_change,
+    test_cta_labels_are_data_the_owner_can_change and LLM-COP-25's two) each
+    say "the expected strings appear nowhere in app/"; this walks the real
+    tree — templates, Python, JavaScript, CSS — and says whether that is
+    still true.
+
+    Deliberately the whole tree and not just templates: a literal moved into
+    a Python constant or emitted by a script would satisfy a template-only
+    scan while the value still never came from the store.
+    """
+    found = []
+    for base, dirs, files in os.walk(APP_ROOT):
+        dirs[:] = [d for d in dirs if d != "__pycache__"]
+        for name in files:
+            path = os.path.join(base, name)
+            try:
+                with open(path, encoding="utf-8") as handle:
+                    text = handle.read()
+            except (UnicodeDecodeError, OSError):
+                continue  # a binary asset cannot carry the literal anyway
+            for needle in strings:
+                if needle in text:
+                    found.append((os.path.relpath(path, APP_ROOT), needle))
+    assert found == [], (
+        "these strings were supposed to exist only in the store, so a page "
+        f"showing them would prove nothing: {found}"
+    )
 
 
 def edit_published_payload(app, kind, edit):

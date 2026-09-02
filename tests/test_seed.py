@@ -177,6 +177,29 @@ def test_hero_carries_the_site_wide_keys_last(conn):
     assert list(payload) == list(FIELDS["hero"])
 
 
+def test_every_seeded_payload_carries_every_declared_key_in_order(conn):
+    """The hero's `list(payload) == list(FIELDS[kind])` asked of ALL SIX
+    kinds, which until LLM-COP-25 only the hero was asked.
+
+    Two failures it catches, and the suite caught neither before. A key
+    declared in FIELDS and forgotten in the seed reaches the owner as a 400
+    on their FIRST SAVE of that section — validate_payload demands every
+    declared key — and nothing else here would have gone red. A key seeded in
+    a different order from its declaration makes that first save rewrite the
+    row and flip the badge to Luonnos on a site nobody has edited.
+
+    tests/test_fields.py already checks the converse (every seeded key is
+    declared); this is the direction that was missing.
+    """
+    seed_if_empty(conn)
+    for kind in FIELDS:
+        (published, draft) = conn.execute(
+            "SELECT published, draft FROM sections WHERE kind = ?", (kind,)
+        ).fetchone()
+        assert list(json.loads(published)) == list(FIELDS[kind]), kind
+        assert list(json.loads(draft)) == list(FIELDS[kind]), kind
+
+
 def test_no_identity_string_survives_anywhere_in_the_seed(conn):
     """The standing guard for LLM-COP-10. This is a GENERIC contact page, so
     the shipped seed must name no person, practice, registration or register.

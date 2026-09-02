@@ -819,6 +819,174 @@ def test_migration_7_touches_no_other_kind(tmp_path):
     c.close()
 
 
+# --- migration 8: the schema round, on six kinds at once (LLM-COP-25) ------
+#
+# tests/test_prechange_upgrade.py asks the headline questions of a REAL
+# captured install: badges unchanged, validate_payload clean, byte-for-byte
+# splices, idempotence, and the served page still carrying the kickers. This
+# file's standing job is the branches that install cannot reach, and its
+# docstring at the top of the migration-7 block says so: a NULL column, and a
+# NON-NULL previous_published. Every previous_published in the artifact is
+# NULL, so nothing there exercises the third column at all.
+#
+# test_migration_7_backfills_previous_published already covers that column
+# for the HERO kind, and it covers it for migration 8 too — migrate() runs
+# both, and its `list(previous) == list(FIELDS["hero"])` goes red if
+# _migration_8 leaves previous_published out of its column tuple. What it
+# cannot cover is the five OTHER kinds, which is precisely where migration
+# 8's reach is new: it is the first migration in this file that touches more
+# than one kind. Restore copies previous_published verbatim into draft
+# (app/sectionlist.py), so a short payload there 400s the owner's next save —
+# on five kinds nothing else in the suite asks about.
+
+
+def _v7_hero_payload():
+    """A hero payload as a user_version-7 store actually held one: the
+    thirteen keys of the v6 era plus LLM-COP-22's style, and no portrait_alt.
+
+    A FROZEN LITERAL by construction, for the reason _v3_hero_payload states
+    — it extends _v6_hero_payload(), which is itself frozen, with the one key
+    migration 7 appends, written out here rather than read from FIELDS.
+    """
+    payload = _v6_hero_payload()
+    payload["style"] = ""
+    return payload
+
+
+# The four non-hero payloads as a v7 store held them, written out rather than
+# copied from SEED_SECTIONS. The live seed is not a pre-change fixture: it
+# already carries section_label, so a fixture built from it would hand
+# migration 8 rows that need no backfill and every assertion below would pass
+# against a migration that did nothing. (That is not hypothetical — it is
+# exactly why test_migration_7_touches_no_other_kind stayed green under
+# migrate() when it should not have.) The strings are an owner's, not the
+# seed's, so a backfill that overwrote stored content would be visible.
+_V7_NON_HERO_PAYLOADS = {
+    "tietoa": {
+        "nostolause": "Autan sinua löytämään sanat.",
+        "leipäteksti": "Työskentelen rauhallisesti ja pitkäjänteisesti.",
+        "facts": [
+            {"label": "Koulutus", "value": "Filosofian maisteri"},
+            {"label": "Kokemus", "value": "Kaksitoista vuotta"},
+        ],
+    },
+    "yhteydenotto": {
+        "name_label": "Nimi",
+        "email_label": "Sähköposti tai puhelin",
+        "message_label": "Viesti",
+        "send_label": "Lähetä",
+        "thanks": "Kiitos! Palaan asiaan pian.",
+    },
+    "sijainti": {"address": "Kauppakatu 1, Turku"},
+}
+
+
+# One key per kind whose value belongs to the OWNER, so "the migration left
+# stored content alone" is asserted against a value the migration has no
+# default for.
+_OWNER_MARKER = {
+    "hero": "title",
+    "tietoa": "nostolause",
+    "yhteydenotto": "thanks",
+    "sijainti": "address",
+}
+
+# What the older, restorable version says in that key. Distinct from anything
+# in the current payloads, so a previous_published that had merely been
+# overwritten with the draft would be visible rather than plausible.
+_RESTORABLE_MARKER = "Vanha teksti"
+
+
+def _v7_database(path, kinds):
+    """A database at exactly user_version 7 with one row per named kind, each
+    carrying a NON-NULL previous_published that differs from its published
+    text — the state a restore reads.
+
+    MIGRATIONS[:7] and an explicit PRAGMA, the idiom the fixtures above use,
+    so _migration_8 really is the only thing that has not run yet.
+    """
+    c = database.connect(str(path))
+    for migration in database.MIGRATIONS[:7]:
+        migration(c)
+    c.execute("PRAGMA user_version = 7")
+    for position, kind in enumerate(kinds, start=1):
+        if kind == "hero":
+            payload = _v7_hero_payload()
+            older = _v7_hero_payload()
+        else:
+            payload = copy.deepcopy(_V7_NON_HERO_PAYLOADS[kind])
+            older = copy.deepcopy(_V7_NON_HERO_PAYLOADS[kind])
+        older[_OWNER_MARKER[kind]] = _RESTORABLE_MARKER
+        text = json.dumps(payload, ensure_ascii=False)
+        c.execute(
+            "INSERT INTO sections (kind, position, state, draft, published,"
+            " previous_published) VALUES (?, ?, 'published', ?, ?, ?)",
+            (
+                kind,
+                position,
+                text,
+                text,
+                json.dumps(older, ensure_ascii=False),
+            ),
+        )
+    c.commit()
+    return c
+
+
+def test_migration_8_backfills_previous_published_on_every_kind(tmp_path):
+    """The branch the captured install cannot reach, on the five kinds
+    migration 8 is the first migration ever to touch.
+
+    Palauta edellinen versio copies previous_published verbatim into draft
+    (app/sectionlist.py), so a payload short of a declared key there is not a
+    cosmetic gap: the owner restores a version and the very next save 400s,
+    with nothing on screen to explain why. The failure this pins is a
+    _migration_8 whose column tuple names only draft and published — which
+    would leave every other assertion in the suite green.
+    """
+    kinds = ("hero", "tietoa", "yhteydenotto", "sijainti")
+    c = _v7_database(tmp_path / "prev8.sqlite3", kinds)
+    before = {
+        row["kind"]: badge(row["state"], row["draft"], row["published"])
+        for row in c.execute(
+            "SELECT kind, state, draft, published FROM sections"
+        )
+    }
+    assert set(before.values()) == {"Julkaistu"}
+
+    database.migrate(c)
+
+    rows = {
+        row["kind"]: row
+        for row in c.execute(
+            "SELECT kind, state, draft, published, previous_published"
+            " FROM sections"
+        )
+    }
+    for kind in kinds:
+        row = rows[kind]
+        previous = json.loads(row["previous_published"])
+        # The owner's own stored content is untouched...
+        assert previous[_OWNER_MARKER[kind]] == _RESTORABLE_MARKER, kind
+        # ...but every declared key is there, in declaration order, so a
+        # restore followed by a save cannot 400.
+        assert list(previous) == list(FIELDS[kind]), kind
+        assert validate_payload(kind, previous)[1] == {}, kind
+        # And restoring it really would store those exact bytes back: a
+        # payload that validates but re-serialises differently would flip the
+        # badge on the save after the restore.
+        clean, _errors = validate_payload(kind, previous)
+        assert json.dumps(clean, ensure_ascii=False) == (
+            row["previous_published"]
+        ), kind
+        # The other two columns moved together, so no badge moved with them.
+        assert row["draft"] == row["published"], kind
+        assert badge(row["state"], row["draft"], row["published"]) == (
+            before[kind]
+        ), kind
+    c.close()
+
+
 def test_the_migration_head_is_eight(tmp_path):
     """The head, named exactly once in the suite.
 
