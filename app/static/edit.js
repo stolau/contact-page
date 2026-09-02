@@ -309,7 +309,9 @@
   });
 
   poistaButton.addEventListener("click", function () {
-    // No delete route: this takes the picture off the page, not off disk.
+    // This takes the picture off the page. The file follows on the save,
+    // through the count: it goes only when no section names the digest any
+    // more and the retention floor has passed (LLM-COP-27).
     setPortrait("");
   });
 

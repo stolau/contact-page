@@ -29,6 +29,7 @@ from flask import Blueprint, current_app, jsonify, render_template, request
 from . import auth
 from . import db as database
 from .fields import ANCHORS, FIELD_LABELS, FIELDS, SECTION_NAMES
+from .images import collect_unreferenced
 from .sanitize import validate_payload
 from .sections import badge
 from .summary import blank_payload, summarize
@@ -376,6 +377,9 @@ def post_restore(section_id):
         )
         conn.commit()
         auth.audit(conn, f"section restored id={section_id}")
+        # The replaced draft's digest may have been this store's last
+        # reference to a picture (LLM-COP-27).
+        collect_unreferenced(conn)
         return jsonify(
             badge=badge(row["state"], text, row["published"]),
             restored_at=int(time.time()),
