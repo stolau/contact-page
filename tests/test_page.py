@@ -30,17 +30,31 @@ SEED_BY_KIND = dict(SEED_SECTIONS)
 
 # --- whole-document byte-exact contains-text criteria -----------------------
 #
-# LLM-COP-10 split the old 54-row DOCUMENT_CRITERIA table in two. 9 rows stay
-# below; the other 45 left it — 13 became SEEDED_RENDERS, and 32 are covered by
-# the three list-driven tests (fact cards, about facts, services), which assert
-# every stored item rather than a hand-picked few.
+# LLM-COP-10 split the old 54-row DOCUMENT_CRITERIA table in two, and
+# LLM-COP-26 took two more rows out of what was left. 7 rows stay below; of the
+# rest, 12 became SEEDED_RENDERS, 32 are covered by the three list-driven tests
+# (fact cards, about facts, services), which assert every stored item rather
+# than a hand-picked few, and 3 became CTA_RENDERS further down.
 #
-# Byte-exact below: strings the TEMPLATE owns, which no admin can edit, plus
-# "Ota yhteyttä", which is a payload field (hero.contact_label) that the brief
-# names explicitly as the product's promise rather than the persona. That one
-# exception is the brief's call, and the tension is recorded in the spec delta
-# rather than resolved here. "Lue palveluista" is NOT in the brief's list, so
-# it is treated as what it is — editable data — and moved below.
+# Byte-exact below: strings the TEMPLATE owns, which no admin can edit.
+# "Ota yhteyttä" used to be the one exception, on the ground that the brief
+# named it as the product's promise rather than the persona. It is
+# hero.contact_label — a stored field the panel offers as "Painike 1"
+# (app/fields.py) — so LLM-COP-26 demoted the seven criteria that pinned it
+# and hero.services_label, and its rows left this table.
+#
+# The two labels are deliberately NOT in SEEDED_RENDERS either, for two
+# different reasons. A whole-document substring for "Ota yhteyttä" cannot fail
+# while the header's button at app/templates/page.html:128 carries those same
+# words as a template literal: delete the hero's binding entirely and such a
+# row still passes. "Lue palveluista" has no such literal, so a whole-document
+# row does catch a deleted binding — but it cannot say which element rendered
+# the value: swap the hero's two bindings and both whole-document rows still
+# pass while every element-scoped case goes red.
+# They live in CTA_RENDERS below, scoped to the hero's own element, plus
+# test_cta_labels_are_data_the_owner_can_change, which stores strings that
+# appear nowhere in app/. test_header_contact_button is the criterion that
+# legitimately owns that header literal.
 #
 # Everything that moved pinned a value the owner can change from the admin
 # panel. Pinning those is the defect this artifact was filed against: a data
@@ -50,11 +64,9 @@ SEED_BY_KIND = dict(SEED_SECTIONS)
 DOCUMENT_CRITERIA = [
     ("cp-main.hero.portrait-placeholder-0", "Muotokuva"),
     ("cp-main.hero.portrait-placeholder-1", "browse files"),
-    ("cp-main.hero.cta-row.cta-contact", "Ota yhteyttä"),
     ("cp-main.about-section.about-kicker", "NÄIN TYÖSKENTELEN"),
     ("cp-main-phone.phone-hero.phone-portrait-0", "Kuva"),
     ("cp-main-phone.phone-hero.phone-portrait-1", "browse files"),
-    ("cp-main-phone.phone-hero.phone-contact-button", "Ota yhteyttä"),
     ("cp-main-phone.phone-palvelut.phone-palvelut-label", "PALVELUT"),
     ("cp-main-phone.phone-vastaanotto.phone-vastaanotto-label", "VASTAANOTTOAJAT"),
 ]
@@ -67,7 +79,6 @@ SEEDED_RENDERS = [
     ("cp-main.hero.intro", "hero", "ingress"),
     ("cp-main-phone.phone-hero.phone-intro", "hero", "ingress_mobile"),
     ("cp-main.hero.credentials-row", "hero", "credentials"),
-    ("cp-main.hero.cta-row.cta-services", "hero", "services_label"),
     ("cp-main.about-section.about-lead", "tietoa", "nostolause"),
     ("cp-main.about-section.about-body", "tietoa", "leipäteksti"),
     ("cp-main-phone.phone-palvelut.phone-all-services", "palvelut", "more_label"),
@@ -170,6 +181,47 @@ def test_header_contact_button(page_html):
     header = element_text(page_html, "header")
     assert header is not None
     assert "Ota yhteyttä" in header
+
+
+# (address, tag, class token, hero field) — the CTA labels are stored fields
+# (app/fields.py; the panel offers them as "Painike 1"/"Painike 2"), so the
+# criterion is that the element renders the STORED value. Scoped to the
+# element, never the document — see the comment above DOCUMENT_CRITERIA.
+#
+# The first two rows resolve to THE SAME ELEMENT and are not independent phone
+# coverage: the hero's contact button carries no phone-only/desktop-only class,
+# so it is the contact button in both views, while the header's copy at
+# app/templates/page.html:128 is desktop-only and is not the phone view's
+# contact button at all. Two rows because two spec addresses land on it, per
+# this file's case-id-cites-its-address convention; the assertion is one and
+# the same.
+CTA_RENDERS = [
+    ("cp-main.hero.cta-row.cta-contact", "button", "cta-contact", "contact_label"),
+    ("cp-main-phone.phone-hero.phone-contact-button", "button", "cta-contact", "contact_label"),
+    ("cp-main.hero.cta-row.cta-services", "a", "cta-services", "services_label"),
+]
+
+
+@pytest.mark.parametrize(
+    "address,tag,cls,field",
+    [pytest.param(a, t, c, f, id=a) for a, t, c, f in CTA_RENDERS],
+)
+def test_hero_cta_carries_the_stored_label(page_html, address, tag, cls, field):
+    """The hero's own element renders the stored label.
+
+    Element-scoped on purpose, for two different reasons. For "Ota yhteyttä"
+    a whole-document check cannot fail at all: the header's template literal
+    at app/templates/page.html:128 satisfies it even with the hero binding
+    deleted. "Lue palveluista" has no such literal, so a whole-document check
+    does catch a deleted binding — but it cannot say which element rendered
+    the value: swap the two bindings and both whole-document rows still pass
+    while all three of these go red.
+    """
+    value = SEED_BY_KIND["hero"][field]
+    assert value.strip(), f"{address}: seeded hero.{field} is empty"
+    text = element_text(page_html, tag, cls=cls)
+    assert text is not None, f"{address}: no {tag}.{cls} in the served page"
+    assert value in text, f"{address}: stored hero.{field} not in {tag}.{cls}"
 
 
 def test_phone_menu_glyph_present(page_html):
@@ -307,6 +359,42 @@ def test_site_chrome_is_data_the_owner_can_change(app, client):
     assert "Testi Yritys" in brand
     assert "TY" in brand  # initials recomputed from the new brand
     assert "© 2030 Testi Yritys ja kumppanit" in element_text(after, "footer")
+
+
+def test_cta_labels_are_data_the_owner_can_change(app, client):
+    """LLM-COP-26's central claim, asserted without reference to the seed.
+
+    Both hero call-to-action labels are stored fields, so changing them
+    changes the served page. As in the site-chrome case above, the expected
+    strings appear nowhere in app/, so this fails against any implementation
+    that keeps a template literal in the hero.
+
+    The third assertion is the header's own Ota yhteyttä (page.html:128,
+    criterion cp-main.header.header-contact-button), which is a TEMPLATE
+    literal and must not follow the field. It is not decoration: bind that
+    button to hero.contact_label and the header silently starts tracking a
+    field the spec says it does not, while test_header_contact_button stays
+    green because it runs on the seeded page where the field still holds the
+    same words. This assertion is the only one that catches that ALONE.
+    """
+    def rewrite(payload):
+        payload["contact_label"] = "Soita minulle heti"
+        payload["services_label"] = "Katso mitä teen"
+
+    edit_published_payload(app, "hero", rewrite)
+    after = client.get("/").get_data(as_text=True)
+
+    contact = element_text(after, "button", cls="cta-contact")
+    assert contact is not None, "no button.cta-contact in the served page"
+    assert "Soita minulle heti" in contact
+
+    services = element_text(after, "a", cls="cta-services")
+    assert services is not None, "no a.cta-services in the served page"
+    assert "Katso mitä teen" in services
+
+    header_cta = element_text(after, "button", cls="header-contact")
+    assert header_cta is not None, "no button.header-contact in the served page"
+    assert "Ota yhteyttä" in header_cta
 
 
 def test_fact_card_count_follows_the_data(app, client):
