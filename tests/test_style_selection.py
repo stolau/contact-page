@@ -30,6 +30,7 @@ opposite mistake.
 """
 
 import json
+import re
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -38,11 +39,22 @@ from flask import render_template, template_rendered
 
 from app import db as database
 from app.fields import ANCHORS, FIELD_LABELS, FIELDS, NAV_LABELS, SECTION_NAMES
-from app.sections import draft_sections, site_chrome
-from app.styles import DEFAULT_STYLE, STYLE_TEMPLATES, resolve_style, template_for
+from app.sections import badge, draft_sections, site_chrome, visible_sections
+from app.styles import (
+    DEFAULT_STYLE,
+    STYLE_CHOICES,
+    STYLE_TEMPLATES,
+    resolve_style,
+    template_for,
+)
 
 V1_TEMPLATE = "page.html"
 V2_TEMPLATE = "page_v2.html"
+
+# The two attributes the public document is read by below. Both are the
+# product's own markup, never a word of the owner's content.
+KIND = re.compile(r'data-kind="([^"]+)"')
+BINDING = re.compile(r'data-section="(\d+)"\s+data-field="([^"]+)"')
 
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "app" / "templates"
 
@@ -430,3 +442,213 @@ def test_the_v1_public_template_names_no_style():
     source = (TEMPLATES_DIR / "page.html").read_text(encoding="utf-8")
     assert "site_style" not in source
     assert "style-v2" not in source
+
+
+# --- the OFFERED set, fenced (LLM-COP-24) -----------------------------------
+#
+# STYLE_TEMPLATES is fenced above: every declared template exists on disk and
+# resolves. The menu is a different promise. Offering a style tells the owner
+# that picking it is safe, and LLM-COP-24's ruling is that switching skin must
+# never silently remove published content — so what the panel offers has to be
+# quantified over, not spot-checked at the one entry that happens to be there.
+
+
+def public_context(app):
+    """The context app/__init__.py:render_page hands the public template.
+
+    A copy of the route's own two loader calls, for the same reason
+    direct_edit_context above is one: a context invented here would let a
+    template pass this test and still raise UndefinedError on the real route.
+    """
+    conn = database.connect(app.config["DATABASE"])
+    try:
+        return dict(
+            sections=visible_sections(conn),
+            nav_labels=NAV_LABELS,
+            anchors=ANCHORS,
+            **site_chrome(conn),
+        )
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize(
+    "value,label",
+    STYLE_CHOICES,
+    ids=[value for value, _label in STYLE_CHOICES],
+)
+def test_every_offered_style_renders_a_whole_page(app, value, label):
+    """A style may be OFFERED only when picking it renders the whole page.
+
+    LLM-COP-24's ruling, made executable: an owner who picks a skin and
+    loses their opening hours has been harmed by a styling choice, and would
+    reasonably not notice until a client did. So the quantifier is over
+    STYLE_CHOICES — the menu — and not over STYLE_TEMPLATES, which is only
+    what the renderer can resolve.
+
+    THE TEMPLATE IS RESOLVED BY INDEXING STYLE_TEMPLATES, NEVER THROUGH
+    template_for(). Measured, and it is the whole difference between a fence
+    and a decoration: template_for runs its argument through resolve_style
+    first, so an offered style naming no template falls back to page.html,
+    which renders all six kinds and V1's own bindings and passes everything
+    below. Indexing makes that case a KeyError instead — and the explicit
+    membership check on the first line turns the KeyError into a sentence.
+    Both are load-bearing; neither is redundant.
+
+    This is not the first line of defence for V2 — tests/test_page_v2.py is,
+    and it is where a V2-specific drift is caught. The distinct property here
+    is the quantifier: a style cannot be added to the menu while dropping a
+    kind, or while naming no template at all.
+    """
+    conn = database.connect(app.config["DATABASE"])
+    try:
+        published_kinds = [
+            section["kind"] for section in visible_sections(conn)
+        ]
+    finally:
+        conn.close()
+
+    problems = []
+    with app.test_request_context("/"):
+        context = public_context(app)
+        v1_bindings = set(
+            BINDING.findall(render_template(V1_TEMPLATE, **context))
+        )
+
+        if value not in STYLE_TEMPLATES:
+            problems.append(f"{value}: offered but names no template")
+        else:
+            html = render_template(STYLE_TEMPLATES[value], **context)
+            rendered_kinds = KIND.findall(html)
+            if rendered_kinds != published_kinds:
+                problems.append(
+                    f"{value}: kinds {rendered_kinds} != {published_kinds}"
+                )
+            if set(BINDING.findall(html)) != v1_bindings:
+                problems.append(f"{value}: bindings differ from V1")
+
+    assert v1_bindings, "no bindings found in V1 at all — the extractor is wrong"
+    assert problems == [], (label, problems)
+
+
+# --- the round trip leaves the store where it found it (LLM-COP-24) ---------
+
+
+def rows_by_kind(app):
+    """Every section row, keyed by kind, straight from the app's own DB
+    file — what the store HOLDS, never what a route says it holds."""
+    conn = database.connect(app.config["DATABASE"])
+    try:
+        return {
+            row["kind"]: dict(row)
+            for row in conn.execute(
+                "SELECT id, kind, state, draft, published FROM sections"
+            )
+        }
+    finally:
+        conn.close()
+
+
+def badges(rows):
+    return {
+        kind: badge(row["state"], row["draft"], row["published"])
+        for kind, row in rows.items()
+    }
+
+
+def test_switching_style_and_back_leaves_every_other_row_and_the_hero_bytes_alone(
+    app, logged_in_admin
+):
+    """LLM-COP-24's first-named hazard: badge() compares raw stored JSON, so
+    a style change that rewrites a payload flips badges to Luonnos across a
+    whole site — and the owner sees a site full of unpublished changes they
+    never made.
+
+    v1 -> v2 -> v1 through the PRODUCT'S OWN route, the way app/static/edit.js
+    drives it: the whole hero payload with exactly one key changed. Six
+    properties, and they do not all catch the same thing.
+
+    D IS AN ASSERTION, NOT AN OVERSIGHT. The seed stores style "" rather than
+    "v1" (app/seed.py, and it says why: sectionlist compares a published
+    payload to blank_payload BY VALUE), so the FIRST v1 write legitimately
+    dirties the hero — Julkaistu becomes Luonnos and the bytes move. That is
+    correct behaviour, written down here so the next reader does not "fix" it
+    back. It is also why the byte baseline for the round trip is taken after
+    that first write and not at the seed.
+
+    F IS WHY THIS TEST EXISTS AT ALL. A and C are already true of the shipped
+    suite — tests/test_edit.py asserts every non-hero row is byte-identical
+    across a draft PUT through this same route — and key order is guarded by
+    tests/test_seed.py and tests/test_edit.py. What none of those see is a
+    style write that leaves the draft route: load, set, json.dumps with the
+    default ensure_ascii=True, store. Measured, that passes A through E and
+    every shipped guard, and reddens F alone — the whole hero payload is
+    rewritten in \\uXXXX escapes, byte-different from a payload nobody edited,
+    and every hero badge in the country says Luonnos.
+    """
+    seeded = rows_by_kind(app)
+    hero_id = seeded["hero"]["id"]
+    seed_payload = json.loads(seeded["hero"]["draft"])
+    # The premise D rests on, asserted rather than assumed.
+    assert seed_payload["style"] == "", seed_payload["style"]
+
+    def choose(style):
+        payload = json.loads(rows_by_kind(app)["hero"]["draft"])
+        payload["style"] = style
+        response = logged_in_admin.put(
+            f"/api/sections/{hero_id}/draft",
+            json=payload,
+            headers={"Accept": "application/json"},
+        )
+        assert response.status_code == 200, response.get_data(as_text=True)
+        return rows_by_kind(app)
+
+    after_first_v1 = choose("v1")
+    after_v2 = choose("v2")
+    final = choose("v1")
+    steps = (after_first_v1, after_v2, final)
+
+    # A. No row but the hero moves, at any step. The style lives on the hero
+    #    payload, so every other row is a bystander.
+    for index, rows in enumerate(steps, start=1):
+        moved = [
+            kind
+            for kind, row in rows.items()
+            if kind != "hero"
+            and (row["draft"], row["published"])
+            != (seeded[kind]["draft"], seeded[kind]["published"])
+        ]
+        assert moved == [], (index, moved)
+
+    # B. Back where it started: the round trip is closed on the hero's own
+    #    draft text, baselined after the first v1 write (see D).
+    assert final["hero"]["draft"] == after_first_v1["hero"]["draft"]
+
+    # C. And no bystander's badge moved either — the symptom the owner would
+    #    actually see.
+    seeded_badges = badges(seeded)
+    for index, rows in enumerate(steps, start=1):
+        current = badges(rows)
+        for kind in seeded_badges:
+            if kind == "hero":
+                continue
+            assert current[kind] == seeded_badges[kind], (index, kind)
+
+    # D. The hero's own first write DOES dirty it, correctly — seeded "" is
+    #    not "v1", so this is a real content change.
+    assert seeded_badges["hero"] == "Julkaistu"
+    assert badges(after_first_v1)["hero"] == "Luonnos"
+    assert after_first_v1["hero"]["draft"] != seeded["hero"]["draft"]
+
+    # E. The hero's key order survived three round trips through
+    #    validate_payload, which rebuilds a payload in FIELDS declaration
+    #    order (app/fields.py says why a mid-list key is forbidden).
+    final_payload = json.loads(final["hero"]["draft"])
+    assert list(final_payload) == list(seed_payload)
+
+    # F. The final draft is the SEEDED text with only style's value replaced.
+    #    Bytes, not a parsed dict: badge() compares the raw text, so a
+    #    re-encoding nothing asked for is exactly the defect.
+    assert final["hero"]["draft"] == json.dumps(
+        dict(seed_payload, style="v1"), ensure_ascii=False
+    )

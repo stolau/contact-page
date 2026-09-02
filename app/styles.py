@@ -6,9 +6,12 @@ publish participant, no second badge story.
 
 STYLE_TEMPLATES and STYLE_CHOICES are deliberately two constants, not one.
 STYLE_TEMPLATES is what the RENDERER can resolve; STYLE_CHOICES is what the
-owner is OFFERED in the panel's Ulkoasu tab. V2 is renderable here and not
-yet offered, which is what makes LLM-COP-24 an append of one tuple rather
-than a change to this module.
+owner is OFFERED in the panel's Ulkoasu tab. LLM-COP-24 offered V2 by
+appending one tuple below, exactly as that seam promised — no change to this
+module's logic. The two hold the same values today, and they stay two
+constants: shipping a template must not ship a menu entry with it,
+unreviewed, and a style may be offered only once picking it renders a whole
+page (tests/test_style_selection.py).
 
 An unknown value — "", a style dropped from a later build, anything an API
 client stored — resolves to the default rather than raising: a stored style
@@ -23,8 +26,10 @@ STYLE_TEMPLATES = {
 }
 
 # What the Ulkoasu tab offers, as (value, label) pairs in display order.
+# "Kuvallinen" is INVENTED product copy: LLM-COP-18 names no label for V2.
 STYLE_CHOICES = [
     ("v1", "Perus"),
+    ("v2", "Kuvallinen"),
 ]
 
 

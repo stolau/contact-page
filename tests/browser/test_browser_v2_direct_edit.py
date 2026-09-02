@@ -15,15 +15,17 @@ whether something in V2's stylesheet sits on top of it, or whether the
 value reaches the store. Those are browser questions and this is where
 they are asked.
 
-WHY A TEST-LOCAL ROUTE. Choosing which template renders is LLM-COP-22's
-work and this artifact must not touch it, so there is no URL yet that
-serves V2. The fixture below registers one that renders page_v2.html with
-direct edit mode's own context, and
-test_the_harness_route_matches_the_real_direct_edit_route asserts its
-bootstrap is byte-identical to /muokkaa/sivu's — so this harness cannot
-drift into proving something about a page the product does not serve.
-When V2 becomes selectable (LLM-COP-24) this route should be deleted and
-these tests pointed at the real one.
+WHY THE FIXTURE GUARDS AGAINST A FALLBACK. Until LLM-COP-24 there was no
+URL that served V2, so this file registered a test-local route that named
+page_v2.html literally. V2 is selectable now and these tests reach the
+product's own /muokkaa/sivu instead — which costs something the harness
+did not: an unknown style resolves to V1 BY DESIGN (app/styles.py), so a
+subtly wrong selection would serve this file V1, every sweep below would
+type into V1's bindings, and all of it would pass while proving nothing
+about V2. The harness could not fall back; a real URL can. So the fixture
+asserts the served document IS V2 before any test runs — the stylesheet
+link and a class page.html contains zero times — and that assertion is
+what replaces the property the harness provided.
 
 NO SAMPLE COPY IS ASSERTED. Every value typed below is compared against
 what the page itself shows, never against a literal: the seven V2
@@ -32,107 +34,45 @@ owner's data.
 """
 
 import json
-import re
-import threading
 
 import pytest
-from werkzeug.serving import make_server
 
-from app import auth, create_app
 from app import db as database
-from app.fields import ANCHORS, FIELD_LABELS, FIELDS, NAV_LABELS, SECTION_NAMES
-from app.sections import draft_sections, site_chrome
-from tests.conftest import ADMIN_PASSWORD, ADMIN_USERNAME, create_admin
+from tests.browser.conftest import V2_STYLESHEET, set_hero_draft_style
 
-# Fixed, the same size conftest.py pins, so a layout reading here means
-# the same thing it means there.
-VIEWPORT = {"width": 1280, "height": 900}
-
-# The harness route. Under /__v2__/ rather than /muokkaa/ so it can never
-# be mistaken for a product URL in a log or a screenshot.
-V2_DIRECT_EDIT = "/__v2__/muokkaa/sivu"
-
-BOOTSTRAP = re.compile(
-    r'<script id="direct-bootstrap" type="application/json">(.*?)</script>',
-    re.DOTALL,
-)
-
-
-def _register_v2_direct_edit(app):
-    """A route that renders page_v2.html exactly as app/direct_edit.py
-    renders page.html — same loader calls, same context keys, same auth
-    gate. Nothing in app/ changes."""
-
-    @app.route(V2_DIRECT_EDIT)
-    @auth.require_admin
-    def v2_direct_edit():
-        from flask import render_template
-
-        conn = database.connect(app.config["DATABASE"])
-        try:
-            sections = draft_sections(conn)
-            owner = conn.execute("SELECT username FROM admin_user").fetchone()
-            chrome = site_chrome(conn, "draft")
-        finally:
-            conn.close()
-        bootstrap = {
-            "sections": sections,
-            "fields": FIELDS,
-            "field_labels": FIELD_LABELS,
-            "section_names": SECTION_NAMES,
-            "anchors": ANCHORS,
-        }
-        return render_template(
-            "page_v2.html",
-            sections=sections,
-            nav_labels=NAV_LABELS,
-            anchors=ANCHORS,
-            direct_edit=True,
-            owner_name=owner["username"] if owner is not None else "",
-            section_names=SECTION_NAMES,
-            bootstrap=bootstrap,
-            **chrome,
-        )
+# Only page_v2.html emits this class — measured, eleven times there and
+# zero times in page.html — so it is what tells a served V2 apart from a
+# fallback to V1 that would otherwise look like a healthy page.
+V2_ONLY_CLASS = ".v2-hero"
 
 
 @pytest.fixture
-def live_app_v2(tmp_path):
-    """The real app on a real port, with the harness route registered
-    BEFORE the first request — Flask refuses a route added after one."""
-    app = create_app(instance_path=str(tmp_path / "instance"))
-    _register_v2_direct_edit(app)
-    create_admin(app)
-    server = make_server("127.0.0.1", 0, app, threaded=True)
-    app.base_url = f"http://127.0.0.1:{server.server_port}"
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    yield app
-    server.shutdown()
-    server.server_close()
-    thread.join(timeout=10)
+def v2_page(page, live_app):
+    """conftest.py's signed-in page, landed on the REAL /muokkaa/sivu with
+    the drafted style set to v2 — and NOT yielded until the document that
+    came back is actually V2.
 
-
-@pytest.fixture
-def v2_page(browser, live_app_v2):
-    """A signed-in page, through the app's own login form, landed on the
-    V2 direct edit document.
-
-    `browser` is conftest.py's session-scoped Chrome, deliberately: a
-    second sync_playwright() inside this module raises "Sync API inside
-    the asyncio loop" the moment the whole suite runs together, because
-    that fixture's context is already open. One process for the session is
-    also the whole cost saving that fixture exists for.
+    The guard is the point. /muokkaa/sivu renders whatever the drafted
+    style resolves to, and resolve_style turns anything it does not know
+    into "v1" rather than raising, because a stored style must never be
+    able to 500 a page. That is right for the product and it is a trap for
+    this file: a fixture that planted a value the renderer did not know
+    would hand every test below a V1 document, and every one of them would
+    pass against V1's bindings. Measured: resolve_style("banana") is "v1",
+    and page.html contains v2-hero zero times.
     """
-    context = browser.new_context(viewport=VIEWPORT)
-    open_page = context.new_page()
-    open_page.goto(f"{live_app_v2.base_url}/yllapito")
-    open_page.fill("input[name=kayttajatunnus]", ADMIN_USERNAME)
-    open_page.fill("input[name=salasana]", ADMIN_PASSWORD)
-    open_page.click(".login-submit")
-    open_page.wait_for_url(f"{live_app_v2.base_url}/yllapito/alustus")
-    open_page.goto(f"{live_app_v2.base_url}{V2_DIRECT_EDIT}")
-    yield open_page
-    context.close()
+    set_hero_draft_style(live_app, "v2")
+    page.goto(f"{live_app.base_url}/muokkaa/sivu")
+    assert page.locator(V2_STYLESHEET).count() == 1, (
+        "/muokkaa/sivu did not serve the V2 skin — the drafted style fell "
+        "back to V1, and every test in this file would have passed against "
+        "V1's bindings"
+    )
+    assert page.locator(V2_ONLY_CLASS).count() > 0, (
+        f"the served document links style-v2.css but carries no "
+        f"{V2_ONLY_CLASS}"
+    )
+    return page
 
 
 def drafts(app):
@@ -171,8 +111,8 @@ def activate(page, field):
 
 def bound_fields(page):
     """Every [data-field] the browser can actually reach: its section id,
-    its field name, whether the schema calls it rich, and whether it is
-    laid out at this viewport.
+    its section's kind, its field name, whether the schema calls it rich,
+    and whether it is laid out at this viewport.
 
     Read out of the live DOM, not out of a list here — a list would be the
     same restatement of app/templates/page_v2.html that would go stale at
@@ -191,6 +131,7 @@ def bound_fields(page):
                 const d = (boot.fields[kinds[sid]] || {})[name];
                 return {
                     sid: sid,
+                    kind: kinds[sid],
                     name: name,
                     rich: !!d && d.type === 'rich',
                     known: !!d,
@@ -202,34 +143,7 @@ def bound_fields(page):
     )
 
 
-# --- the harness is honest about what it renders ----------------------------
-
-
-def test_the_harness_route_matches_the_real_direct_edit_route(live_app_v2):
-    """Byte-identical bootstrap, so everything below is a claim about the
-    product's own direct edit mode wearing the other skin — not about a
-    page assembled here. If app/direct_edit.py ever passes something else,
-    this fails and the harness gets fixed rather than quietly lying."""
-    client = live_app_v2.test_client()
-    client.post(
-        "/yllapito/kirjaudu",
-        data={"kayttajatunnus": ADMIN_USERNAME, "salasana": ADMIN_PASSWORD},
-    )
-    v1 = BOOTSTRAP.search(client.get("/muokkaa/sivu").get_data(as_text=True))
-    v2 = BOOTSTRAP.search(client.get(V2_DIRECT_EDIT).get_data(as_text=True))
-
-    assert v1 is not None and v2 is not None
-    assert v1.group(1) == v2.group(1)
-
-
-def test_the_harness_route_is_behind_the_same_admin_gate(live_app_v2):
-    """A signed-out request must not reach draft content — the harness
-    must not be a hole in auth even in a test app."""
-    response = live_app_v2.test_client().get(V2_DIRECT_EDIT)
-    assert response.status_code in (302, 401, 403), response.status_code
-
-
-def test_every_rule_in_the_v2_stylesheet_actually_parses(v2_page, live_app_v2):
+def test_every_rule_in_the_v2_stylesheet_actually_parses(v2_page, live_app):
     """A real CSS parser, asked whether it kept every rule in the file.
 
     This caught a shipped defect while this artifact was being built: one
@@ -287,7 +201,7 @@ def test_every_rule_in_the_v2_stylesheet_actually_parses(v2_page, live_app_v2):
             }
             return wanted.filter(sel => !parsed.has(sel));
         }""",
-        live_app_v2.base_url,
+        live_app.base_url,
     )
     assert missing == [], (
         "these rules are in app/static/style-v2.css but the browser's CSS "
@@ -360,9 +274,39 @@ def test_typing_into_every_visible_bound_field_registers_a_change(
     element absorbed the text. A field bound to the wrong section id would
     still take a character and would still show a count; it would not
     count up in step.
+
+    THE THREE NEUTRAL KINDS ARE NAMED (LLM-COP-24). palvelut,
+    vastaanottoajat and sijainti are the kinds V2 has no design for and
+    renders in the neutral prose band, and this sweep is derived from the
+    live DOM — so if a band stopped being LAID OUT the sweep would simply
+    get shorter and still pass. Nothing else catches that. A missing
+    BINDING is caught (tests/test_page_v2.py compares the two templates'
+    binding sets), but a band hidden by CSS keeps every attribute in the
+    markup: `shown` filters on offsetParent/getClientRects above, and
+    test_no_bound_field_on_v2_is_covered_by_something_else early-returns on
+    the same condition, so display:none is invisible to both. Naming the
+    kinds is what makes "V2 renders all six, explicitly not hidden" a claim
+    this file can fail.
+
+    Satisfiable by measurement, not by hope: each of the three binds
+    exactly one field on V2 — palvelut.more_label, vastaanottoajat's
+    booking_note and sijainti.address — and none of them sits behind a
+    viewport class, so all three are laid out at this layer's fixed
+    1280x900.
     """
     fields = [f for f in bound_fields(v2_page) if f["shown"]]
     assert len(fields) > 1, fields
+
+    swept = {f["kind"] for f in fields}
+    unreached = [
+        kind
+        for kind in ("palvelut", "vastaanottoajat", "sijainti")
+        if kind not in swept
+    ]
+    assert unreached == [], (
+        "V2's neutral bands are published and bound, but this sweep never "
+        f"reached them — nothing laid out for: {unreached}"
+    )
 
     for index, field in enumerate(fields, start=1):
         activate(v2_page, field)
@@ -376,7 +320,7 @@ def test_typing_into_every_visible_bound_field_registers_a_change(
 
 
 def test_editing_v2_round_trips_through_the_real_store(
-    v2_page, expect, live_app_v2
+    v2_page, expect, live_app
 ):
     """Every plain field typed into, saved through the product's own PUT
     /api/sections/<id>/draft, and then read back out of the database file.
@@ -391,7 +335,7 @@ def test_editing_v2_round_trips_through_the_real_store(
     value is HTML and textContent is not; that they changed at all is
     asserted separately below.
     """
-    before = drafts(live_app_v2)
+    before = drafts(live_app)
     fields = [f for f in bound_fields(v2_page) if f["shown"]]
 
     for field in fields:
@@ -403,7 +347,7 @@ def test_editing_v2_round_trips_through_the_real_store(
     # goes hidden (direct-edit.js:114-119).
     expect(v2_page.locator(".direct-changes")).to_be_hidden()
 
-    after = drafts(live_app_v2)
+    after = drafts(live_app)
     for field in fields:
         sid, name = field["sid"], field["name"]
         stored = after[sid][name]

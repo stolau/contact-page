@@ -14,14 +14,21 @@ test. Sharing the process is the whole cost saving; sharing anything else
 would let one test's state decide another's result.
 """
 
+import json
 import threading
 
 import pytest
 from werkzeug.serving import make_server
 
 from app import create_app
+from app import db as database
 from tests.browser.chrome import NO_CHROME, chrome_path
-from tests.conftest import ADMIN_PASSWORD, ADMIN_USERNAME, create_admin
+from tests.conftest import (
+    ADMIN_PASSWORD,
+    ADMIN_USERNAME,
+    create_admin,
+    section_rows,
+)
 
 # Fixed, so a layout assertion means the same thing on every machine.
 # Direct edit mode's two fixed bars and the sticky public header only
@@ -32,6 +39,52 @@ VIEWPORT = {"width": 1280, "height": 900}
 # enough for a real page load, short enough that a hung assertion fails
 # the gate rather than stalling it.
 EXPECT_TIMEOUT_MS = 5000
+
+# The link only page_v2.html emits. The selector, not the class, because a
+# stylesheet link is what a browser would actually have to fetch.
+V2_STYLESHEET = 'link[href*="style-v2.css"]'
+
+
+# --- the hero row, shared by every module that asks about the style --------
+#
+# The style is a value on the HERO payload (LLM-COP-22), so more than one
+# module in this directory has to read and plant it. These live here rather
+# than in one of them because LLM-COP-24 gave the second module a real need
+# for them: it stopped rendering page_v2.html through a route of its own and
+# now reaches the product's URL by drafting the style, the same way
+# test_browser_panel.py already did.
+
+
+def hero_row(app):
+    return next(row for row in section_rows(app) if row["kind"] == "hero")
+
+
+def hero_draft(app):
+    return json.loads(hero_row(app)["draft"])
+
+
+def set_hero_draft_style(app, style):
+    """Plant a style in the hero's DRAFT column of the live app's own store.
+
+    A direct UPDATE of one column, deliberately: tests/conftest.py's
+    edit_published_payload writes draft AND published, which cannot express
+    "drafted but not published" — the state the preview-versus-public test is
+    entirely about, and the state /muokkaa/sivu reads.
+    """
+    conn = database.connect(app.config["DATABASE"])
+    try:
+        row = conn.execute(
+            "SELECT id, draft FROM sections WHERE kind = 'hero'"
+        ).fetchone()
+        payload = json.loads(row["draft"])
+        payload["style"] = style
+        conn.execute(
+            "UPDATE sections SET draft = ? WHERE id = ?",
+            (json.dumps(payload, ensure_ascii=False), row["id"]),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 @pytest.fixture(scope="session")
