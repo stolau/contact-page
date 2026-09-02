@@ -121,6 +121,14 @@ FROZEN_HERO_DRAFT = FROZEN_V6_ROWS[0][3]
 # not by json.loads/json.dumps — see the module docstring.
 UPGRADED_HERO_DRAFT = FROZEN_HERO_DRAFT[:-1] + ', "style": ""}'
 
+# What _migration_8 must then produce from THAT (LLM-COP-25): portrait_alt
+# appended after style, again by SPLICE rather than a round trip, for the
+# same reason. This is what a full migrate() leaves in the hero's draft
+# column, so it is what any test that runs migrate() must expect.
+FULLY_UPGRADED_HERO_DRAFT = (
+    UPGRADED_HERO_DRAFT[:-1] + ', "portrait_alt": ""}'
+)
+
 # len(', "style": ""'). Stated as a number so a changed separator fails with
 # an arithmetic complaint rather than a wall of JSON.
 STYLE_KEY_LENGTH = 13
@@ -253,7 +261,7 @@ def test_the_frozen_v6_install_upgrades_with_every_badge_unchanged(tmp_path):
     database.migrate(conn)
 
     (version,) = conn.execute("PRAGMA user_version").fetchone()
-    assert version == len(database.MIGRATIONS) == 7
+    assert version == len(database.MIGRATIONS) == 8
     stored = rows_by_kind(conn)
     for kind, row in stored.items():
         assert badge(row["state"], row["draft"], row["published"]) == (
@@ -262,6 +270,12 @@ def test_the_frozen_v6_install_upgrades_with_every_badge_unchanged(tmp_path):
     # And the hero really was touched — otherwise "no badge moved" would be
     # true of a migration that did nothing at all.
     assert json.loads(stored["hero"]["draft"])["style"] == ""
+    # Since LLM-COP-25 the same has to be said of a non-hero kind: migration 8
+    # is the first migration here that reaches past one kind, so "no badge
+    # moved" would otherwise be true of one that left all five of them alone.
+    assert json.loads(stored["sijainti"]["draft"])["section_label"] == (
+        "SIJAINTI"
+    )
     conn.close()
 
 
@@ -275,10 +289,20 @@ def test_the_frozen_v6_install_leaves_every_non_hero_row_byte_untouched(
     pass if the fixture and the migration were wrong in the same direction.
     style is a hero key, so a stray backfill onto tietoa would make that
     payload fail validate_payload's unknown-key check on the next save.
+
+    _migration_7 ALONE, called directly, since LLM-COP-25 — exactly the
+    scoping test_migration_7_appends_style_to_the_frozen_hero_text_byte_for_byte
+    already uses and for the reason it states. _migration_8 is the first
+    migration in this codebase that touches more than one kind, and it
+    LEGITIMATELY backfills all five of these rows, so migrate() here would
+    turn a true claim about migration 7 into a false alarm. Re-baselining the
+    expected text against migration 8's output instead would leave the suite
+    green and delete the stray-backfill guard permanently; that is the wrong
+    fix and it is written down here so nobody takes it later.
     """
     conn = frozen_v6_store(tmp_path / "others.sqlite3")
 
-    database.migrate(conn)
+    database._migration_7(conn)
 
     stored = rows_by_kind(conn)
     for kind, _position, _state, draft, published, previous in FROZEN_V6_ROWS:
@@ -333,8 +357,12 @@ def test_the_upgraded_install_is_idempotent(tmp_path):
     conn = frozen_v6_store(tmp_path / "twice.sqlite3")
     database.migrate(conn)
     before = {kind: tuple(row) for kind, row in rows_by_kind(conn).items()}
-    # The first pass really did change the hero row.
-    assert before["hero"][3] == UPGRADED_HERO_DRAFT
+    # The first pass really did change the hero row. Kept, not dropped, when
+    # LLM-COP-25 moved the expected text on: this line is what stops the whole
+    # idempotence claim below from passing vacuously over rows nothing ever
+    # touched. migrate() now runs migrations 7 AND 8, so the expectation is
+    # the second splice rather than the first.
+    assert before["hero"][3] == FULLY_UPGRADED_HERO_DRAFT
 
     database._migration_7(conn)
 
@@ -370,7 +398,7 @@ def test_the_style_value_changes_nothing_until_it_names_another_template(
     conn = database.connect(app.config["DATABASE"])
     try:
         (version,) = conn.execute("PRAGMA user_version").fetchone()
-        assert version == 7
+        assert version == 8
     finally:
         conn.close()
 

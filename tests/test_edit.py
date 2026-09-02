@@ -448,6 +448,25 @@ def test_panel_draw_order_for_hero_matches_the_mockup(logged_in_admin):
         "Sivuston nimi",
         "Selaimen otsikko",
         "Alatunniste",
+        # The alt-text row (LLM-COP-25), and it is here for two reasons.
+        #
+        # Its PRESENCE is the evidence that the owner has a way to set the
+        # alt text at all. The whole argument for hero.portrait_alt is that a
+        # screen reader gets nothing from the portrait today because no field
+        # exists; the value renders as an <img> alt attribute, so there is no
+        # text node for the in-place editor to make contenteditable and this
+        # generated form is its ONLY editor. A labelled key is a drawn input,
+        # so this entry is that input.
+        #
+        # Its POSITION is a price, not an accident. portrait_alt is hero
+        # CONTENT, so it belongs beside the Muotokuva row that owns the
+        # picture — but the panel draws in FIELDS order and any position but
+        # last rewrites every stored hero payload on the owner's first save
+        # and flips every hero badge (app/fields.py's ordering rule). So the
+        # alt-text row lands under the site-footer row instead, far from the
+        # picture. Pinned here deliberately, so the reason sits beside the
+        # fact; moving it is a panel-layout change, never a FIELDS reorder.
+        "Kuvan tekstivastine",
     ]
     assert FIELD_LABELS["hero"].get("portrait") is None  # why it is absent
 

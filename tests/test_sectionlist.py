@@ -834,16 +834,29 @@ def test_showing_a_section_whose_published_payload_is_blank_is_refused(
     assert row["state"] == "hidden"
     public = public_html(app)
     assert 'id="sijainti"' not in public
-    assert "SIJAINTI" not in public
+    # The nav link, NOT the string "SIJAINTI". Since LLM-COP-25 that word is
+    # sijainti.section_label — stored data — so its absence would be a claim
+    # about a stored value rather than about the section being hidden.
+    # href="#sijainti" still works as the second marker: it is emitted by the
+    # header loop from NAV_LABELS and ANCHORS, a DIFFERENT construct from the
+    # sijainti() macro that emits the id above, so a hidden section leaking
+    # into the nav but not the body (or the reverse) still fails here. Nav
+    # labels and anchors remain product chrome after LLM-COP-25.
+    assert 'href="#sijainti"' not in public
 
 
 def test_a_section_reaches_the_public_page_once_it_has_real_content(
     added_sijainti, logged_in_admin, app
 ):
     section_id = added_sijainti["id"]
+    # The WHOLE payload: validate_payload takes whole payloads and 400s on a
+    # missing declared key, so when LLM-COP-25 gave sijainti a second field
+    # this literal had to grow one. The fix is always to extend the literal,
+    # never to relax the validator.
     assert logged_in_admin.put(
         f"/api/sections/{section_id}/draft",
-        json={"address": "Kauppakatu 1, Turku"}, headers=JSON_ACCEPT,
+        json={"address": "Kauppakatu 1, Turku", "section_label": "SIJAINTI"},
+        headers=JSON_ACCEPT,
     ).status_code == 200
     assert publish(logged_in_admin).status_code == 200
 

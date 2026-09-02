@@ -26,8 +26,9 @@
   nav links point at.
 
   Every word rendered below comes from the store. No sample copy from the
-  mockups is written into this file: the only strings this template owns
-  are the section labels page.html already owns and "Ylläpito".
+  mockups is written into this file: since LLM-COP-25 made the section
+  labels owner data on both skins, the only string this template owns is
+  "Ylläpito".
 #}<!doctype html>
 <html lang="fi">
 <head>
@@ -73,11 +74,13 @@
    ("Muotokuva", "browse files") are still the ones the criteria name.
    hero.portrait is the product's ONE stored image reference (LLM-COP-21);
    image_url answers a URL only for a real digest, so anything else falls
-   through to the placeholder. #}
-{% macro portrait_slot(src) -%}
+   through to the placeholder. alt is hero.portrait_alt (LLM-COP-25) — the
+   one stored picture has one stored description, and both bands that draw
+   it take the same one. #}
+{% macro portrait_slot(src, alt='') -%}
 <div class="portrait{% if src %} has-image{% endif %}">
   {%- if src %}
-  <img class="portrait-image" src="{{ src }}" alt="">
+  <img class="portrait-image" src="{{ src }}" alt="{{ alt }}">
   {%- else %}
   <span class="portrait-icon" aria-hidden="true">&#128247;</span>
   <span class="portrait-label">Muotokuva</span>
@@ -101,7 +104,7 @@
 {% set portrait_src = p.portrait|image_url %}
 <section id="{{ anchors['hero'] }}" class="v2-hero" data-section="{{ sid }}" data-kind="hero">
   <div class="v2-hero-photo{% if portrait_src %} has-image{% endif %}">
-    {% if portrait_src %}<img class="v2-hero-image" src="{{ portrait_src }}" alt="">{% endif %}
+    {% if portrait_src %}<img class="v2-hero-image" src="{{ portrait_src }}" alt="{{ p.portrait_alt }}">{% endif %}
     <div class="v2-trees" aria-hidden="true"></div>
   </div>
   <div class="v2-hero-card">
@@ -128,12 +131,12 @@
    The image column and the copy column side by side on desktop, stacked on
    the phone, with the small-caps section label under the image on desktop
    and between image and copy on the phone — one DOM, two grid placements.
-   The label string is page.html's own ("NÄIN TYÖSKENTELEN"), unchanged:
-   it is product chrome in V1 and stays product chrome here. #}
-{% macro tietoa(p, sid='', portrait_src=None) -%}
+   The label is tietoa.section_label since LLM-COP-25: it was product chrome
+   in both skins, and it is the owner's in both skins now. #}
+{% macro tietoa(p, sid='', portrait_src=None, portrait_alt='') -%}
 <section id="{{ anchors['tietoa'] }}" class="v2-band v2-band-media-left" data-section="{{ sid }}" data-kind="tietoa">
-  <div class="v2-band-media">{{ portrait_slot(portrait_src) }}</div>
-  <p class="section-kicker v2-section-label about-kicker">NÄIN TYÖSKENTELEN</p>
+  <div class="v2-band-media">{{ portrait_slot(portrait_src, portrait_alt) }}</div>
+  <p class="section-kicker v2-section-label about-kicker" data-section="{{ sid }}" data-field="section_label">{{ p.section_label }}</p>
   <div class="v2-band-copy">
     <h2 class="v2-band-heading" data-section="{{ sid }}" data-field="nostolause">{{ p.nostolause }}</h2>
     <div class="v2-band-body" data-section="{{ sid }}" data-field="leipäteksti">{{ p['leipäteksti']|render_rich }}</div>
@@ -152,13 +155,13 @@
    the skin changes. #}
 {% macro prose_band(kind, label, sid) -%}
 <section id="{{ anchors[kind] }}" class="v2-band v2-band-prose" data-section="{{ sid }}" data-kind="{{ kind }}">
-  <p class="section-kicker v2-section-label">{{ label }}</p>
+  <p class="section-kicker v2-section-label" data-section="{{ sid }}" data-field="section_label">{{ label }}</p>
   <div class="v2-band-copy">{{ caller() }}</div>
 </section>
 {%- endmacro %}
 
 {% macro palvelut(p, sid='') -%}
-{% call prose_band('palvelut', 'PALVELUT', sid) %}
+{% call prose_band('palvelut', p.section_label, sid) %}
   <ul class="v2-service-list">
     {% for name in p.services %}<li class="v2-service-item">{{ name }}</li>{% endfor %}
   </ul>
@@ -167,7 +170,7 @@
 {%- endmacro %}
 
 {% macro vastaanottoajat(p, sid='') -%}
-{% call prose_band('vastaanottoajat', 'VASTAANOTTOAJAT', sid) %}
+{% call prose_band('vastaanottoajat', p.section_label, sid) %}
   {# Its own item class, not v2-fact-line: opening hours are not the fact
      row the prose and portrait bands draw, and one class for both would
      make either one uncountable on its own. #}
@@ -184,7 +187,7 @@
 {%- endmacro %}
 
 {% macro sijainti(p, sid='') -%}
-{% call prose_band('sijainti', 'SIJAINTI', sid) %}
+{% call prose_band('sijainti', p.section_label, sid) %}
   <p class="v2-band-note v2-address" data-section="{{ sid }}" data-field="address">{{ p.address }}</p>
 {% endcall %}
 {%- endmacro %}
@@ -200,26 +203,32 @@
    and it carries yhteydenotto.send_label, so its label stays the owner's
    and stays in-place editable.
 
-   The three field labels keep their V1 job — labelling the three inputs —
-   rather than being promoted into the card's body copy, which is what
-   contact-body and contact-caveat would need. No field in the shipped
-   model carries a body paragraph or a caveat line for this section, and
-   LLM-COP-18 settles that app/fields.py does not change here, so those
-   two addresses are reported unsatisfied rather than filled with a
-   string that means something else. #}
+   The three field labels keep their V1 job — labelling the three inputs.
+   The card's body paragraph and caveat line are yhteydenotto.body and
+   .caveat, and the two action rows beside the primary button are .phone
+   and .email: LLM-COP-25 declared all four, so the addresses
+   v2-cp-section-contact.contact-band.contact-card describes are satisfied
+   from the store rather than reported unsatisfied. Every one of them is
+   emitted UNCONDITIONALLY, empty or not — a conditional element removes
+   the binding the in-place editor needs, and a migrated store has all four
+   empty. #}
 {% macro yhteydenotto(p, sid='') -%}
 <section id="{{ anchors['yhteydenotto'] }}" class="v2-band v2-contact-band" data-section="{{ sid }}" data-kind="yhteydenotto">
   <div class="v2-contact-card">
     <div class="v2-contact-copy">
-      <p class="section-kicker v2-contact-kicker">YHTEYDENOTTO</p>
+      <p class="section-kicker v2-contact-kicker" data-section="{{ sid }}" data-field="section_label">{{ p.section_label }}</p>
+      <p class="v2-contact-body" data-section="{{ sid }}" data-field="body">{{ p.body }}</p>
       <form class="contact-form v2-contact-form">
         <label>{{ p.name_label }}<input type="text" name="name"></label>
         <label>{{ p.email_label }}<input type="text" name="email"></label>
         <label>{{ p.message_label }}<textarea name="message" rows="3"></textarea></label>
       </form>
+      <p class="v2-contact-caveat" data-section="{{ sid }}" data-field="caveat">{{ p.caveat }}</p>
     </div>
     <div class="v2-contact-actions">
       <button type="button" class="button primary cta-contact v2-contact-primary" data-section="{{ sid }}" data-field="send_label">{{ p.send_label }}</button>
+      <p class="v2-contact-action-row v2-contact-phone" data-section="{{ sid }}" data-field="phone">{{ p.phone }}</p>
+      <p class="v2-contact-action-row v2-contact-email" data-section="{{ sid }}" data-field="email">{{ p.email }}</p>
     </div>
   </div>
 </section>
@@ -247,14 +256,16 @@
    portrait design's own note says so — "Here image is used as profile
    picture, but should be same generic possibility than for other
    sections". Read once, before the loop, because the band that draws the
-   portrait is not the section that stores it. #}
-{% set shared = namespace(portrait=None) %}
-{% for section in sections %}{% if section.kind == 'hero' %}{% set shared.portrait = section.payload.portrait|image_url %}{% endif %}{% endfor %}
+   portrait is not the section that stores it. The alt text rides alongside
+   for the same reason: one stored picture, one stored description, and the
+   band that draws it does not store either. #}
+{% set shared = namespace(portrait=None, portrait_alt='') %}
+{% for section in sections %}{% if section.kind == 'hero' %}{% set shared.portrait = section.payload.portrait|image_url %}{% set shared.portrait_alt = section.payload.portrait_alt %}{% endif %}{% endfor %}
 
 <main class="v2-main">
   {% for section in sections %}
     {% if section.kind == 'hero' %}{{ hero(section.payload, section.id) }}
-    {% elif section.kind == 'tietoa' %}{{ tietoa(section.payload, section.id, shared.portrait) }}
+    {% elif section.kind == 'tietoa' %}{{ tietoa(section.payload, section.id, shared.portrait, shared.portrait_alt) }}
     {% elif section.kind == 'palvelut' %}{{ palvelut(section.payload, section.id) }}
     {% elif section.kind == 'vastaanottoajat' %}{{ vastaanottoajat(section.payload, section.id) }}
     {% elif section.kind == 'yhteydenotto' %}{{ yhteydenotto(section.payload, section.id) }}

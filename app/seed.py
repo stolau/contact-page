@@ -54,6 +54,10 @@ SEED_SECTIONS = [
             # "v1" would quietly drop the BLANK_PUBLISHED refusal from a blank
             # hero's Näytä osio. app/styles.py resolves "" to the default.
             "style": "",
+            # The seed ships no picture (portrait is "" above), so there is
+            # nothing to describe. Alt text for a picture that does not exist
+            # would be an invented description.
+            "portrait_alt": "",
         },
     ),
     (
@@ -92,6 +96,9 @@ SEED_SECTIONS = [
                 {"label": "Osaaminen", "value": "Täydennä erityisosaamisesi"},
                 {"label": "Tapaamiset", "value": "45–90 min"},
             ],
+            # LLM-COP-25: the kicker page.html used to own. Seeded with the
+            # literal it rendered, so a fresh install looks unchanged.
+            "section_label": "NÄIN TYÖSKENTELEN",
         },
     ),
     (
@@ -105,6 +112,7 @@ SEED_SECTIONS = [
             # Was "Kaikki kuusi palvelua" — a hard-coded count of six against
             # a seed that ships three. Same defect class as LLM-COP-8.
             "more_label": "Kaikki palvelut",
+            "section_label": "PALVELUT",
         },
     ),
     (
@@ -118,6 +126,7 @@ SEED_SECTIONS = [
                 "Verkossa ei ole varausjärjestelmää – "
                 "kerro lomakkeella, mitä etsit."
             ),
+            "section_label": "VASTAANOTTOAJAT",
         },
     ),
     (
@@ -128,12 +137,25 @@ SEED_SECTIONS = [
             "message_label": "Viesti",
             "send_label": "Lähetä",
             "thanks": "Kiitos yhteydenotosta! Palaan asiaan mahdollisimman pian.",
+            "section_label": "YHTEYDENOTTO",
+            # The contact card's four fields (LLM-COP-25), instructive
+            # placeholders in the shape sijainti.address already ships. NO
+            # plausible-looking phone number is seeded: a placeholder that
+            # reads as a real number is one somebody ships by accident.
+            "phone": "Lisää puhelinnumero",
+            "email": "Lisää sähköpostiosoite",
+            "body": (
+                "Kerro tässä lyhyesti, miten sinuun saa parhaiten yhteyden "
+                "ja milloin vastaat."
+            ),
+            "caveat": "Älä lähetä arkaluonteisia tietoja lomakkeella.",
         },
     ),
     (
         "sijainti",
         {
             "address": "Lisää käyntiosoite ja saapumisohjeet tähän.",
+            "section_label": "SIJAINTI",
         },
     ),
 ]

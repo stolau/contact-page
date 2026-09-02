@@ -462,6 +462,16 @@ def test_migration_5_leaves_a_row_that_is_already_reshaped_byte_identical(
     branches are indistinguishable, and the property that a migrated row is
     byte-identical to what a no-op save through validate_payload would store
     (app/sanitize.py, _validate_item) holds only by luck of the input.
+
+    _migration_5 ALONE, called directly, since LLM-COP-25 — the byte-identity
+    claim here is about migration 5's already-reshaped branch, and migrate()
+    now also runs migration 8, which legitimately appends section_label to
+    tietoa. It happens to stay green under migrate() today only because this
+    fixture is built from the live SEED_SECTIONS, which already carries that
+    key, so the setdefault is a no-op on it; that is an accident of the
+    fixture, not a property of migration 5. Splicing section_label onto
+    `before` instead would be the cheaper fix and would leave the test
+    asserting nothing about migration 5's branch at all.
     """
     payload = copy.deepcopy(dict(SEED_SECTIONS)["tietoa"])
     c = _v4_database(
@@ -471,7 +481,7 @@ def test_migration_5_leaves_a_row_that_is_already_reshaped_byte_identical(
     )
     before = tuple(_tietoa_row(c))
 
-    database.migrate(c)
+    database._migration_5(c)
 
     assert tuple(_tietoa_row(c)) == before
     # And the owner's labels survived, rather than being blanked by the
@@ -485,7 +495,7 @@ def test_migration_5_leaves_a_row_that_is_already_reshaped_byte_identical(
         for fact in reversed_keys["facts"]
     ]
     c = _v4_database(tmp_path / "reversed.sqlite3", reversed_keys)
-    database.migrate(c)
+    database._migration_5(c)
 
     row = _tietoa_row(c)
     facts = json.loads(row["draft"])["facts"]
@@ -616,10 +626,14 @@ def test_migration_7_backfills_style_without_flipping_any_badge(tmp_path):
     assert draft["style"] == ""
     assert json.loads(row["published"])["style"] == ""
 
-    # Key ORDER is the whole hazard, and "last" is the specific claim: style
-    # is declared last in FIELDS["hero"], so a setdefault that appended
-    # anywhere else would rewrite this row on the first save.
-    assert list(draft)[-1] == "style"
+    # Key ORDER is the whole hazard, and the claim is that each backfilled key
+    # lands where FIELDS declares it, so a setdefault that appended anywhere
+    # else would rewrite this row on the first save. style was the tail when
+    # migration 7 shipped; LLM-COP-25's migration 8 — which migrate() runs
+    # here too — appended portrait_alt after it, so the TAIL moved to the
+    # newest key while the rule ("appended, never inserted") did not change.
+    assert list(draft)[-1] == "portrait_alt"
+    assert list(draft)[-2] == "style"
     assert list(draft) == list(FIELDS["hero"])
     assert row["draft"] == row["published"]
     assert badge(row["state"], row["draft"], row["published"]) == "Julkaistu"
@@ -768,6 +782,18 @@ def test_migration_7_touches_no_other_kind(tmp_path):
     another kind makes that payload fail validate_payload's unknown-key check
     the moment the owner saves it — a section that cannot be saved, produced
     by an upgrade.
+
+    _migration_7 ALONE, called directly, since LLM-COP-25. _migration_8 is
+    the first migration in this codebase that touches more than one kind, and
+    it legitimately backfills tietoa, so migrate() here asks about migration 8
+    as much as about migration 7. It happens to stay green under migrate()
+    today only because the fixture is built from the live SEED_SECTIONS, which
+    already carries section_label, so migration 8's setdefault is a no-op on
+    it — an accident of the fixture, not a property of migration 7. The scoped
+    call is what makes the claim in the name true again. Re-baselining the
+    expected `text` against migration 8's output would be the cheaper fix and
+    would delete this guard permanently; it is written down here so nobody
+    takes it later.
     """
     c = _v6_database(tmp_path / "others.sqlite3", _v6_hero_payload())
     tietoa = copy.deepcopy(dict(SEED_SECTIONS)["tietoa"])
@@ -779,7 +805,7 @@ def test_migration_7_touches_no_other_kind(tmp_path):
     )
     c.commit()
 
-    database.migrate(c)
+    database._migration_7(c)
 
     row = c.execute(
         "SELECT draft, published, previous_published FROM sections"
@@ -793,21 +819,21 @@ def test_migration_7_touches_no_other_kind(tmp_path):
     c.close()
 
 
-def test_the_migration_head_is_seven(tmp_path):
+def test_the_migration_head_is_eight(tmp_path):
     """The head, named exactly once in the suite.
 
     Every other version assertion in this file is written as
     `len(database.MIGRATIONS)` on purpose, so migrations added later do not
     break tests that are not about them. This one is deliberately literal: it
-    is the single place a person adding migration 8 is told, by a red test,
+    is the single place a person adding migration 9 is told, by a red test,
     that a stamped store now upgrades one step further — and it pins that
     MIGRATIONS ends where the list says rather than where a stale PRAGMA does.
     """
-    assert len(database.MIGRATIONS) == 7
-    assert database.MIGRATIONS[6] is database._migration_7
+    assert len(database.MIGRATIONS) == 8
+    assert database.MIGRATIONS[7] is database._migration_8
 
     c = database.connect(str(tmp_path / "head.sqlite3"))
     database.migrate(c)
     (version,) = c.execute("PRAGMA user_version").fetchone()
-    assert version == 7
+    assert version == 8
     c.close()

@@ -30,11 +30,26 @@ SEED_BY_KIND = dict(SEED_SECTIONS)
 
 # --- whole-document byte-exact contains-text criteria -----------------------
 #
-# LLM-COP-10 split the old 54-row DOCUMENT_CRITERIA table in two, and
-# LLM-COP-26 took two more rows out of what was left. 7 rows stay below; of the
-# rest, 12 became SEEDED_RENDERS, 32 are covered by the three list-driven tests
-# (fact cards, about facts, services), which assert every stored item rather
-# than a hand-picked few, and 3 became CTA_RENDERS further down.
+# LLM-COP-10 split the old 54-row DOCUMENT_CRITERIA table in two, LLM-COP-26
+# took two more rows out of what was left, and LLM-COP-25 took three: the
+# section kickers became sijainti/tietoa/palvelut/vastaanottoajat/yhteydenotto
+# .section_label, a field the panel offers as "Osion otsikko", so the words are
+# the owner's. 4 rows stay below; of the rest, 15 became SEEDED_RENDERS, 32 are
+# covered by the three list-driven tests (fact cards, about facts, services),
+# which assert every stored item rather than a hand-picked few, and 3 became
+# CTA_RENDERS further down.
+#
+# The fourth criterion LLM-COP-25 demoted on the server,
+# cp-main-edit.preview-pane.preview-card.preview-palvelut-label, has no row
+# anywhere in this suite: the section-list preview card renders the public
+# macro (app/templates/_section_row.html), so it follows the stored label with
+# no test of its own. That demotion is spec-only.
+#
+# test_nav_links below is deliberately NOT touched. Its four addresses pin
+# NAV_LABELS' words (app/fields.py), which stay hardcoded product chrome after
+# LLM-COP-25 — so an owner who renames a kicker still sees the old word in the
+# nav link pointing at it. Making nav labels editable is a later unit, and it
+# inherits four more demotions on cp-main.header.nav-links.
 #
 # Byte-exact below: strings the TEMPLATE owns, which no admin can edit.
 # "Ota yhteyttä" used to be the one exception, on the ground that the brief
@@ -64,11 +79,8 @@ SEED_BY_KIND = dict(SEED_SECTIONS)
 DOCUMENT_CRITERIA = [
     ("cp-main.hero.portrait-placeholder-0", "Muotokuva"),
     ("cp-main.hero.portrait-placeholder-1", "browse files"),
-    ("cp-main.about-section.about-kicker", "NÄIN TYÖSKENTELEN"),
     ("cp-main-phone.phone-hero.phone-portrait-0", "Kuva"),
     ("cp-main-phone.phone-hero.phone-portrait-1", "browse files"),
-    ("cp-main-phone.phone-palvelut.phone-palvelut-label", "PALVELUT"),
-    ("cp-main-phone.phone-vastaanotto.phone-vastaanotto-label", "VASTAANOTTOAJAT"),
 ]
 
 # (address, kind, field) — the served page must carry the stored string.
@@ -89,6 +101,19 @@ SEEDED_RENDERS = [
     ),
     ("cp-main.header.brand", "hero", "brand"),
     ("cp-main-phone.phone-footer.phone-copyright", "hero", "footer"),
+    # The three demoted kickers (LLM-COP-25). They now assert that the STORED
+    # label reaches the page, never what it says.
+    ("cp-main.about-section.about-kicker", "tietoa", "section_label"),
+    (
+        "cp-main-phone.phone-palvelut.phone-palvelut-label",
+        "palvelut",
+        "section_label",
+    ),
+    (
+        "cp-main-phone.phone-vastaanotto.phone-vastaanotto-label",
+        "vastaanottoajat",
+        "section_label",
+    ),
 ]
 
 
