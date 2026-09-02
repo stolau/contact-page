@@ -11,9 +11,12 @@ No test here sleeps. Time is page.clock's throughout: frozen, so nothing
 fires by accident, and advanced explicitly where a timer is the subject.
 """
 
-import json
-
-from app import db as database
+from tests.browser.conftest import (
+    V2_STYLESHEET,
+    hero_draft,
+    hero_row,
+    set_hero_draft_style,
+)
 from tests.conftest import section_rows
 
 # Any instant; only its stillness matters.
@@ -42,41 +45,6 @@ def panel_input(page, label):
         .locator("input, textarea")
         .first
     )
-
-
-def hero_row(app):
-    return next(row for row in section_rows(app) if row["kind"] == "hero")
-
-
-def hero_draft(app):
-    return json.loads(hero_row(app)["draft"])
-
-
-def set_hero_draft_style(app, style):
-    """Plant a style in the hero's DRAFT column of the live app's own store.
-
-    A direct UPDATE of one column, deliberately: tests/conftest.py's
-    edit_published_payload writes draft AND published, which cannot express
-    "drafted but not published" — the state the preview-versus-public test is
-    entirely about.
-    """
-    conn = database.connect(app.config["DATABASE"])
-    try:
-        row = conn.execute(
-            "SELECT id, draft FROM sections WHERE kind = 'hero'"
-        ).fetchone()
-        payload = json.loads(row["draft"])
-        payload["style"] = style
-        conn.execute(
-            "UPDATE sections SET draft = ? WHERE id = ?",
-            (json.dumps(payload, ensure_ascii=False), row["id"]),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
-V2_STYLESHEET = 'link[href*="style-v2.css"]'
 
 
 def test_autosave_saves_the_draft_after_the_shared_debounce(page, expect, live_app):
@@ -349,19 +317,20 @@ def test_the_preview_pane_shows_the_drafted_skin_and_julkaise_takes_it_public(
 def test_the_real_direct_edit_route_serves_the_v2_skin_when_the_draft_says_so(
     page, expect, live_app
 ):
-    """/muokkaa/sivu — the REAL route, not the /__v2__/ harness.
+    """/muokkaa/sivu, asked whether direct-edit.js BOOTS on the served skin.
 
     tests/test_style_selection.py already asserts server-side that this route
     selects page_v2.html and links style-v2.css. This test earns its seconds
     for the one thing that check cannot show: .direct-tallenna actually
-    BOOTING on the served skin — i.e. direct-edit.js coming up over V2 on the
-    URL the product serves, not over a test-registered route.
+    coming up over V2.
 
-    tests/browser/test_browser_v2_direct_edit.py's ten tests stay pointed at
-    the harness on purpose: an unknown style resolves to V1 by design, so a
-    subtly wrong selection would serve those tests V1 and they would type into
-    V1's bindings and pass, proving nothing about V2. The harness names
-    page_v2.html literally and cannot fall back.
+    tests/browser/test_browser_v2_direct_edit.py's eight tests now reach this
+    same URL (LLM-COP-24 deleted the test-local harness route they used). What
+    the harness gave them was that it named page_v2.html literally and could
+    not fall back; an unknown style resolves to V1 by design, so a subtly
+    wrong selection would serve them V1 and they would type into V1's
+    bindings and pass. Their fixture asserts the served document is V2 before
+    yielding, which is that property restored on the real URL.
     """
     set_hero_draft_style(live_app, "v2")
 
@@ -369,3 +338,135 @@ def test_the_real_direct_edit_route_serves_the_v2_skin_when_the_draft_says_so(
 
     expect(page.locator(V2_STYLESHEET)).to_have_count(1)
     expect(page.locator(".direct-tallenna")).to_be_visible()
+
+
+# --- the owner's whole cycle, on the real control (LLM-COP-24) -------------
+
+
+def style_bytes(app):
+    """Every row's (draft, published), keyed by kind.
+
+    previous_published is deliberately NOT in here, and leaving it out is a
+    measured decision rather than a convenience: publish_dirty sets
+    previous_published = published on every publish (app/sections.py), so
+    after v1 -> v2 -> v1 the hero's previous_published legitimately holds the
+    v2 payload. A whole-row comparison goes red on CORRECT code — measured,
+    on the hero, on this tree. The two columns that must not move are these.
+    """
+    return {
+        row["kind"]: (row["draft"], row["published"])
+        for row in section_rows(app)
+    }
+
+
+def row_badges(page, base_url):
+    """The badges as the OWNER sees them, off /muokkaa/osiot's own document.
+
+    A second tab, so the panel under test is never reloaded and the publish
+    stays the only thing that can move anything.
+    """
+    rows = page.context.new_page()
+    rows.goto(f"{base_url}/muokkaa/osiot")
+    badges = rows.locator(".row-status-badge").all_text_contents()
+    rows.close()
+    return badges
+
+
+def test_choosing_kuvallinen_publishing_and_going_back_moves_nothing(
+    page, expect, live_app
+):
+    """The artifact's reviewer checklist, driven end to end on the real
+    control: a site with all six kinds published renders all six under V2,
+    and switching V1 -> V2 -> V1 leaves every payload and every badge where
+    it found them.
+
+    WHAT IS NEW HERE versus the draft/preview/publish test above, which
+    already runs a v2 cycle: that one PLANTS the style in the store, because
+    when it was written no control existed to click. This one clicks
+    .tyyli-option[data-style="v2"] — a button that exists only because
+    LLM-COP-24 appended a tuple to STYLE_CHOICES — and then reads the public
+    page the owner would send a client to.
+
+    WHY THE BASELINE IS CUT AFTER THE FIRST Perus + Julkaise, not at the
+    seed. app/seed.py stores style "" rather than "v1", so the first v1 write
+    is a real content change: it dirties the hero, flips its badge to
+    Luonnos, and moves its bytes. All of that is correct. Comparing the end
+    of the round trip against the SEED would therefore fail on a correct
+    build. The round trip this test is about starts once a style has actually
+    been chosen and published.
+
+    THE PREMISE IS ASSERTED, NOT ASSUMED. The claim is "a site with ALL SIX
+    kinds published renders all six", and the comparison further down is
+    drawn == published — both sides read from the same store. So on a site
+    with five kinds published the comparison is still true and this test
+    still passes, while the claim it is quoted for has quietly stopped being
+    proven. Measured: hide sijainti before this line and every assertion
+    below stays green. Naming the six here is what makes the quantity part
+    of the claim rather than a property of whatever the seed happens to do.
+    """
+    premise = sorted(
+        row["kind"] for row in section_rows(live_app) if row["state"] == "published"
+    )
+    assert premise == [
+        "hero",
+        "palvelut",
+        "sijainti",
+        "tietoa",
+        "vastaanottoajat",
+        "yhteydenotto",
+    ], f"this test is quoted for ALL SIX kinds; this site publishes {premise}"
+
+    page.goto(f"{live_app.base_url}/muokkaa")
+    page.click('.panel-tab[data-tab="ulkoasu"]')
+
+    with page.expect_response("**/api/sections/*/draft"):
+        page.click('.tyyli-option[data-style="v1"]')
+    with page.expect_response("**/api/publish"):
+        page.click(".julkaise-button")
+
+    baseline = style_bytes(live_app)
+    baseline_badges = row_badges(page, live_app.base_url)
+    assert baseline_badges, "no rows on /muokkaa/osiot to compare"
+
+    # The real control, which only exists now that V2 is offered.
+    with page.expect_response("**/api/sections/*/draft"):
+        page.click('.tyyli-option[data-style="v2"]')
+    expect(
+        page.locator('.tyyli-option[data-style="v2"].active')
+    ).to_have_count(1)
+    with page.expect_response("**/api/publish"):
+        page.click(".julkaise-button")
+
+    # ...and the public page really is V2, with nothing published missing
+    # from it. A second tab, so the panel is never reloaded.
+    public = page.context.new_page()
+    public.goto(f"{live_app.base_url}/")
+    expect(public.locator(V2_STYLESHEET)).to_have_count(1)
+
+    published_kinds = sorted(
+        row["kind"] for row in section_rows(live_app) if row["state"] == "published"
+    )
+    drawn = public.eval_on_selector_all(
+        "main section[data-kind]",
+        "els => els.map(el => el.getAttribute('data-kind'))",
+    )
+    assert sorted(drawn) == published_kinds, (sorted(drawn), published_kinds)
+    # Present in the markup is not the promise; the promise is that nothing
+    # published disappears from the PAGE.
+    collapsed = public.eval_on_selector_all(
+        "main section[data-kind]",
+        """els => els.filter(el => {
+            const box = el.getBoundingClientRect();
+            return box.width === 0 || box.height === 0;
+        }).map(el => el.getAttribute('data-kind'))""",
+    )
+    assert collapsed == [], collapsed
+    public.close()
+
+    with page.expect_response("**/api/sections/*/draft"):
+        page.click('.tyyli-option[data-style="v1"]')
+    with page.expect_response("**/api/publish"):
+        page.click(".julkaise-button")
+
+    assert style_bytes(live_app) == baseline
+    assert row_badges(page, live_app.base_url) == baseline_badges

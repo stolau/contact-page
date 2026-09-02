@@ -62,10 +62,14 @@
 
     {# Ulkoasu (LLM-COP-22): the site-wide style. hidden alone is enough —
        .panel-body sets no display, so the UA rule wins, unlike .button.
-       Buttons rather than a <select> or radios: with one offered style a
-       change event could never fire, so the write path would be
-       unreachable. active_style is the RAW drafted value, so nothing is
-       marked until the owner has actually chosen. #}
+       Buttons rather than a <select> or radios: the click IS the write, so
+       re-picking what is already stored still writes, and every option is
+       its own addressable control rather than one element whose value the
+       tests would have to set. active_style is the RAW drafted value, so
+       nothing is marked until the owner has actually chosen — and the mark
+       therefore says what is STORED, not what was last clicked.
+       (LLM-COP-24 offered a second style; the earlier note here reasoned
+       from there being only one, which stopped being true.) #}
     <div class="panel-body" data-panel="ulkoasu" hidden>
       {# Its own class, NOT .section-name: that one names the open section and
          is located strictly by the browser suite, so a second element wearing

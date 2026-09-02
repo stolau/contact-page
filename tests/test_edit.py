@@ -600,22 +600,32 @@ def test_the_ulkoasu_body_offers_exactly_the_declared_styles(muokkaa_html):
     assert "hidden" in muokkaa_html[start : start + 60]
 
 
-def test_the_panel_offers_only_the_default_style(muokkaa_html):
-    """What the owner is OFFERED is a strictly smaller set than what the
-    renderer can RESOLVE, and that gap is deliberate.
+def test_the_panel_offers_only_styles_the_renderer_can_resolve(muokkaa_html):
+    """The menu is a subset of the renderer's table, and V2 is now in it.
 
     STYLE_TEMPLATES is the renderer's table; STYLE_CHOICES is the panel's
-    menu. V2 is renderable and not yet offered, which is what makes LLM-COP-24
-    an append of one tuple rather than a change to app/styles.py. If the two
-    were one constant, shipping a template would ship the menu entry with it,
-    unreviewed.
+    menu. They stay two constants because shipping a template must not ship
+    the menu entry with it, unreviewed — that reason outlives the gap this
+    test used to assert.
+
+    STATED AS THE HONEST COST: after LLM-COP-24 the two constants are
+    extensionally identical, so the subset check below can no longer
+    distinguish them on today's data. It is a fence for the NEXT template,
+    not a live distinction, and "resolvable but unoffered" has stopped being
+    expressible here. What still bites is an offered value with no template,
+    which is a KeyError on the public page — and
+    tests/test_style_selection.py's
+    test_every_offered_style_renders_a_whole_page is the stronger form of the
+    same rule, quantified over the menu.
     """
-    assert STYLE_CHOICES == [("v1", "Perus")]
-    assert [value for value, _ in STYLE_CHOICES] != list(STYLE_TEMPLATES)
-    assert {value for value, _ in STYLE_CHOICES} <= set(STYLE_TEMPLATES)
-    # ...and V2 is genuinely absent from the served menu, not merely absent
-    # from the constant.
-    assert 'data-style="v2"' not in muokkaa_html
+    offered = [value for value, _ in STYLE_CHOICES]
+    assert set(offered) <= set(STYLE_TEMPLATES)
+    # A duplicate value would render two buttons wearing the same
+    # data-style, and the browser suite locates that attribute strictly.
+    assert len(offered) == len(set(offered)), offered
+    # ...and V2 is genuinely present in the served menu, not merely present
+    # in the constant.
+    assert 'data-style="v2"' in muokkaa_html
 
 
 def test_no_style_option_is_marked_active_before_one_is_chosen(logged_in_admin):
@@ -637,7 +647,7 @@ def test_no_style_option_is_marked_active_before_one_is_chosen(logged_in_admin):
         return re.findall(r'class="tyyli-option([^"]*)" data-style="([^"]*)"', body)
 
     fresh = options(logged_in_admin.get("/muokkaa").get_data(as_text=True))
-    assert fresh == [("", "v1")], fresh  # seeded "" — nothing marked
+    assert fresh == [("", "v1"), ("", "v2")], fresh  # seeded "" — nothing marked
 
     def draft_style(style):
         conn = database.connect(
@@ -658,14 +668,19 @@ def test_no_style_option_is_marked_active_before_one_is_chosen(logged_in_admin):
             conn.close()
         return options(logged_in_admin.get("/muokkaa").get_data(as_text=True))
 
-    assert draft_style("v1") == [(" active", "v1")]
-    # A style the renderer resolves but the panel does not offer: still
-    # nothing marked. Marking Perus here would tell the owner they had chosen
-    # something they had not.
-    assert draft_style("v2") == [("", "v1")]
+    assert draft_style("v1") == [(" active", "v1"), ("", "v2")]
+    # A stored style the panel does not OFFER: still nothing marked. "banana"
+    # rather than "v2" since LLM-COP-24 — v2 is offered now, so it can no
+    # longer play this part, and "a style the renderer resolves but the panel
+    # does not offer" has stopped being a state that exists. What must survive
+    # is the weaker, still-true rule: the mark says "this is what is STORED",
+    # not "this is what you may pick", so an unofferable value marks nothing.
+    # Marking Perus here would tell the owner they had chosen something they
+    # had not.
+    assert draft_style("banana") == [("", "v1"), ("", "v2")]
     # ...and the DRAFT column is the one it reads: publishing is not required
     # for the mark to move, and the published column is still "".
-    assert draft_style("") == [("", "v1")]
+    assert draft_style("") == [("", "v1"), ("", "v2")]
 
 
 def test_the_ulkoasu_body_wears_its_own_heading_class(muokkaa_html):
