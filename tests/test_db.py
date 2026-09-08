@@ -54,7 +54,17 @@ def test_migration_2_creates_the_auth_tables(tmp_path):
     def columns(table):
         return {row["name"] for row in c.execute(f"PRAGMA table_info({table})")}
 
-    assert columns("admin_user") == {"id", "username", "password_hash"}
+    # Exact equality, and it stays exact: this is the one place the auth
+    # table's shape is pinned, so migration 13's three second-factor columns
+    # are NAMED here rather than the assertion being loosened to a subset.
+    assert columns("admin_user") == {
+        "id",
+        "username",
+        "password_hash",
+        "totp_secret",
+        "totp_enabled",
+        "totp_last_step",
+    }
     assert columns("sessions") == {
         "id",
         "token_hash",
@@ -1753,20 +1763,20 @@ def test_migration_12_keeps_a_notice_the_owner_already_wrote(tmp_path):
     c.close()
 
 
-def test_the_migration_head_is_twelve(tmp_path):
+def test_the_migration_head_is_thirteen(tmp_path):
     """The head, named exactly once in the suite.
 
     Every other version assertion in this file is written as
     `len(database.MIGRATIONS)` on purpose, so migrations added later do not
     break tests that are not about them. This one is deliberately literal: it
-    is the single place a person adding migration 13 is told, by a red test,
+    is the single place a person adding migration 14 is told, by a red test,
     that a stamped store now upgrades one step further — and it pins that
     MIGRATIONS ends where the list says rather than where a stale PRAGMA does.
 
-    It did that job for LLM-COP-30 and again for USR-COP-4, each of which
-    found it red and moved it here rather than silencing it. Rename it with
-    the number, so the test's name keeps stating the head instead of a head
-    it used to have.
+    It did that job for LLM-COP-30, again for USR-COP-4 and again for
+    LLM-COP-39, each of which found it red and moved it here rather than
+    silencing it. Rename it with the number, so the test's name keeps
+    stating the head instead of a head it used to have.
 
     The list is named by INDEX as well as by length, because the two say
     different things: the length pins where the ladder ends, and the
@@ -1776,16 +1786,20 @@ def test_the_migration_head_is_twelve(tmp_path):
     lines are where that order is stated once. USR-COP-4 APPENDED migration
     12 while a sibling change held 13: a collision here is resolved by
     appending both, never by renumbering either — a renumbered migration
-    re-runs against a store already stamped past it.
+    re-runs against a store already stamped past it. That is precisely what
+    happened: USR-COP-4's real migration 12 and LLM-COP-39's migration 13
+    both landed, neither number moved, and the reserved no-op that had been
+    holding slot 12 was deleted rather than renumbered.
     """
-    assert len(database.MIGRATIONS) == 12
+    assert len(database.MIGRATIONS) == 13
     assert database.MIGRATIONS[8] is database._migration_9
     assert database.MIGRATIONS[9] is database._migration_10
     assert database.MIGRATIONS[10] is database._migration_11
     assert database.MIGRATIONS[11] is database._migration_12
+    assert database.MIGRATIONS[12] is database._migration_13
 
     c = database.connect(str(tmp_path / "head.sqlite3"))
     database.migrate(c)
     (version,) = c.execute("PRAGMA user_version").fetchone()
-    assert version == 12
+    assert version == 13
     c.close()

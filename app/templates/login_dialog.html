@@ -1,5 +1,10 @@
 {# Admin login dialog (spec cp-admin-login), overlaid on the dimmed public
-   page. Copy is byte-exact per the spec's contains-text criteria. #}
+   page. Copy is byte-exact per the spec's contains-text criteria.
+
+   Two states, one partial: the password step (the spec's login-dialog) and,
+   when totp_step is set, the second-factor code step. The chrome — head,
+   title, subtitle, close, error, footnote — is shared; only the form body
+   swaps, which is why this is an {% if %} here and not a second template. #}
 <div class="dialog-backdrop">
   <div class="login-dialog" role="dialog" aria-labelledby="login-title">
     <div class="login-head">
@@ -14,6 +19,17 @@
     <p class="login-note">Salasana palautetaan palvelimen komentorivillä:
       <code>flask --app app admin-reset-password</code></p>
     {% endif %}
+    {% if totp_step %}
+    <form class="login-form" method="post" action="{{ url_for('koodi') }}">
+      <label>Kertakäyttökoodi
+        <input type="text" name="koodi" inputmode="numeric"
+               autocomplete="one-time-code" autofocus>
+      </label>
+      <button type="submit" class="button primary login-submit">Kirjaudu sisään</button>
+      <p class="login-note">Voit myös syöttää yhden palautuskoodeistasi.</p>
+      <p class="login-footnote">Kirjautuminen kirjataan lokiin. Istunto päättyy 30 min käyttämättömyyden jälkeen.</p>
+    </form>
+    {% else %}
     <form class="login-form" method="post" action="{{ url_for('kirjaudu') }}">
       <label>Käyttäjätunnus
         <input type="text" name="kayttajatunnus" autocomplete="username"
@@ -35,14 +51,23 @@
       <button type="submit" class="button primary login-submit">Kirjaudu sisään</button>
       <p class="login-footnote">Kirjautuminen kirjataan lokiin. Istunto päättyy 30 min käyttämättömyyden jälkeen.</p>
     </form>
+    {% endif %}
   </div>
 </div>
+{% if not totp_step %}
 <script>
   // The Näytä toggle: reveal or re-mask the password. Plain DOM, no library.
+  // Both the Jinja guard above and the null guard below: the toggle belongs
+  // to the password step, and the null guard means a future edit that moves
+  // this script cannot reintroduce a TypeError on a step with no button.
   (function () {
     var input = document.getElementById("login-password");
-    document.getElementById("password-show").addEventListener("click", function () {
-      input.type = input.type === "password" ? "text" : "password";
-    });
+    var toggle = document.getElementById("password-show");
+    if (input && toggle) {
+      toggle.addEventListener("click", function () {
+        input.type = input.type === "password" ? "text" : "password";
+      });
+    }
   })();
 </script>
+{% endif %}

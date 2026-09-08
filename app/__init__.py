@@ -3,11 +3,18 @@
 import os
 
 import click
-from flask import Flask, redirect, render_template, request, url_for
+from flask import (
+    Flask,
+    make_response,
+    redirect,
+    render_template,
+    request,
+    url_for,
+)
 from markupsafe import Markup
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from . import auth
+from . import auth, totp
 from . import db as database
 from .direct_edit import bp as direct_edit_bp
 from .edit import bp as edit_bp
@@ -33,6 +40,22 @@ LOGIN_ERROR = "Väärä käyttäjätunnus tai salasana."
 # answers measurably faster and leaks user existence through response timing
 # (timing-based user enumeration). Generated once at import.
 _DUMMY_HASH = generate_password_hash("dummy")
+
+
+def _looks_like_a_totp_code(code):
+    """Is this input shaped like a TOTP code rather than a recovery code?
+
+    isascii() as well as isdigit() deliberately: str.isdigit() is True for
+    non-ASCII digit characters (Arabic-Indic, fullwidth) that could never
+    match a candidate hotp() produced, so without the guard those inputs
+    would be treated as codes and never reach the recovery path.
+
+    A generated recovery code fails this STRUCTURALLY — 23 characters with
+    three hyphens (auth.issue_recovery_codes) — not probabilistically.
+    """
+    return (
+        len(code) == totp.TOTP_DIGITS and code.isascii() and code.isdigit()
+    )
 
 
 def create_app(instance_path=None):
@@ -138,6 +161,10 @@ def create_app(instance_path=None):
         username = request.form.get("kayttajatunnus", "")
         password = request.form.get("salasana", "")
         remember = bool(request.form.get("pysy"))
+        # Set only on the second-factor branch; the answer for it is built
+        # after the connection is closed, where every other render_page
+        # return in this file already lives.
+        pending_token = None
         conn = database.connect(app.config["DATABASE"])
         try:
             key = auth.bucket_key(auth.client_key())
@@ -167,7 +194,24 @@ def create_app(instance_path=None):
                     user["password_hash"] if user is not None else _DUMMY_HASH
                 )
                 ok = check_password_hash(stored, password) and user is not None
-                if ok:
+                if ok and user["totp_enabled"]:
+                    # A correct password on an enrolled account buys ONE
+                    # thing: the code step. No sessions row is written here.
+                    auth.audit(
+                        conn,
+                        "login password ok, code required"
+                        f" username={username}",
+                    )
+                    # NOT clear_login_attempts, and this is the whole
+                    # brute-force story: clearing here would let an attacker
+                    # holding the password re-post it before every code
+                    # guess and get unlimited attempts at six digits. The
+                    # counter is cleared only when the WHOLE login
+                    # completes, in koodi() below.
+                    pending_token = auth.mint_pending(
+                        conn, user["id"], remember
+                    )
+                elif ok:
                     auth.audit(conn, f"login ok username={username}")
                     # Deletes this attempt's own row too: a success leaves the
                     # client with a clean counter. `crossed` is ignored here —
@@ -186,27 +230,157 @@ def create_app(instance_path=None):
                         max_age=auth.REMEMBER_LIFETIME if remember else None,
                     )
                     return response
-                # The two audit rows differ; the two responses must not.
-                if user is None:
-                    auth.audit(
-                        conn,
-                        f"login failed (unknown username) username={username}",
-                    )
                 else:
-                    auth.audit(
-                        conn,
-                        f"login failed (wrong password) username={username}",
-                    )
+                    # The two audit rows differ; the two responses must not.
+                    if user is None:
+                        auth.audit(
+                            conn,
+                            "login failed (unknown username)"
+                            f" username={username}",
+                        )
+                    else:
+                        auth.audit(
+                            conn,
+                            "login failed (wrong password)"
+                            f" username={username}",
+                        )
                 if crossed:
                     # Once per lockout, not once per refused request — see
                     # app/auth.py on why the refused path writes nothing.
+                    # The one-step success returned above and never reaches
+                    # this; the second-factor branch does, and should, because
+                    # it did NOT clear the counter — crossing there is a real
+                    # lockout, and the code step is the next thing refused.
                     auth.audit(conn, f"login throttled client_key={key}")
         finally:
             conn.close()
+        if pending_token is not None:
+            # make_response because render_page answers a STRING (it ends
+            # in render_template), and only a Response carries a cookie.
+            response = make_response(
+                render_page(login_dialog=True, totp_step=True)
+            )
+            # A session cookie (no max_age): the pending row carries its own
+            # 5-minute expiry, and this half-state should not outlive the
+            # browser. Secure is omitted for the reason given above.
+            response.set_cookie(
+                auth.PENDING_COOKIE,
+                pending_token,
+                httponly=True,
+                samesite="Lax",
+            )
+            return response
         return render_page(
             login_dialog=True,
             login_error=LOGIN_ERROR,
             login_username=username,
+        )
+
+    @app.route("/yllapito/koodi", methods=["POST"])
+    def koodi():
+        """The second step: a TOTP code, or a single-use recovery code.
+
+        Same discipline as kirjaudu above — the rate-limit gate is taken
+        before anything is verified, every refusal answers the same bytes,
+        and the render_page return sits outside the try so only one
+        connection is ever open.
+        """
+        code = request.form.get("koodi", "").strip()
+        response = None  # set only when the whole login completed
+        conn = database.connect(app.config["DATABASE"])
+        try:
+            key = auth.bucket_key(auth.client_key())
+            # A request with no pending cookie still consumes a slot, so the
+            # code endpoint cannot be hammered for free. /yllapito/kirjaudu
+            # already behaves this way.
+            admitted, crossed = auth.admit_login_attempt(conn, key)
+            if admitted:
+                pending = auth.current_pending_login(conn)
+                if pending is not None:
+                    user = conn.execute(
+                        "SELECT * FROM admin_user WHERE id = ?",
+                        (pending["user_id"],),
+                    ).fetchone()
+                    # Bound on EVERY path below, including the ordinary
+                    # wrong-six-digit typo, which takes neither branch.
+                    accepted = False
+                    how = ""
+                    step = totp.accepted_step(
+                        totp.decode_secret(user["totp_secret"]),
+                        code,
+                        user["totp_last_step"],
+                    )
+                    if step is not None:
+                        # The replay guard, advanced on the TOTP branch only
+                        # — a recovery code says nothing about a time step.
+                        conn.execute(
+                            "UPDATE admin_user SET totp_last_step = ?"
+                            " WHERE id = ?",
+                            (step, user["id"]),
+                        )
+                        conn.commit()
+                        accepted = True
+                        how = "2fa"
+                    elif not _looks_like_a_totp_code(code):
+                        # The recovery path is tried only when the input is
+                        # not six ASCII digits. That keeps ten scrypt
+                        # verifications off the ordinary-typo path, where
+                        # five attempts a window would otherwise cost fifty
+                        # hashes — a CPU amplifier an attacker gets for
+                        # free. It is not an oracle: it reveals only the
+                        # shape of the input the caller just typed.
+                        accepted = auth.consume_recovery_code(
+                            conn, user["id"], code
+                        )
+                        how = "recovery code"
+                    if accepted:
+                        auth.audit(
+                            conn,
+                            f"login ok ({how})"
+                            f" username={user['username']}",
+                        )
+                        auth.delete_pending(conn, pending["id"])
+                        # Only now: the WHOLE login completed.
+                        auth.clear_login_attempts(conn, key)
+                        # remember rides on the pending row rather than
+                        # being resubmitted, so it cannot be tampered with
+                        # between the two steps.
+                        token = auth.mint_session(conn, pending["remember"])
+                        response = redirect(login_target(conn))
+                        response.set_cookie(
+                            auth.SESSION_COOKIE,
+                            token,
+                            httponly=True,
+                            samesite="Lax",
+                            max_age=(
+                                auth.REMEMBER_LIFETIME
+                                if pending["remember"]
+                                else None
+                            ),
+                        )
+                        response.delete_cookie(auth.PENDING_COOKIE)
+                    else:
+                        auth.audit(
+                            conn,
+                            "login failed (wrong code)"
+                            f" username={user['username']}",
+                        )
+                if crossed and response is None:
+                    # `response is None` is the failure branch, which is the
+                    # only branch that may consult `crossed` — an attempt
+                    # that crossed and then SUCCEEDED cleared the counter
+                    # and is not a lockout (auth.admit_login_attempt).
+                    auth.audit(conn, f"login throttled client_key={key}")
+        finally:
+            conn.close()
+        if response is not None:
+            return response
+        # One shared return: a wrong code, a missing pending cookie and a
+        # throttled request are byte-identical, kirjaudu's rule.
+        return render_page(
+            login_dialog=True,
+            totp_step=True,
+            login_error=LOGIN_ERROR,
         )
 
     @app.route("/yllapito/kirjaudu-ulos", methods=["POST"])
@@ -272,6 +446,94 @@ def create_app(instance_path=None):
         finally:
             conn.close()
         click.echo("admin password reset")
+
+    @app.cli.command("admin-totp-enable")
+    def admin_totp_enable():
+        """Turn on the two-step sign-in for the admin account.
+
+        Enrolment is a SERVER CLI command and not an admin page on purpose.
+        The site is served over plain HTTP; an enrolment page would put the
+        base32 secret AND the ten recovery codes — a permanent second factor
+        and ten permanent bypasses — into an HTTP response body, handing an
+        eavesdropper strictly more than the password-only status quo it is
+        meant to improve. Printed on the server's own terminal, they never
+        touch the network.
+        """
+        conn = database.connect(app.config["DATABASE"])
+        try:
+            row = conn.execute(
+                "SELECT id, username, totp_enabled FROM admin_user"
+            ).fetchone()
+            if row is None:
+                raise click.ClickException(
+                    "no admin account exists; use admin-create"
+                )
+            if row["totp_enabled"]:
+                raise click.ClickException(
+                    "two-step sign-in is already on;"
+                    " use admin-totp-disable first"
+                )
+            brand = site_chrome(conn)["site_brand"] or row["username"]
+            secret = totp.random_secret()
+            click.echo(f"Secret: {secret}")
+            click.echo(
+                "URI:    "
+                + totp.otpauth_uri(secret, row["username"], brand)
+            )
+            entered = click.prompt("Code from the app")
+            step = totp.accepted_step(
+                totp.decode_secret(secret), entered.strip(), None
+            )
+            if step is None:
+                # Nothing is written on this path: an account left with a
+                # secret it cannot prove would be a lockout dressed as an
+                # enrolment.
+                raise click.ClickException(
+                    "that code did not verify; nothing was changed"
+                )
+            conn.execute(
+                "UPDATE admin_user SET totp_secret = ?, totp_enabled = 1,"
+                " totp_last_step = ? WHERE id = ?",
+                (secret, step, row["id"]),
+            )
+            conn.commit()
+            codes = auth.issue_recovery_codes(conn, row["id"])
+        finally:
+            conn.close()
+        click.echo("two-step sign-in enabled")
+        click.echo("Recovery codes (shown once, they cannot be shown again):")
+        for code in codes:
+            click.echo(f"  {code}")
+
+    @app.cli.command("admin-totp-disable")
+    def admin_totp_disable():
+        """Turn the two-step sign-in back off (server not needed).
+
+        The lockout backstop: a lost or wiped authenticator is a shell
+        session, never a dead site.
+        """
+        conn = database.connect(app.config["DATABASE"])
+        try:
+            row = conn.execute("SELECT id FROM admin_user").fetchone()
+            if row is None:
+                raise click.ClickException(
+                    "no admin account exists; use admin-create"
+                )
+            conn.execute(
+                "UPDATE admin_user SET totp_secret = NULL, totp_enabled = 0,"
+                " totp_last_step = NULL WHERE id = ?",
+                (row["id"],),
+            )
+            conn.execute(
+                "DELETE FROM recovery_codes WHERE user_id = ?", (row["id"],)
+            )
+            conn.commit()
+            # A half-authenticated token minted a moment ago must not stay
+            # redeemable at a code step that no longer exists.
+            auth.delete_pending_for_user(conn, row["id"])
+        finally:
+            conn.close()
+        click.echo("two-step sign-in disabled")
 
     @app.cli.command("login-unlock")
     def login_unlock():

@@ -28,17 +28,43 @@ command line (there is no email reset flow):
 .venv/bin/flask --app app admin-create <username>   # prompts for the password
 .venv/bin/flask --app app admin-reset-password      # prompts for a new one
 .venv/bin/flask --app app login-unlock              # clears every login lockout
+.venv/bin/flask --app app admin-totp-enable         # turns on two-step sign-in
+.venv/bin/flask --app app admin-totp-disable        # turns it back off
 ```
 
-All three commands open the database file directly through the app factory,
-so they work whether or not the server is running. Sign in at `/yllapito`
-(the Ylläpito link in the page footer).
+Every command above opens the database file directly through the app
+factory, so they work whether or not the server is running. Sign in at
+`/yllapito` (the Ylläpito link in the page footer).
 
 Failed sign-ins are limited (see Contact messages below for the client key).
 A successful sign-in clears the counter only while you are still under the
 limit; once the limit is reached, attempts are refused before the password is
 looked at, so a correct password will not let you in — wait for the window to
 pass, or run `flask --app app login-unlock` on the server.
+
+### Two-step sign-in
+
+Off by default; nothing changes until you turn it on. `admin-totp-enable`
+prints a secret and an `otpauth://` URI for an authenticator app, then asks
+for one code and **refuses to enable anything unless that code verifies** —
+so an account can never end up holding a secret it cannot prove. It then
+prints ten recovery codes **once**; they are stored only as hashes and
+cannot be shown again, so write them down there and then. Each is good for
+a single sign-in. With the factor on, the password step hands you a second
+dialog asking for the six-digit code (or one recovery code), and no session
+exists until that step passes. `admin-totp-disable` is the way back in when
+the authenticator is lost — it clears the secret and the recovery codes and
+returns the account to a one-step sign-in.
+
+Two things this does not do, stated plainly. **The secret is a bearer
+credential at rest.** It sits in `instance/site.sqlite3` beside the password
+hash, and anyone holding a copy of that file can generate valid codes — the
+mitigation is file permissions and backup discipline, not anything in this
+application. **And over plain HTTP it buys nothing against an
+eavesdropper**: they do not need your code, they take the session cookie
+minted a moment after it. What it does buy is real — a stolen, guessed or
+reused password is no longer enough on its own. TLS remains the
+prerequisite for the rest.
 
 ## Contact messages
 
