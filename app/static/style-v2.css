@@ -35,6 +35,29 @@
   --v2-serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia,
               "Times New Roman", serif;
   --v2-sans: "Helvetica Neue", Helvetica, Arial, sans-serif;
+
+  /* The five tokens the owner's colour override writes into (USR-COP-2).
+     Every default is the var() or the literal that supplied the value
+     before, so a site that has chosen no colour renders exactly what it
+     rendered before — the override is a <style> block that is ABSENT, not
+     empty, until an owner picks something (app/palette.py).
+
+     V2 needs no --header-bg twin: --v2-header is referenced exactly once,
+     at .v2-header, so the main colour has a token of its own already. V1's
+     header ground was var(--card), which is eleven other surfaces too, and
+     that is the whole reason the two skins differ by one token here.
+
+     --v2-rust-ink and --v2-rust-dark-ink are TWO tokens, not one: the
+     primary button's rest and hover grounds are different colours and no
+     single black-or-white label clears 4.5:1 against both (3.7680 at
+     #e400f3 is the best there is). --v2-rust-fg is the rust as TEXT,
+     pushed toward black or white only when a chosen colour would be
+     illegible on --v2-page, --v2-card or --v2-tint. */
+  --v2-header-ink: var(--v2-ink);
+  --v2-header-accent: var(--v2-rust);
+  --v2-rust-ink: #ffffff;
+  --v2-rust-dark-ink: #ffffff;
+  --v2-rust-fg: var(--v2-rust);
 }
 
 * { box-sizing: border-box; }
@@ -50,7 +73,7 @@ body {
 /* One responsive document, two renderings — the same two toggles V1 uses. */
 .phone-only { display: none; }
 
-a { color: var(--v2-rust); }
+a { color: var(--v2-rust-fg); }
 
 h1, h2 { font-family: var(--v2-serif); color: var(--v2-ink); font-weight: 400; }
 
@@ -66,9 +89,9 @@ h1, h2 { font-family: var(--v2-serif); color: var(--v2-ink); font-weight: 400; }
   text-decoration: none;
   text-align: center;
 }
-.button.primary { background: var(--v2-rust); color: #fff; }
-.button.primary:hover { background: var(--v2-rust-dark); border-color: var(--v2-rust-dark); }
-.button.secondary { background: transparent; color: var(--v2-rust); }
+.button.primary { background: var(--v2-rust); color: var(--v2-rust-ink); }
+.button.primary:hover { background: var(--v2-rust-dark); color: var(--v2-rust-dark-ink); border-color: var(--v2-rust-dark); }
+.button.secondary { background: transparent; color: var(--v2-rust-fg); }
 
 /* ---- header (v2-cp-hero.nav, v2-cp-phone-hero.header) ---------------- */
 
@@ -85,7 +108,10 @@ h1, h2 { font-family: var(--v2-serif); color: var(--v2-ink); font-weight: 400; }
 .brand {
   font-family: var(--v2-serif);
   font-size: 1.2rem;
-  color: var(--v2-ink);
+  /* .brand sets its OWN colour here, unlike V1's, so a rule on .v2-header
+     would never reach it. That is why the header ink is named on every
+     element that carries header text rather than once on their parent. */
+  color: var(--v2-header-ink);
   margin-right: auto;
   display: flex;
   align-items: center;
@@ -103,15 +129,15 @@ h1, h2 { font-family: var(--v2-serif); color: var(--v2-ink); font-weight: 400; }
 }
 .nav-links { display: flex; gap: 1.6rem; }
 .nav-links a {
-  color: var(--v2-ink);
+  color: var(--v2-header-ink);
   text-decoration: none;
   font-size: 0.92rem;
 }
-.nav-links a:hover { color: var(--v2-rust); }
+.nav-links a:hover { color: var(--v2-header-accent); }
 .header-contact { padding: 0.55rem 1.3rem; }
 .menu-toggle {
   background: none; border: none; font-size: 1.4rem;
-  cursor: pointer; color: var(--v2-ink); padding: 0;
+  cursor: pointer; color: var(--v2-header-ink); padding: 0;
 }
 
 /* ---- hero (v2-cp-hero, v2-cp-phone-hero) ----------------------------- */
@@ -176,7 +202,7 @@ h1, h2 { font-family: var(--v2-serif); color: var(--v2-ink); font-weight: 400; }
   font-weight: 700;
   letter-spacing: 0.2em;
   text-transform: uppercase;
-  color: var(--v2-rust);
+  color: var(--v2-rust-fg);
 }
 .v2-hero-title {
   order: 1;
@@ -313,7 +339,7 @@ h1, h2 { font-family: var(--v2-serif); color: var(--v2-ink); font-weight: 400; }
   display: inline-block;
   margin-top: 1.1rem;
   font-size: 0.95rem;
-  color: var(--v2-rust);
+  color: var(--v2-rust-fg);
 }
 
 /* The fact row: one entry per fact the owner filled in, laid out left to
@@ -663,7 +689,7 @@ h1, h2 { font-family: var(--v2-serif); color: var(--v2-ink); font-weight: 400; }
 .password-show {
   background: none; border: none;
   font: inherit; font-size: 0.85rem;
-  color: var(--v2-rust);
+  color: var(--v2-rust-fg);
   cursor: pointer;
   padding: 0;
 }

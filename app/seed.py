@@ -63,6 +63,19 @@ SEED_SECTIONS = [
             # reference and its description are "".
             "background": "",
             "background_alt": "",
+            # The owner's two colours (USR-COP-2). "" is "no colour chosen",
+            # which app/palette.py reads as "skin default" and renders as no
+            # <style> block at all — so a fresh install serves exactly the
+            # bytes it served before this key existed.
+            #
+            # And "" is MECHANICALLY required here, not merely tidy, for the
+            # same reason style states above: app/sectionlist.py compares a
+            # published payload to blank_payload(kind) BY VALUE, and
+            # blank_payload gives "" for every plain field, so seeding either
+            # skin's real literal would quietly drop the BLANK_PUBLISHED
+            # refusal from a blank hero's Näytä osio.
+            "color_main": "",
+            "color_accent": "",
         },
     ),
     (

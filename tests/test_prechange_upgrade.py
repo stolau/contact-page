@@ -149,6 +149,26 @@ MIGRATED_9_HERO_DRAFT = (
     + ', "background": "", "background_alt": ""}'
 )
 
+# What _migration_11 must then produce from THAT (USR-COP-2): the owner's two
+# colours, appended after the background pair, again by SPLICE rather than a
+# round trip. Migration 10 adds the login_attempts TABLE and writes no
+# payload at all (app/db.py's _migration_10), so this is the fourth link of
+# a four-migration chain and the fifth literal in it — and it is what a full
+# migrate() now leaves in the hero's draft column.
+#
+# THE SAME BLIND SPOT MIGRATED_9_HERO_DRAFT NAMES, and it is worth naming
+# again rather than assuming a reader carries it down the file: both defaults
+# here are "" by design, so this constant pins the serialiser and the key
+# order and NOTHING WHATEVER about the default VALUE. A migration that wrote
+# a constant "" and one that wrote something derived-but-empty are
+# indistinguishable against it. That gap is covered elsewhere, by
+# tests/test_db.py's test_migration_11_leaves_a_colour_the_owner_already_chose
+# — a row where the stored value and the default disagree, which no row of
+# this captured artifact can be.
+MIGRATED_11_HERO_DRAFT = (
+    MIGRATED_9_HERO_DRAFT[:-1] + ', "color_main": "", "color_accent": ""}'
+)
+
 # The row the captured install cannot give us, and the values planted in it.
 #
 # A digest-shaped reference and a sentence of ordinary Finnish, neither of
@@ -367,13 +387,21 @@ def test_migration_10_leaves_the_frozen_install_byte_for_byte_unchanged(
     MIGRATED_9_HERO_DRAFT with a different name.
 
     What has to be proved instead is that the whole stored install comes
-    through the new head byte-for-byte, and that is what this asserts:
+    through THIS migration byte-for-byte, and that is what this asserts:
     against the same frozen user_version = 6 capture the rest of the file
     uses, with expectations spliced from the FROZEN LITERALS (never
     round-tripped through the migration's own serialiser) and every badge
     compared to hard-coded FROZEN_BADGES rather than to a badge recomputed
     from the migrated rows — a recomputed badge would agree with a migration
     that flipped all six.
+
+    _migration_7 through _migration_10 are called DIRECTLY rather than
+    through migrate(), the idiom every other per-migration test in this file
+    uses, and since USR-COP-2's migration 11 that is load-bearing: migrate()
+    would run 11 too, and the text this compares against would then be the
+    text migration 11 leaves rather than the text migration 10 was handed.
+    The head's own version stamp is pinned once, by
+    test_the_frozen_v6_install_upgrades_with_every_badge_unchanged below.
 
     The last two assertions are the anti-vacuity guard. "Nothing changed" is
     also true of a migration that did nothing at all, so the new table has to
@@ -383,10 +411,10 @@ def test_migration_10_leaves_the_frozen_install_byte_for_byte_unchanged(
     """
     conn = frozen_v6_store(tmp_path / "ten.sqlite3")
 
-    database.migrate(conn)
-
-    (version,) = conn.execute("PRAGMA user_version").fetchone()
-    assert version == len(database.MIGRATIONS) == 10
+    database._migration_7(conn)
+    database._migration_8(conn)
+    database._migration_9(conn)
+    database._migration_10(conn)
 
     stored = rows_by_kind(conn)
     # The hero, through the whole frozen -> +style -> +portrait_alt ->
@@ -426,7 +454,7 @@ def test_the_frozen_v6_install_upgrades_with_every_badge_unchanged(tmp_path):
     database.migrate(conn)
 
     (version,) = conn.execute("PRAGMA user_version").fetchone()
-    assert version == len(database.MIGRATIONS) == 10
+    assert version == len(database.MIGRATIONS) == 11
     stored = rows_by_kind(conn)
     for kind, row in stored.items():
         assert badge(row["state"], row["draft"], row["published"]) == (
@@ -446,6 +474,10 @@ def test_the_frozen_v6_install_upgrades_with_every_badge_unchanged(tmp_path):
     # hero entirely. "" is what the copy produces HERE only because this
     # row's portrait is "" — see MIGRATED_9_HERO_DRAFT's note.
     assert json.loads(stored["hero"]["draft"])["background"] == ""
+    # And once more for USR-COP-2's migration 11, the newest link, for the
+    # same reason each of the lines above exists: without it "no badge moved"
+    # would be true of a chain that stopped at migration 9.
+    assert json.loads(stored["hero"]["draft"])["color_main"] == ""
     conn.close()
 
 
@@ -524,17 +556,24 @@ def test_migration_8_appends_its_keys_to_every_frozen_row_byte_for_byte(
     # it is a different claim from the byte splices above — not "these are
     # the bytes" but "the bytes agree with what app/fields.py declares".
     #
-    # The hero is read TWO KEYS SHORT of the schema's tail, and deliberately
-    # (LLM-COP-30). This test stops at migration 8 on purpose, and migration 9
-    # appended background/background_alt after portrait_alt, so the schema's
-    # tail is now a pair this test's store has not been given yet. Trimming
-    # rather than spelling "portrait_alt" keeps the expectation derived: the
-    # trim is itself asserted, so reordering FIELDS still fails here.
+    # The hero is read FOUR KEYS SHORT of the schema's tail, and deliberately
+    # (LLM-COP-30, then USR-COP-2). This test stops at migration 8 on purpose;
+    # migration 9 appended background/background_alt after portrait_alt and
+    # migration 11 appended color_main/color_accent after those, so the
+    # schema's tail is now four keys this test's store has not been given yet.
+    # Trimming rather than spelling "portrait_alt" keeps the expectation
+    # derived: the trim is itself asserted, so reordering FIELDS still fails
+    # here.
     for kind, row in stored.items():
         declared = list(FIELDS[kind])
         if kind == "hero":
-            assert declared[-2:] == ["background", "background_alt"]
-            declared = declared[:-2]
+            assert declared[-4:] == [
+                "background",
+                "background_alt",
+                "color_main",
+                "color_accent",
+            ]
+            declared = declared[:-4]
         assert list(json.loads(row["draft"]))[-1] == declared[-1], kind
         assert list(json.loads(row["draft"])) == declared, kind
 
@@ -625,7 +664,14 @@ def test_migration_9_appends_the_background_keys_byte_for_byte(tmp_path):
         "background",
         "background_alt",
     ]
-    assert list(json.loads(hero["draft"])) == list(FIELDS["hero"])
+    # TWO KEYS SHORT of the schema's tail, and deliberately: this test stops
+    # at migration 9, and USR-COP-2's migration 11 appended two more after it.
+    # The trim is itself asserted, so reordering FIELDS still fails here —
+    # the idiom test_migration_8_appends_its_keys_to_every_frozen_row_byte_for_byte
+    # already uses for the same reason.
+    declared = list(FIELDS["hero"])
+    assert declared[-2:] == ["color_main", "color_accent"]
+    assert list(json.loads(hero["draft"])) == declared[:-2]
     # draft and published moved together, so no badge can have flipped.
     assert hero["draft"] == hero["published"]
     conn.close()
@@ -669,6 +715,95 @@ def test_migration_9_leaves_every_non_hero_row_byte_untouched(tmp_path):
     # The hero really was reached in this same call — otherwise "the other
     # five are untouched" would be true of a migration that did nothing.
     assert stored["hero"]["draft"] == MIGRATED_9_HERO_DRAFT
+    conn.close()
+
+
+def test_migration_11_appends_its_two_keys_to_the_frozen_hero_text_byte_for_byte(
+    tmp_path,
+):
+    """_migration_7, _8, _9, _10 and _11 called DIRECTLY, in the order a
+    real install upgrades in, over the real stored text.
+
+    The fourth link of the same splice chain, scoped the same way its three
+    predecessors are: the expectation is FROZEN -> +style -> +portrait_alt ->
+    +background/background_alt -> +color_main/color_accent, five literals,
+    none of them produced by the code under test. ensure_ascii=True would
+    escape the · in this row's kicker, sort_keys=True would move every key, a
+    changed separator would write ',"color_main"', and a mid-list insert
+    would move the tail — each is a diff here and none of them is visible to
+    an expectation built the way json.dumps builds it.
+
+    _migration_10 is called with the rest even though it writes no payload —
+    it creates the login_attempts table and nothing more (app/db.py) —
+    because "the order a real install upgrades in" is the claim, and a chain
+    that quietly skipped a slot would stop being that.
+
+    WHAT THIS TEST DOES NOT PROVE, stated because the omission is the point:
+    it says nothing about the DEFAULT VALUE. Both keys default to "", so a
+    migration that wrote any other empty-string-producing expression writes
+    exactly these bytes and passes. What it would catch is the value being
+    non-empty, which is the failure that matters — a colour on a site whose
+    owner picked none.
+    """
+    conn = frozen_v6_store(tmp_path / "eleven.sqlite3")
+
+    database._migration_7(conn)
+    database._migration_8(conn)
+    database._migration_9(conn)
+    database._migration_10(conn)
+    database._migration_11(conn)
+
+    hero = rows_by_kind(conn)["hero"]
+    assert hero["draft"] == MIGRATED_11_HERO_DRAFT
+    assert hero["published"] == MIGRATED_11_HERO_DRAFT
+    # Appended LAST, as a PAIR and in declaration order — which is what keeps
+    # the stored key order equal to the schema's and the owner's first save a
+    # no-op. Read off the parsed payload rather than the text, so it is a
+    # claim about the keys and not a second spelling of the splice.
+    assert list(json.loads(hero["draft"]))[-2:] == [
+        "color_main",
+        "color_accent",
+    ]
+    assert list(json.loads(hero["draft"])) == list(FIELDS["hero"])
+    # draft and published moved together, so no badge can have flipped.
+    assert hero["draft"] == hero["published"]
+    conn.close()
+
+
+def test_migration_11_leaves_every_non_hero_row_byte_untouched(tmp_path):
+    """WHERE kind = 'hero' means what it says, asked of migration 11.
+
+    A SIBLING of the migration-7 and migration-9 tests above rather than an
+    extension of either, for the reason migration 9's docstring gives: the
+    guard is made once per migration, each against the text its own
+    predecessors leave, because re-baselining an earlier test against a later
+    migration's output deletes that earlier guard permanently.
+
+    What a failure here would mean in production: color_main is a hero key,
+    so a stray backfill onto tietoa makes that payload fail
+    validate_payload's unknown-key check on that owner's very next save.
+    """
+    conn = frozen_v6_store(tmp_path / "eleven_others.sqlite3")
+
+    database._migration_7(conn)
+    database._migration_8(conn)
+    database._migration_9(conn)
+    database._migration_10(conn)
+    database._migration_11(conn)
+
+    stored = rows_by_kind(conn)
+    for kind, _position, _state, draft, published, previous in FROZEN_V6_ROWS:
+        if kind == "hero":
+            continue
+        suffix = MIGRATION_8_SUFFIXES[kind]
+        assert stored[kind]["draft"] == draft[:-1] + suffix, kind
+        assert stored[kind]["published"] == published[:-1] + suffix, kind
+        assert stored[kind]["previous_published"] == previous, kind
+        assert "color_main" not in json.loads(stored[kind]["draft"]), kind
+        assert "color_accent" not in json.loads(stored[kind]["draft"]), kind
+    # The hero really was reached in this same call — otherwise "the other
+    # five are untouched" would be true of a migration that did nothing.
+    assert stored["hero"]["draft"] == MIGRATED_11_HERO_DRAFT
     conn.close()
 
 
@@ -737,8 +872,12 @@ def test_migration_9_copies_the_stored_portrait_rather_than_blanking_it(
     assert upgraded["background_alt"] == PLANTED_ALT
     assert upgraded["portrait"] == PLANTED_DIGEST  # the person is untouched
     assert upgraded["portrait_alt"] == PLANTED_ALT
-    # And the copy did not disturb the order the byte test pins.
-    assert list(upgraded) == list(FIELDS["hero"])
+    # And the copy did not disturb the order the byte test pins. Two keys
+    # short of the schema's tail for the same reason the byte test is: this
+    # chain stops at migration 9, and migration 11 appended two more.
+    declared = list(FIELDS["hero"])
+    assert declared[-2:] == ["color_main", "color_accent"]
+    assert list(upgraded) == declared[:-2]
     assert hero["draft"] == hero["published"]
     conn.close()
 
@@ -766,7 +905,9 @@ def test_migration_9_is_idempotent(tmp_path):
     first = {kind: tuple(row) for kind, row in rows_by_kind(conn).items()}
     # The first pass really did reach the hero — otherwise a second pass
     # matching it would be true of a migration that does nothing at all.
-    assert first["hero"][3] == MIGRATED_9_HERO_DRAFT
+    # migrate() runs the whole chain, so the expectation is the LAST splice
+    # (USR-COP-2's), not migration 9's own.
+    assert first["hero"][3] == MIGRATED_11_HERO_DRAFT
 
     database._migration_9(conn)
 
@@ -897,8 +1038,10 @@ def test_the_upgraded_install_is_idempotent(tmp_path):
     # touched. migrate() now runs migrations 7 AND 8, so the expectation is
     # the second splice rather than the first. LLM-COP-30 moved it on again
     # for the same reason: migrate() now runs 7, 8 AND 9, so the expectation
-    # is the third splice.
-    assert before["hero"][3] == MIGRATED_9_HERO_DRAFT
+    # is the third splice. USR-COP-2 moved it on a third time, and the reason
+    # has not changed: migrate() now runs 11 as well, so the expectation is
+    # the fourth splice.
+    assert before["hero"][3] == MIGRATED_11_HERO_DRAFT
 
     database._migration_7(conn)
 
@@ -934,7 +1077,7 @@ def test_the_style_value_changes_nothing_until_it_names_another_template(
     conn = database.connect(app.config["DATABASE"])
     try:
         (version,) = conn.execute("PRAGMA user_version").fetchone()
-        assert version == 10
+        assert version == 11
     finally:
         conn.close()
 

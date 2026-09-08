@@ -113,6 +113,14 @@ def test_site_chrome_of_a_store_with_no_hero_row_is_empty_not_an_error(conn):
         "site_footer": "",
         "site_initials": "",
         "site_style": "",
+        # USR-COP-2's sixth key, and the ONE key the two colours add to this
+        # dict: color_main and color_accent are INPUTS to site_chrome, read
+        # off the hero payload the panel already holds in its bootstrap, not
+        # chrome themselves. What the templates need is the rendered
+        # override, and "" here is the missing-hero branch doing what it does
+        # for every other key — which is also what keeps the <style> block
+        # absent rather than empty on a store with no hero row at all.
+        "site_colors_css": "",
     }
 
 

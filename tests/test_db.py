@@ -637,14 +637,21 @@ def test_migration_7_backfills_style_without_flipping_any_badge(tmp_path):
     # appended background and background_alt after portrait_alt, so the tail
     # moved once more and the rule again did not.
     #
+    # USR-COP-2's migration 11 is the fourth link, and it arrived exactly as
+    # this comment predicted: two more keys on the tail, the rule unchanged
+    # again. (Migration 10 creates the login_attempts table and appends
+    # nothing to any payload — see app/db.py's _migration_10.)
+    #
     # Named as the WHOLE tail rather than by index, so the claim survives the
-    # fourth link without an index chase: style is still there, portrait_alt
+    # fifth link without an index chase: style is still there, portrait_alt
     # is still there, and nothing was inserted between any of them.
-    assert list(draft)[-4:] == [
+    assert list(draft)[-6:] == [
         "style",
         "portrait_alt",
         "background",
         "background_alt",
+        "color_main",
+        "color_accent",
     ]
     assert list(draft) == list(FIELDS["hero"])
     assert row["draft"] == row["published"]
@@ -1206,25 +1213,210 @@ def test_migration_10_creates_the_login_attempts_table(tmp_path):
     c.close()
 
 
-def test_the_migration_head_is_ten(tmp_path):
+# --- migration 11: the owner's two colours (USR-COP-2) ---------------------
+#
+# The same fixture shape one era later. Everything test_migration_9's block
+# above says about WHY these are frozen literals rather than reads of FIELDS
+# holds verbatim; only the era moves.
+
+
+# A digest-shaped reference and an owner's own sentence, for the same reason
+# _V8_PORTRAIT carries them: neither is a value any migration has a default
+# for, so a fixture built from them cannot be produced by a constant.
+_V10_BACKGROUND = "f" * 64
+_V10_BACKGROUND_ALT = "Vastaanottohuone aamuvalossa"
+
+# The colours an owner is imagined to have chosen already, planted where a
+# migration must leave them. Neither is either skin's own literal and neither
+# is "" — so "setdefault, not assignment" is asserted against values no
+# default could produce.
+_CHOSEN_MAIN = "#1a1a2e"
+_CHOSEN_ACCENT = "#ffe9a8"
+
+
+def _v10_hero_payload():
+    """A hero payload as a user_version-10 store actually held one: the
+    seventeen keys of that era — _v8_hero_payload's fifteen plus LLM-COP-30's
+    background pair — and neither colour.
+
+    A FROZEN LITERAL by construction, for the reason _v3_hero_payload states:
+    it extends _v8_hero_payload(), itself frozen, with the two keys migration
+    9 appends, written out here rather than read from FIELDS.
+    """
+    payload = _v8_hero_payload()
+    payload["background"] = _V10_BACKGROUND
+    payload["background_alt"] = _V10_BACKGROUND_ALT
+    return payload
+
+
+def _v10_database(path, previous=None, state="published", hero=None):
+    """A database at exactly the version BELOW the head, with one hero row.
+
+    The slice and the PRAGMA are written relative to the head rather than as
+    the literals 10 and 10, and that is deliberate (USR-COP-2): index 9 held
+    a reservation for a sibling change taking migration 10, and at the rebase
+    that sibling's real migration took the slot. A fixture written as
+    MIGRATIONS[:10] is now still correct by luck; written this way it is
+    correct because it says what it means — every migration except the one
+    under test has run.
+    """
+    c = database.connect(str(path))
+    for migration in database.MIGRATIONS[:-1]:
+        migration(c)
+    c.execute(f"PRAGMA user_version = {len(database.MIGRATIONS) - 1}")
+    text = json.dumps(hero or _v10_hero_payload(), ensure_ascii=False)
+    c.execute(
+        "INSERT INTO sections (kind, position, state, draft, published,"
+        " previous_published) VALUES ('hero', 1, ?, ?, ?, ?)",
+        (state, text, text, previous),
+    )
+    c.commit()
+    return c
+
+
+def test_migration_11_backfills_previous_published(tmp_path):
+    """The branch the captured install cannot reach, said of migration 11.
+
+    Palauta edellinen versio copies previous_published VERBATIM into draft
+    (app/sectionlist.py), so a payload short of a declared key there is not a
+    cosmetic gap: the owner restores a version and the very next save 400s,
+    with nothing on screen to explain why. The failure this pins is a
+    _migration_11 whose column tuple names only draft and published — which
+    would leave every assertion in tests/test_prechange_upgrade.py green,
+    because every previous_published in that artifact is NULL.
+    """
+    older = _v10_hero_payload()
+    older[_OWNER_MARKER["hero"]] = _RESTORABLE_MARKER
+    c = _v10_database(
+        tmp_path / "prev11.sqlite3",
+        previous=json.dumps(older, ensure_ascii=False),
+    )
+    before = _hero_row(c)
+    assert badge(before["state"], before["draft"], before["published"]) == (
+        "Julkaistu"
+    )
+    # The premise: nothing here carries the new keys yet, so every assertion
+    # below is migration 11's doing and not the fixture's.
+    assert "color_main" not in json.loads(before["previous_published"])
+    assert "color_main" not in json.loads(before["draft"])
+
+    database.migrate(c)
+
+    row = _hero_row(c)
+    previous = json.loads(row["previous_published"])
+    # The owner's own stored content is untouched...
+    assert previous[_OWNER_MARKER["hero"]] == _RESTORABLE_MARKER
+    # ...but every declared key is there, in declaration order, so a restore
+    # followed by a save cannot 400.
+    assert list(previous) == list(FIELDS["hero"])
+    assert validate_payload("hero", previous)[1] == {}
+    # And restoring it really would store those exact bytes back: a payload
+    # that validates but re-serialises differently would flip the badge on
+    # the save after the restore.
+    clean, _errors = validate_payload("hero", previous)
+    assert json.dumps(clean, ensure_ascii=False) == row["previous_published"]
+
+    # All three columns gained BOTH keys, and both are "" — which is what
+    # makes app/palette.py emit no <style> block, so the upgraded install
+    # serves the bytes it served before.
+    for column in ("draft", "published", "previous_published"):
+        payload = json.loads(row[column])
+        assert payload["color_main"] == "", column
+        assert payload["color_accent"] == "", column
+        assert list(payload)[-2:] == ["color_main", "color_accent"], column
+
+    # The other two columns moved together, so no badge moved with them.
+    assert row["draft"] == row["published"]
+    assert badge(row["state"], row["draft"], row["published"]) == "Julkaistu"
+    c.close()
+
+
+def test_migration_11_leaves_a_colour_the_owner_already_chose(tmp_path):
+    """A store whose hero ALREADY carries both colours is byte-untouched.
+
+    The branch that matters when a store is migrated on a newer build's data,
+    and the one an ASSIGNMENT would silently break: `payload["color_main"] =
+    ""` writes the same bytes as setdefault on every row in the frozen
+    artifact — where both values are "" — and reverts this owner's chosen
+    palette to the skin default on the next upgrade. Byte-equality of all
+    three columns is what makes "the migration wrote nothing" a claim about
+    the stored text rather than about the parsed payload.
+    """
+    chosen = dict(
+        _v10_hero_payload(),
+        color_main=_CHOSEN_MAIN,
+        color_accent=_CHOSEN_ACCENT,
+    )
+    older = dict(chosen, **{_OWNER_MARKER["hero"]: _RESTORABLE_MARKER})
+    c = _v10_database(
+        tmp_path / "chosen11.sqlite3",
+        previous=json.dumps(older, ensure_ascii=False),
+        hero=chosen,
+    )
+    before = tuple(_hero_row(c))
+
+    database.migrate(c)
+
+    assert tuple(_hero_row(c)) == before
+    row = _hero_row(c)
+    for column in ("draft", "published", "previous_published"):
+        payload = json.loads(row[column])
+        assert payload["color_main"] == _CHOSEN_MAIN, column
+        assert payload["color_accent"] == _CHOSEN_ACCENT, column
+    c.close()
+
+
+def test_migration_11_is_idempotent_byte_for_byte(tmp_path):
+    """_migration_11 called DIRECTLY a second time moves not one byte.
+
+    Directly, not migrate() twice: migrate() twice is a no-op by PRAGMA
+    user_version alone (app/db.py), so it says nothing about what this
+    migration does to a row it has already rewritten —
+    test_migration_5_is_idempotent_byte_for_byte's reason, applied to the
+    newest migration as every one of its predecessors owes.
+    """
+    c = _v10_database(tmp_path / "twice11.sqlite3")
+
+    database.migrate(c)
+    first = tuple(_hero_row(c))
+    # The first pass really did reach the hero — otherwise a second pass
+    # matching it would be true of a migration that does nothing at all.
+    assert json.loads(first[1])["color_main"] == ""
+
+    database._migration_11(c)
+
+    assert tuple(_hero_row(c)) == first
+    c.close()
+
+
+def test_the_migration_head_is_eleven(tmp_path):
     """The head, named exactly once in the suite.
 
     Every other version assertion in this file is written as
     `len(database.MIGRATIONS)` on purpose, so migrations added later do not
     break tests that are not about them. This one is deliberately literal: it
-    is the single place a person adding migration 11 is told, by a red test,
+    is the single place a person adding migration 12 is told, by a red test,
     that a stamped store now upgrades one step further — and it pins that
     MIGRATIONS ends where the list says rather than where a stale PRAGMA does.
 
     It did that job for LLM-COP-30, which found it red and moved it here
     rather than silencing it. Rename it with the number, so the test's name
     keeps stating the head instead of a head it used to have.
+
+    The list is named by INDEX as well as by length, because the two say
+    different things: the length pins where the ladder ends, and the
+    identities pin that appending a migration appended it rather than
+    displacing the one before. LLM-COP-37's migration 10 and USR-COP-2's
+    migration 11 landed in that order, from different branches, and these
+    three lines are where that order is stated once.
     """
-    assert len(database.MIGRATIONS) == 10
+    assert len(database.MIGRATIONS) == 11
+    assert database.MIGRATIONS[8] is database._migration_9
     assert database.MIGRATIONS[9] is database._migration_10
+    assert database.MIGRATIONS[10] is database._migration_11
 
     c = database.connect(str(tmp_path / "head.sqlite3"))
     database.migrate(c)
     (version,) = c.execute("PRAGMA user_version").fetchone()
-    assert version == 10
+    assert version == 11
     c.close()

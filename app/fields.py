@@ -79,6 +79,26 @@ FIELDS = {
         # hero.portrait precedent: the panel's Taustakuva row is its editor.
         "background": {"type": "plain"},
         "background_alt": {"type": "plain"},
+        # The owner's two colours (USR-COP-2): the main colour paints the
+        # header, the secondary one the buttons and the accent text.
+        # app/palette.py holds the one table mapping the two roles onto each
+        # skin's tokens, and everything derived from them.
+        #
+        # Each is an owner-chosen "#rrggbb" or "" meaning "skin default" —
+        # never sanitised into something else, because the value reaches a
+        # <style> block on the public page (app/palette.py's resolve_color).
+        # Neither carries a FIELD_LABELS entry, the hero.style and
+        # hero.portrait precedent: that absence is what keeps the
+        # schema-driven form from drawing a text box an owner could type
+        # "red" into. Their editor is the panel's Ulkoasu tab, beneath the
+        # style list, where the control is an <input type="color"> that can
+        # emit nothing but a valid colour.
+        #
+        # Appended, like every key above them, and the ordering rule's price
+        # is paid again: these two read as though they belong beside style,
+        # and they are last instead.
+        "color_main": {"type": "plain"},
+        "color_accent": {"type": "plain"},
     },
     "tietoa": {
         "nostolause": {"type": "plain"},

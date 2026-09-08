@@ -105,6 +105,38 @@
         </li>
         {% endfor %}
       </ul>
+
+      {# The owner's two colours (USR-COP-2). BELOW the style list, inside
+         this body — never a fourth tab: cp-main-edit.editor-panel.panel-tabs
+         AC2 asserts item-count 3 on the tab strip, and this body's contents
+         are shown by no mockup at all, so this is the one place the control
+         can go without contradicting a criterion.
+
+         <input type="color"> rather than a text box, and that is the whole
+         reason neither key carries a FIELD_LABELS entry: a native colour
+         input can produce nothing but #rrggbb, so the panel cannot originate
+         a hostile value. The whitelist still lives on the READ path
+         (app/palette.py), because an API client's write reaches the same
+         <style> block without ever passing through this control.
+
+         value= is the SKIN's colour, not the owner's. The stored value —
+         when there is one — is written in by edit.js from the bootstrap it
+         already holds, exactly as the style mark is; data-default is what
+         Palauta puts back, and what the swatch shows once a colour is
+         cleared. #}
+      <div class="vari-row" data-color="main">
+        <label class="vari-label" for="vari-main">Pääväri</label>
+        <span class="vari-detail">Ylätunnisteen tausta</span>
+        <input type="color" class="vari-input" id="vari-main" data-color="main" data-default="{{ color_defaults.main }}" value="{{ color_defaults.main }}">
+        <button type="button" class="button secondary vari-reset" data-color="main">Palauta</button>
+      </div>
+
+      <div class="vari-row" data-color="accent">
+        <label class="vari-label" for="vari-accent">Korostusväri</label>
+        <span class="vari-detail">Painikkeet ja linkit</span>
+        <input type="color" class="vari-input" id="vari-accent" data-color="accent" data-default="{{ color_defaults.accent }}" value="{{ color_defaults.accent }}">
+        <button type="button" class="button secondary vari-reset" data-color="accent">Palauta</button>
+      </div>
     </div>
 
     <footer class="panel-footer">

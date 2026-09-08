@@ -17,6 +17,7 @@ from . import auth
 from . import db as database
 from .fields import ANCHORS, FIELD_LABELS, FIELDS, NAV_LABELS, SECTION_NAMES
 from .images import collect_unreferenced
+from .palette import ROLE_TOKENS
 from .sanitize import validate_payload
 from .sections import (
     badge,
@@ -25,7 +26,7 @@ from .sections import (
     publish_dirty,
     site_chrome,
 )
-from .styles import STYLE_CHOICES, template_for
+from .styles import STYLE_CHOICES, resolve_style, template_for
 
 bp = Blueprint("edit", __name__)
 
@@ -49,6 +50,21 @@ def muokkaa():
         active_style = site_chrome(conn, "draft")["site_style"]
     finally:
         conn.close()
+    # The skin's OWN two colours, so the Ulkoasu tab's swatches show the real
+    # header and button colours before the owner has chosen anything — an
+    # <input type="color"> has no empty state to show instead, and defaulting
+    # it to #000000 would tell the owner their header was black.
+    #
+    # resolve_style'd here, unlike active_style above: the mark on the style
+    # list has to tell "" apart from "v1", but the swatch has to show the
+    # colours of the skin that is ACTUALLY rendering, which for "" is the
+    # default one. The values are ROLE_TOKENS' frozen literals, so there is
+    # one copy of them and it is the one app/palette.py derives from.
+    skin = ROLE_TOKENS[resolve_style(active_style)]
+    color_defaults = {
+        "main": skin["default_main"],
+        "accent": skin["default_accent"],
+    }
     bootstrap = {
         "sections": sections,
         "fields": FIELDS,
@@ -63,6 +79,7 @@ def muokkaa():
         bootstrap=bootstrap,
         styles=STYLE_CHOICES,
         active_style=active_style,
+        color_defaults=color_defaults,
     )
 
 

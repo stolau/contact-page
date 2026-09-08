@@ -159,7 +159,7 @@ def test_hero_carries_the_site_wide_keys_last(conn):
         "SELECT published FROM sections WHERE kind = 'hero'"
     ).fetchone()
     payload = json.loads(published)
-    assert list(payload)[-7:] == [
+    assert list(payload)[-9:] == [
         "brand",
         "page_title",
         "footer",
@@ -167,6 +167,8 @@ def test_hero_carries_the_site_wide_keys_last(conn):
         "portrait_alt",
         "background",
         "background_alt",
+        "color_main",
+        "color_accent",
     ]
     assert all(payload[key].strip() for key in ("brand", "page_title", "footer"))
     # style is the one site-wide key seeded EMPTY: "" means "no style
@@ -182,6 +184,14 @@ def test_hero_carries_the_site_wide_keys_last(conn):
     # _migration_9 must never do — put a picture on a page that had none.
     assert payload["background"] == ""
     assert payload["background_alt"] == ""
+    # USR-COP-2's two colours, empty for the reason style is: "" is "skin
+    # default", and app/palette.py emits no <style> block at all for it — so
+    # a fresh install serves the bytes it served before the keys existed.
+    # Either skin's real literal here would also drop the BLANK_PUBLISHED
+    # refusal from a blank hero's Näytä osio, since app/sectionlist.py
+    # compares a published payload to blank_payload(kind) by value.
+    assert payload["color_main"] == ""
+    assert payload["color_accent"] == ""
     assert list(payload) == list(FIELDS["hero"])
 
 
