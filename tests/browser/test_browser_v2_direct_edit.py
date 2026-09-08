@@ -477,18 +477,28 @@ def test_clicking_a_bound_button_on_v2_edits_it_and_leaves_the_dialog_shut(
 ):
     """LLM-COP-6's defect, asked again of the other skin.
 
-    V2 renders TWO .cta-contact openers — the hero's contact_label and the
-    contact card's send_label — where V1 renders one, so V2 has two ways
-    to reproduce it and this asserts on the one V1 never had. The rule is
-    a single capture-phase listener on the document
-    (direct-edit.js:346-355); with the dialog open its backdrop swallows
-    pointer events and editing stops dead.
+    The subject is V2's HERO .cta-contact — a bound field (contact_label)
+    that is also a dialog opener, which is the exact collision LLM-COP-6
+    shipped once. The rule is a single capture-phase listener on the
+    document (direct-edit.js:346-355); with the dialog open its backdrop
+    swallows pointer events and editing stops dead.
+
+    It used to point at the contact card's Lähetä, because V2 rendered TWO
+    .cta-contact openers where V1 rendered one. LLM-COP-32 took that class
+    off the card's button — it submits the card's own form now — so the
+    dialog assertions below would have been trivially true there and this
+    guard would have evaporated without a single test going red. The hero
+    is the one .cta-contact that is still both things at once, so it is the
+    one that can still reproduce the defect. The card button's own
+    direct-edit behaviour has its own test, in
+    tests/browser/test_browser_contact_submit.py, which additionally
+    asserts that pressing it in edit mode posts nothing.
 
     .contact-panel carries the visibility assertion, not .contact-dialog:
     the wrapper has no layout rule of its own and reports itself hidden
     with the dialog wide open.
     """
-    send = v2_page.locator(".v2-contact-primary")
+    send = v2_page.locator(".v2-hero-card .cta-contact")
     expect(send).to_be_visible()
     send.click()
 

@@ -938,10 +938,27 @@ def test_no_form_submits_to_the_api(page_html):
         assert "/api/messages" not in (attrs.get("action") or "")
 
 
-def test_the_seeded_contact_form_stays_inert(page_html):
-    """Cheap regression insurance on the seeded .contact-form: no action, no
-    method, and a non-submitting button. The real weight is carried by the
-    next test — this one only catches the form being wired up by accident."""
+def test_the_seeded_contact_form_is_wired_but_never_posts_a_browser_form(
+    page_html,
+):
+    """The seeded .contact-form SENDS now (LLM-COP-32), and this test is the
+    inversion of the one that used to stand here.
+
+    LLM-COP-3 left the on-page form deliberately inert — a type="button"
+    bound to nothing — because it had no spec licence to wire it, and
+    test_the_seeded_contact_form_stays_inert asserted exactly that. The
+    author reported the silence as a defect, so the invariant is reversed:
+    the button submits, and the form carries the consent control the server
+    demands plus the two outcome slots the shared send() writes into.
+
+    The other half of the old test SURVIVES the reversal and is carried
+    forward verbatim: still no action and still no method. Wiring the form
+    did not make it a browser form post — the submission is JSON from
+    contact_dialog.html's script, and an action attribute would navigate the
+    page away and lose that contract entirely. test_no_form_submits_to_the_api
+    is the weaker claim (it only forbids an action naming the endpoint); this
+    is the one that forbids an action at all.
+    """
     contact_forms = [
         attrs
         for attrs in forms(page_html)
@@ -951,13 +968,23 @@ def test_the_seeded_contact_form_stays_inert(page_html):
     attrs = contact_forms[0]
     assert attrs.get("action") is None
     assert attrs.get("method") is None
+
     match = re.search(
         r'<form[^>]*class="[^"]*contact-form[^"]*"[^>]*>(.*?)</form>',
         page_html,
         re.DOTALL,
     )
     assert match is not None
-    assert "<button type=\"button\"" in match.group(1)
+    body = match.group(1)
+    assert '<button type="submit"' in body
+    assert 'name="consent"' in body
+
+    # Both slots are addressed by id, never by DOM adjacency, so an id that
+    # names nothing is a send that reports neither success nor failure.
+    for attribute in ("data-result", "data-error"):
+        target = attrs.get(attribute)
+        assert target, attribute
+        assert f'id="{target}"' in page_html, target
 
 
 def test_the_endpoint_is_named_once_and_only_inside_the_dialog_script(
@@ -1095,3 +1122,240 @@ def test_the_thanks_copy_is_served_hidden_in_its_own_element(page_html):
     ]
     assert len(thanks) == 1, "the thanks copy is not inside the dialog"
     assert "hidden" in thanks[0]
+
+
+# --- LLM-COP-32: the on-page form sends, and carries the same consent -------
+#
+# The artifact is marked `security` for one reason: wiring a second
+# submission path is wiring a second way to collect personal data, and the
+# consent gate is the product's only record that the sender was told how
+# their message is handled. So the tests below are not about a button. They
+# are about the second path carrying the SAME consent as the first — the
+# same control, the same sentence, the same server rule — and about the
+# dialog's own spec criteria surviving the link threaded into them.
+
+
+class _ClassAttrs(HTMLParser):
+    """The tag and attribute dict of every element carrying a class token."""
+
+    def __init__(self, cls):
+        super().__init__(convert_charrefs=True)
+        self._cls = cls
+        self.found = []
+
+    def handle_starttag(self, tag, attrs):
+        attributes = dict(attrs)
+        if self._cls in (attributes.get("class") or "").split():
+            self.found.append((tag, attributes))
+
+
+def class_attrs(html, cls):
+    parser = _ClassAttrs(cls)
+    parser.feed(html)
+    return parser.found
+
+
+# The four caps app/messages.py enforces, as the literals a client would
+# copy. Read off the module rather than typed here, so moving a cap moves
+# this fence with it — a hardcoded 200 would go on passing against a client
+# that had copied the NEW value.
+SERVER_CAPS = (
+    messages.NAME_MAX,
+    messages.EMAIL_MAX,
+    messages.PHONE_MAX,
+    messages.MESSAGE_MAX,
+)
+
+
+def server_cap_literals(html):
+    r"""Every server cap that appears as a WHOLE NUMBER in `html`.
+
+    Word boundaries, and they are load-bearing: PHONE_MAX is 50, and a bare
+    substring search finds it inside 500, 250, 1500 and most hex digests.
+    `\b50\b` finds the number and nothing else.
+
+    Shared with tests/test_page_v2.py, which asks this of the other skin.
+    """
+    return [cap for cap in SERVER_CAPS if re.search(rf"\b{cap}\b", html)]
+
+
+def test_the_client_never_duplicates_the_servers_length_caps(page_html):
+    """NAME_MAX, EMAIL_MAX, PHONE_MAX and MESSAGE_MAX stay the server's.
+
+    The browser deliberately mirrors only the server's four PRESENCE
+    refusals — empty name, empty message, empty email, unticked consent —
+    because those are the everyday misses, and every arrival at the endpoint
+    costs one of five hourly slots whether it is accepted or refused. The
+    LENGTH caps are not mirrored: 200/200/50/5000 characters is not a limit
+    anyone reaches by accident, and a copy of a Python constant inside a
+    Jinja string literal is a duplicate with nothing to go red when the
+    original moves.
+
+    SCOPE: the WHOLE SERVED DOCUMENT, not only the dialog's script — a
+    deliberate widening of what the plan asked for, stated here because the
+    two are not the same fence. A maxlength="200" in the markup is exactly
+    as much of a duplicate as a 200 in the JavaScript, and a script-only
+    check cannot see it. Measured on the seeded store: none of the four
+    numbers occurs anywhere in either served document today, so the widening
+    costs nothing now. What it risks is an owner's own copy one day
+    containing the bare word "200" — accepted, because a red test naming a
+    cap literal is a one-line thing to look at and a silent duplicate is
+    not.
+    """
+    assert server_cap_literals(page_html) == []
+
+
+def test_the_on_page_form_carries_consent_and_the_link_that_explains_it(
+    page_html,
+):
+    """The second collection path collects consent too.
+
+    app/messages.py refuses a submission whose consent is not True, so an
+    inline form without the control would be refused every single time —
+    the failure mode that makes "just wire the button" the wrong fix. The
+    checkbox has to be INSIDE the form: the shared send() reads it with
+    form.querySelector("[name=consent]"), so one sitting beside the form
+    would be invisible to it and every inline send would be refused with the
+    box plainly ticked on screen.
+
+    The privacy link is asserted here too. A consent control pointing at
+    nothing is a consent nobody could have given informedly, and it is the
+    inline form's own link that is checked — the dialog has its own, and
+    a document-wide search would be satisfied by either.
+    """
+    match = re.search(
+        r'<form[^>]*class="[^"]*contact-form[^"]*"[^>]*>(.*?)</form>',
+        page_html,
+        re.DOTALL,
+    )
+    assert match is not None, "no .contact-form in the served document"
+    body = match.group(1)
+
+    consent = re.search(r'<input[^>]*name="consent"[^>]*>', body)
+    assert consent is not None, "the inline form collects no consent"
+    assert 'type="checkbox"' in consent.group(0), consent.group(0)
+    assert 'class="gdpr-open"' in body, (
+        "nothing in the inline form opens the privacy statement"
+    )
+
+
+def test_the_two_consent_sentences_are_one_sentence(page_html):
+    """One promise, one string — enforced rather than hoped.
+
+    The dialog and the on-page form both ask for consent now, and they must
+    ask for the SAME thing. Two sentences that drift apart are two different
+    consents recorded in one column, and nothing else in this suite would
+    notice: each would still be a plausible Finnish sentence beside a
+    checkbox.
+
+    Compared through element_text, which concatenates descendant text nodes,
+    so the <a> the dialog's copy carries around one word does not make the
+    two differ. That is the same property the cp-contact-dialog criteria
+    depend on.
+    """
+    inline = cd_text(page_html, "contact-consent")
+    dialog = cd_text(page_html, "cd-consent")
+    assert inline is not None, "no .contact-consent on the page"
+    assert dialog is not None, "no .cd-consent in the dialog"
+    assert inline.strip() == dialog.strip(), (inline, dialog)
+
+
+def test_the_dialogs_consent_row_gained_a_link_and_lost_no_words(page_html):
+    """The link went into the dialog's consent row, and it did no damage.
+
+    The row's sentence already promised a tietosuojaseloste and had nothing
+    to open; wrapping that one word makes the promise keepable. The hazard
+    is that the row is a spec address carrying two byte-exact contains-text
+    criteria, and it is a <label>, so the anchor sits inside the very
+    element those criteria are scoped to.
+
+    Both halves are asserted rather than the first alone: that the anchor is
+    there, AND that the two spec strings still read verbatim out of the row
+    with it there. The second is what proves the first did no harm, and it
+    is asserted here rather than left to test_dialog_contains_text_criterion
+    — that test would pass just as happily if the row had been split into
+    two elements, because it never looks at how many there are.
+    """
+    row = class_attrs(page_html, "cd-consent")
+    assert len(row) == 1, f"cd-consent is an address; it resolves to {len(row)}"
+    assert row[0][0] == "label", row[0]
+
+    scoped = cd_text(page_html, "cd-consent")
+    for _, cls, text in CONTAINS_TEXT:
+        if cls == "cd-consent":
+            assert text in scoped, text
+
+    links = [
+        attrs for tag, attrs in class_attrs(page_html, "gdpr-open") if tag == "a"
+    ]
+    assert len(links) == 2, (
+        "expected exactly two privacy links in the V1 document — one in the "
+        f"page's own form and one in the dialog's consent row, got {links}"
+    )
+    # The row's link is NESTED, unlike the page's, which sits beside its
+    # label. Inside a <label> that is safe: a label's activation behaviour
+    # skips events targeted at interactive content and an <a href> is
+    # interactive content — and the opener cancels the default action
+    # anyway, for the href="#" jump.
+    assert '<a class="gdpr-open" href="#">tietosuojaselosteen</a>' in page_html
+
+
+def test_the_gdpr_dialog_ships_hidden_with_exactly_one_script(page_html):
+    """The new dialog is present, shut, and scripted once.
+
+    Shut matters: a privacy statement that ships visible is a modal over the
+    page for every visitor who never asked for one. Once matters because the
+    script binds every .gdpr-open in the document — included twice, every
+    link would open the dialog twice and the second open would overwrite the
+    stored focus with the close button, so closing would never return the
+    visitor to where they were.
+    """
+    roots = class_attrs(page_html, "gdpr-dialog")
+    assert len(roots) == 1, roots
+    assert "hidden" in roots[0][1], roots[0][1]
+    assert page_html.count('id="gdpr-dialog-script"') == 1
+
+
+def test_the_gdpr_script_names_no_endpoint_of_its_own(page_html):
+    """A second inline script is a second place a URL could appear.
+
+    test_the_endpoint_is_named_once_and_only_inside_the_dialog_script says
+    /api/messages occurs exactly once document-wide; this says the same
+    thing from the other end, so a reader of the new file can see the
+    constraint it is under without having to find that test first.
+    """
+    opening = re.search(r'<script[^>]*id="gdpr-dialog-script"[^>]*>', page_html)
+    assert opening is not None
+    end = page_html.index("</script>", opening.end())
+    assert "/api/" not in page_html[opening.end():end]
+
+
+@pytest.mark.parametrize(
+    "case, body",
+    [
+        ("consent absent", {k: v for k, v in VALID.items() if k != "consent"}),
+        ("consent false", payload(consent=False)),
+        # The STRING "true". A client that serialized its checkbox as text
+        # would satisfy any truthiness test written in a hurry, and this is
+        # the one field where "close enough" is not good enough. Not covered
+        # by test_without_consent_nothing_is_stored, which tries "on", 1 and
+        # null — none of which LOOKS like consent the way this one does.
+        ("consent is the string true", payload(consent="true")),
+    ],
+)
+def test_a_consentless_post_is_refused_by_name_whichever_form_sent_it(
+    app, client, case, body
+):
+    """The rule the artifact forbade weakening, asserted in its own words.
+
+    The endpoint cannot tell the dialog's submission from the on-page
+    form's — both are the same JSON at the same URL — so proving the rule
+    once proves it for both paths, and there is no inline-only relaxation
+    that could hide anywhere. The ERROR STRING is asserted, not just the
+    400: a 400 could be any of nine refusals in _validate, and "consent is
+    required" is the only one that says the gate itself held.
+    """
+    response = post(client, body)
+    assert response.status_code == 400, case
+    assert response.get_json()["error"] == "consent is required", case
+    assert stored(app) == [], case

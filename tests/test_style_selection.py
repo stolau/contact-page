@@ -399,7 +399,11 @@ def test_every_selectable_template_renders_the_admin_chrome_seams(
 
     Needle hygiene, checked: direct-chrome occurs only in
     direct_edit_chrome.html and zero times in either public template, so its
-    presence really means the include ran.
+    presence really means the include ran. The same was checked for
+    gdpr-dialog (LLM-COP-32): it occurs only in gdpr_dialog.html — as the
+    root's class and as the script's id — and zero times in either public
+    template, so it too means the include ran rather than that the word
+    happens to be on the page.
     """
     with app.test_request_context("/"):
         html = render_template(
@@ -416,6 +420,7 @@ def test_every_selectable_template_renders_the_admin_chrome_seams(
             "direct-edit.css",   # {% if direct_edit %} stylesheet
             "login-dialog",      # {% if login_dialog %} include
             "contact-dialog",    # the unconditional include
+            "gdpr-dialog",       # the second unconditional include (COP-32)
             "preview.js",        # {% if preview %} script
             "direct-chrome",     # {% if direct_edit %} include
         )

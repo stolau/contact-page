@@ -430,8 +430,11 @@ EXCLUDED_SCALARS = {
         " side panel (Viestikentän otsikko)."
     ),
     ("yhteydenotto", "thanks"): (
-        "not rendered on the page at all, so there is no element to bind."
-        " Still editable in the side panel (Kiitosviesti)."
+        "rendered since LLM-COP-32 wired the contact form to send — but into"
+        " the form's HIDDEN result line, which only appears once a message"
+        " has actually been stored. There is no element on the page an owner"
+        " could click to edit it, so it stays unbound. Still editable in the"
+        " side panel (Kiitosviesti)."
     ),
     # The three site-chrome fields (LLM-COP-10). All three render OUTSIDE any
     # section block, so none of them carries a data-section id; binding them

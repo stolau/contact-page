@@ -22,7 +22,7 @@ import zlib
 import pytest
 from werkzeug.serving import make_server
 
-from app import create_app
+from app import create_app, messages
 from app import db as database
 from tests.browser.chrome import NO_CHROME, chrome_path
 from tests.conftest import (
@@ -45,6 +45,23 @@ EXPECT_TIMEOUT_MS = 5000
 # The link only page_v2.html emits. The selector, not the class, because a
 # stylesheet link is what a browser would actually have to fetch.
 V2_STYLESHEET = 'link[href*="style-v2.css"]'
+
+
+@pytest.fixture(autouse=True)
+def _rate_limiter_isolation():
+    """No POST /api/messages window state leaks between browser tests.
+
+    app.messages._rate_windows is a module-level dict keyed on
+    request.remote_addr, and `live_app` serves IN-PROCESS on loopback — so
+    every test in this directory is the same client, 127.0.0.1, sharing one
+    budget of RATE_LIMIT arrivals per RATE_WINDOW. Without this the sixth
+    real submission anywhere in the layer is answered 429, and WHICH test
+    that lands on depends on collection order. The same seam
+    tests/test_messages.py:52-65 uses, for the same reason.
+    """
+    messages.reset_rate_limiter()
+    yield
+    messages.reset_rate_limiter()
 
 
 # --- the hero row, shared by every module that asks about the style --------
