@@ -214,6 +214,114 @@ def test_every_rule_in_the_v2_stylesheet_actually_parses(v2_page, live_app):
     )
 
 
+def hero_skin(page):
+    """What the browser actually paints for the hero fade and the hero card.
+
+    Computed style, read off the live document — not the source text. The
+    stylesheet is where these values are written, but a media query, a
+    later rule or a shorthand that resets a longhand all decide what the
+    element ends up with, and only the browser knows that.
+    """
+    return page.evaluate(
+        """() => {
+            const read = selector => {
+                const el = document.querySelector(selector);
+                if (!el) return null;
+                const s = getComputedStyle(el);
+                const r = el.getBoundingClientRect();
+                return {
+                    backgroundImage: s.backgroundImage,
+                    backgroundColor: s.backgroundColor,
+                    clipPath: s.clipPath,
+                    filter: s.filter,
+                    borderTopLeftRadius: s.borderTopLeftRadius,
+                    width: r.width,
+                    height: r.height
+                };
+            };
+            return {
+                fade: read('.v2-hero-fade'),
+                card: read('.v2-hero-card')
+            };
+        }"""
+    )
+
+
+def assert_plain_hero(skin, where):
+    """The whole of LLM-COP-29, stated once and asked at both widths.
+
+    The fade is a fade: one gradient and no drawn shape, still occupying
+    space — its spec region (v2-cp-hero.hero-photo.hero-trees, and
+    v2-cp-phone-hero.hero.hero-photo.hero-trees) is is-visible only, so
+    restyling satisfies it and vanishing would not.
+
+    The card is a plain card: nothing cut off it, nothing painted over it,
+    white, and rounded. clip-path and filter are named because the phone
+    rule used to reset them and no longer does — if the desktop rule ever
+    gets its clip or its drop-shadow back, the phone width is where that
+    now shows up too.
+    """
+    fade = skin["fade"]
+    assert fade is not None, f"{where}: no .v2-hero-fade in the document"
+    assert "gradient" in fade["backgroundImage"], (
+        f"{where}: the fade paints no gradient: {fade['backgroundImage']!r}"
+    )
+    assert "url(" not in fade["backgroundImage"], (
+        f"{where}: the fade is painting an image layer again — the tree "
+        f"SVGs are back: {fade['backgroundImage']!r}"
+    )
+    assert fade["width"] > 0 and fade["height"] > 0, (
+        f"{where}: the fade has no client rect, so its region's only "
+        f"criterion (is-visible) is broken: {fade}"
+    )
+
+    card = skin["card"]
+    assert card is not None, f"{where}: no .v2-hero-card in the document"
+    assert card["clipPath"] == "none", (
+        f"{where}: the card is clipped again — the torn edge is back: "
+        f"{card['clipPath']!r}"
+    )
+    assert card["backgroundImage"] == "none", (
+        f"{where}: the card is painting a layer over its ground — the "
+        f"ruled-line texture is back: {card['backgroundImage']!r}"
+    )
+    assert card["backgroundColor"] == "rgb(255, 255, 255)", (
+        f"{where}: the card is not white: {card['backgroundColor']!r}"
+    )
+    assert card["filter"] == "none", (
+        f"{where}: the card carries a filter — the drop-shadow is back: "
+        f"{card['filter']!r}"
+    )
+    assert card["borderTopLeftRadius"] != "0px", (
+        f"{where}: the card has square corners: "
+        f"{card['borderTopLeftRadius']!r}"
+    )
+
+
+def test_the_hero_is_a_plain_card_over_a_plain_fade_at_both_widths(v2_page):
+    """LLM-COP-29, asked of the browser at desktop and at phone.
+
+    Both widths, because the deletions this covers were on both sides of
+    the one media query in the file. Desktop lost the two tree-SVG layers
+    and the card's ruled lines, clip-path and drop-shadow filter; the
+    phone rule then lost `background`, `clip-path: none` and `filter:
+    none`, which were only ever undoing what desktop no longer does. That
+    last part is the half a source diff cannot check: those three lines
+    are dead because the base rule now agrees with them, and the only way
+    to know they were dead rather than load-bearing is to read the phone
+    width back out of a real browser.
+
+    The viewport is moved rather than a second page opened: 1280 (the
+    fixture's own, conftest.py:38) is above the file's single
+    @media (max-width: 720px) and 390 is inside it, so one document is
+    asked both questions.
+    """
+    assert_plain_hero(hero_skin(v2_page), "at 1280")
+
+    v2_page.set_viewport_size({"width": 390, "height": 844})
+    assert_plain_hero(hero_skin(v2_page), "at 390")
+
+
 # --- the hazard, asked of the browser ---------------------------------------
 
 
