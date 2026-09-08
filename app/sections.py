@@ -106,6 +106,40 @@ def site_chrome(conn, column="published"):
     }
 
 
+def contact_dialog_copy(conn, column="published"):
+    """The contact dialog's four owner-set strings, flat.
+
+    Read from the yhteydenotto row by kind and *ignoring state*, for the same
+    reason site_chrome ignores it: contact_dialog.html is included
+    unconditionally and is opened from the header button and both hero CTAs,
+    so hiding the Yhteydenotto section must not strip the dialog's labels. A
+    missing row or missing keys give empty strings — a pre-migration or blank
+    row must not raise.
+
+    Returned as flat scalars, never a dict, exactly as site_chrome is: page.html
+    is imported as a macro module by _section_row.html with a context that binds
+    none of these, and there an undefined bare name renders empty while
+    attribute access on one raises UndefinedError — which would 500 the
+    section-list routes.
+    """
+    if column not in ("draft", "published"):
+        # `column` is a public parameter interpolated into SQL; the same
+        # whitelist site_chrome carries, for the same reason.
+        raise ValueError(f"unknown column {column!r}")
+    row = conn.execute(
+        f"SELECT {column} AS payload FROM sections WHERE kind = 'yhteydenotto'"
+    ).fetchone()
+    payload = {}
+    if row is not None and row["payload"]:
+        payload = json.loads(row["payload"])
+    return {
+        "dialog_name_label": payload.get("name_label", ""),
+        "dialog_email_label": payload.get("email_label", ""),
+        "dialog_message_label": payload.get("message_label", ""),
+        "dialog_thanks": payload.get("thanks", ""),
+    }
+
+
 def publish_dirty(conn):
     """Publish exactly the dirty sections (draft text != published text):
     previous_published takes the old published, published takes the draft.

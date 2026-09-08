@@ -229,8 +229,8 @@
     });
 
     // Plain fields are one line: Enter in a contenteditable inserts a
-    // div or a br that textContent flattens unpredictably, and one of
-    // these lives inside <form class="contact-form">.
+    // div or a br that textContent flattens unpredictably, and the
+    // stored value is a single line of text either way.
     element.addEventListener("keydown", function (event) {
       if (event.key === "Enter") event.preventDefault();
     });

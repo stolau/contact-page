@@ -483,16 +483,13 @@ def test_clicking_a_bound_button_on_v2_edits_it_and_leaves_the_dialog_shut(
     document (direct-edit.js:346-355); with the dialog open its backdrop
     swallows pointer events and editing stops dead.
 
-    It used to point at the contact card's Lähetä, because V2 rendered TWO
-    .cta-contact openers where V1 rendered one. LLM-COP-32 took that class
-    off the card's button — it submits the card's own form now — so the
-    dialog assertions below would have been trivially true there and this
-    guard would have evaporated without a single test going red. The hero
-    is the one .cta-contact that is still both things at once, so it is the
-    one that can still reproduce the defect. The card button's own
+    It used to point at the contact card's Lähetä. Both skins render TWO
+    .cta-contact openers again since USR-COP-1 — the hero's and the card's —
+    so the locator below is SCOPED to .v2-hero-card rather than left to
+    resolve by document order. Either would reproduce the defect now; the
+    hero is the one this test has always been about. The card button's own
     direct-edit behaviour has its own test, in
-    tests/browser/test_browser_contact_submit.py, which additionally
-    asserts that pressing it in edit mode posts nothing.
+    tests/browser/test_browser_contact_submit.py.
 
     .contact-panel carries the visibility assertion, not .contact-dialog:
     the wrapper has no layout rule of its own and reports itself hidden

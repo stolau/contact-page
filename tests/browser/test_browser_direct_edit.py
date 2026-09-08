@@ -62,7 +62,10 @@ def test_clicking_a_bound_button_edits_it_and_leaves_the_dialog_shut(
     `tag.hidden = false` deleted this assertion still passed. Measured.
     """
     open_direct_edit(page, live_app)
-    page.click(".cta-contact")
+    # Scoped to the hero. Since USR-COP-1 the contact card's button carries
+    # .cta-contact too, so a bare selector is a two-match non-strict click
+    # that lands on the hero by document order alone.
+    page.click(".hero .cta-contact")
 
     expect(page.locator(".direct-field-tag")).to_be_visible()
     expect(page.locator(".direct-field-tag")).to_have_text("PAINIKE 1")

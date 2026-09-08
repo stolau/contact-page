@@ -474,8 +474,13 @@ h1, h2 { font-family: var(--v2-serif); color: var(--v2-ink); font-weight: 400; }
 /* And the form really disappears. See the same rule in style.css: the
    `display: flex` above outranks the UA's `[hidden] { display: none }`,
    so without this a sent form stays on screen, still filled and still
-   sendable. Both forms named, because both are hidden by the same line of
-   contact_dialog.html's send(). */
+   sendable.
+   SINCE USR-COP-1 THERE IS ONE FORM, the dialog's: the on-page form was
+   deleted, so `.contact-form[hidden]` now matches nothing on either skin.
+   The selector is kept rather than pruned — this project has hit the
+   [hidden]/display collision four times (COP-5, COP-31, twice in COP-32),
+   and a dead selector costs nothing next to a fifth. `.contact-dialog-form`
+   is the half that still does the work. */
 .contact-form[hidden],
 .contact-dialog-form[hidden] { display: none; }
 .v2-contact-actions { display: flex; flex-direction: column; gap: 0.8rem; }
@@ -502,8 +507,18 @@ h1, h2 { font-family: var(--v2-serif); color: var(--v2-ink); font-weight: 400; }
   font-size: 0.88rem;
 }
 .v2-footer .copyright { margin: 0; }
-.v2-footer .yllapito { color: #b8cbdb; text-decoration: none; }
-.v2-footer .yllapito:hover { text-decoration: underline; }
+/* One right-hand group, and BOTH links take the same treatment (USR-COP-1).
+   The privacy link would otherwise inherit the global rust `a` colour and an
+   underline, sitting beside an admin link that has neither. */
+.v2-footer .footer-links {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+.v2-footer .yllapito,
+.v2-footer .gdpr-open { color: #b8cbdb; text-decoration: none; }
+.v2-footer .yllapito:hover,
+.v2-footer .gdpr-open:hover { text-decoration: underline; }
 
 /* ---- phone rendering -------------------------------------------------- */
 

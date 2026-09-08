@@ -7,11 +7,14 @@ retyped — the Finnish diacritics are load-bearing).
 Three things this file refuses to do, because each of them would let a test
 pass while proving nothing:
 
-1. **No whole-document contains-text assertions for the dialog.** The seeded
-   public page already renders a contact form (app/seed.py -> the
-   ``.contact-form`` block in app/templates/page.html) whose label copy
-   includes "Nimi". A bare ``"Nimi" in html`` passes today, with no dialog in
-   the document at all.
+1. **No whole-document contains-text assertions for the dialog.** The rule
+   outlived the form that motivated it: the seeded page used to render a
+   ``.contact-form`` whose label copy included "Nimi", so a bare
+   ``"Nimi" in html`` passed with no dialog in the document at all. USR-COP-1
+   deleted that form, but the seeded hero title is still "Nimi tähän" and the
+   header still hardcodes "Ota yhteyttä", so a whole-document check is still
+   the wrong instrument. Every criterion below stays scoped to its own
+   element.
 
 2. **No assertion scoped only to the dialog root.** conftest's ``element_text``
    concatenates *every* descendant text node, and ``HTMLParser`` hands inline
@@ -22,12 +25,10 @@ pass while proving nothing:
    deleted.
 
 3. **No document-wide input-name check.** ``input_names`` in test_auth parses
-   the whole document, and the seeded form already serves inputs named
-   ``name``, ``email`` and ``message``. Only ``phone`` would be new, so a
-   document-wide check is three-quarters vacuous. The is-visible criteria use
-   ``dialog_scope`` below, which is attribute-aware *and* structural: the
-   seeded form's identically named inputs sit outside ``div.contact-dialog``,
-   so these assertions genuinely fail without the dialog.
+   the whole document, and the login dialog serves inputs of its own. The
+   is-visible criteria use ``dialog_scope`` below, which is attribute-aware
+   *and* structural, so these assertions genuinely fail without the dialog
+   rather than being satisfied by some other form's inputs.
 
 ``dialog_scope`` and ``class_count`` are defined here rather than in
 tests/conftest.py deliberately: they are this unit's instruments, and
@@ -44,7 +45,13 @@ import pytest
 
 from app import db as database
 from app import messages
-from tests.conftest import element_text
+from app.seed import SEED_SECTIONS
+from tests.conftest import (
+    assert_absent_from_app,
+    edit_published_payload,
+    element_text,
+    set_section_state,
+)
 
 # --- shared isolation --------------------------------------------------------
 
@@ -718,8 +725,11 @@ def test_the_delete_audit_row_names_the_id_and_not_the_message(
 class _DialogScope(HTMLParser):
     """Finds div.contact-dialog and records the start tags inside it.
 
-    Structural on purpose: the seeded ``.contact-form`` inputs live outside
-    this element, so nothing it reports can be satisfied by them.
+    Structural on purpose: the login dialog's inputs and the header's own
+    controls live outside this element, so nothing it reports can be
+    satisfied by them. Until USR-COP-1 the on-page ``.contact-form``'s inputs
+    were the example that mattered here; that form is gone, and the reason
+    for scoping is not.
     """
 
     def __init__(self):
@@ -870,8 +880,11 @@ def test_dialog_input_is_inside_the_dialog(page_html, address, name):
     """is-visible for the three text inputs.
 
     Deliberately not test_auth's input_names: that parses the whole document,
-    and the seeded .contact-form already serves inputs named name and email.
-    Only descendants of div.contact-dialog count here.
+    which also carries the login dialog's inputs, so a document-wide check
+    could be satisfied by an element outside the dialog entirely. Only
+    descendants of div.contact-dialog count here. (Until USR-COP-1 the
+    on-page .contact-form served inputs named name and email and was the
+    nearer hazard; it is gone, the scoping is not.)
     """
     _, descendants = dialog_scope(page_html)
     names = {
@@ -938,51 +951,46 @@ def test_no_form_submits_to_the_api(page_html):
         assert "/api/messages" not in (attrs.get("action") or "")
 
 
-def test_the_seeded_contact_form_is_wired_but_never_posts_a_browser_form(
+def test_the_page_draws_no_contact_form_and_the_dialogs_form_posts_none(
     page_html,
 ):
-    """The seeded .contact-form SENDS now (LLM-COP-32), and this test is the
-    inversion of the one that used to stand here.
+    """The page collects a message in ONE place, and that place posts JSON.
 
-    LLM-COP-3 left the on-page form deliberately inert — a type="button"
-    bound to nothing — because it had no spec licence to wire it, and
-    test_the_seeded_contact_form_stays_inert asserted exactly that. The
-    author reported the silence as a defect, so the invariant is reversed:
-    the button submits, and the form carries the consent control the server
-    demands plus the two outcome slots the shared send() writes into.
+    USR-COP-1 deleted the on-page .contact-form from both skins: a second
+    collection path is a second place the consent gate, the pre-validation and
+    the failure reporting can drift, and it was the path that made pressing
+    Lähetä throw the visitor's answers away. So the first half asserts the
+    class is gone from the served document altogether.
 
-    The other half of the old test SURVIVES the reversal and is carried
-    forward verbatim: still no action and still no method. Wiring the form
-    did not make it a browser form post — the submission is JSON from
-    contact_dialog.html's script, and an action attribute would navigate the
-    page away and lose that contract entirely. test_no_form_submits_to_the_api
-    is the weaker claim (it only forbids an action naming the endpoint); this
-    is the one that forbids an action at all.
+    The second half is the fence LLM-COP-3 put up and LLM-COP-32 carried
+    through its own reversal, carried forward again and WIDENED: no form in
+    this document has an action and none has a method. The submission is JSON
+    from contact_dialog.html's script, and an action attribute would navigate
+    the page away and lose that contract entirely. Quantified over every form
+    rather than over the dialog's, so a form added back later is caught by
+    this test rather than by nothing. test_no_form_submits_to_the_api is the
+    weaker claim — it only forbids an action naming the endpoint.
     """
-    contact_forms = [
+    assert 'class="contact-form"' not in page_html
+    assert class_count(page_html, "contact-form") == 0
+
+    all_forms = forms(page_html)
+    assert all_forms, "no <form> at all in the served document"
+    for attrs in all_forms:
+        assert attrs.get("action") is None, attrs
+        assert attrs.get("method") is None, attrs
+
+    # The dialog's own form is still the one that sends, and it still names
+    # both outcome slots by id rather than by DOM adjacency: an id that names
+    # nothing is a send reporting neither success nor failure.
+    dialog_forms = [
         attrs
-        for attrs in forms(page_html)
-        if "contact-form" in (attrs.get("class") or "").split()
+        for attrs in all_forms
+        if "contact-dialog-form" in (attrs.get("class") or "").split()
     ]
-    assert len(contact_forms) == 1
-    attrs = contact_forms[0]
-    assert attrs.get("action") is None
-    assert attrs.get("method") is None
-
-    match = re.search(
-        r'<form[^>]*class="[^"]*contact-form[^"]*"[^>]*>(.*?)</form>',
-        page_html,
-        re.DOTALL,
-    )
-    assert match is not None
-    body = match.group(1)
-    assert '<button type="submit"' in body
-    assert 'name="consent"' in body
-
-    # Both slots are addressed by id, never by DOM adjacency, so an id that
-    # names nothing is a send that reports neither success nor failure.
+    assert len(dialog_forms) == 1
     for attribute in ("data-result", "data-error"):
-        target = attrs.get(attribute)
+        target = dialog_forms[0].get(attribute)
         assert target, attribute
         assert f'id="{target}"' in page_html, target
 
@@ -1108,11 +1116,19 @@ def test_the_thanks_copy_is_served_hidden_in_its_own_element(page_html):
     Scoped like every other string here rather than checked against the whole
     document, and required to start hidden — copy that ships visible would
     thank a visitor who has not sent anything.
+
+    The string is READ FROM THE SEED since USR-COP-1, not typed here: the
+    copy is yhteydenotto.thanks, the owner's, and a literal written down in
+    this file would go stale the moment the owner changed it. Both structural
+    halves are unchanged — exactly one .cd-thanks, inside the dialog, shipping
+    hidden — and they are what this test is really for.
     """
+    seeded = dict(SEED_SECTIONS)["yhteydenotto"]["thanks"]
+    assert seeded.strip(), "the seed has no thanks copy to serve"
     assert class_count(page_html, "cd-thanks") == 1
     scoped = cd_text(page_html, "cd-thanks")
     assert scoped is not None
-    assert "Kiitos viestistäsi! Otan yhteyttä lähipäivinä." in scoped
+    assert seeded in scoped
 
     _, descendants = dialog_scope(page_html)
     thanks = [
@@ -1124,15 +1140,16 @@ def test_the_thanks_copy_is_served_hidden_in_its_own_element(page_html):
     assert "hidden" in thanks[0]
 
 
-# --- LLM-COP-32: the on-page form sends, and carries the same consent -------
+# --- the ONE collection path, and the consent it carries --------------------
 #
-# The artifact is marked `security` for one reason: wiring a second
-# submission path is wiring a second way to collect personal data, and the
-# consent gate is the product's only record that the sender was told how
-# their message is handled. So the tests below are not about a button. They
-# are about the second path carrying the SAME consent as the first — the
-# same control, the same sentence, the same server rule — and about the
-# dialog's own spec criteria surviving the link threaded into them.
+# LLM-COP-32 wired a second submission path into the page and these tests
+# guarded it: a second way to collect personal data needs the same consent
+# gate as the first, and the gate is the product's only record that the
+# sender was told how their message is handled. USR-COP-1 removed the second
+# path instead — one form, so nothing can drift — and the two tests comparing
+# the page form's consent with the dialog's went with it. What remains is the
+# claim that survives either arrangement: the dialog's own spec criteria hold
+# with the privacy link threaded through its consent row.
 
 
 class _ClassAttrs(HTMLParser):
@@ -1205,61 +1222,6 @@ def test_the_client_never_duplicates_the_servers_length_caps(page_html):
     assert server_cap_literals(page_html) == []
 
 
-def test_the_on_page_form_carries_consent_and_the_link_that_explains_it(
-    page_html,
-):
-    """The second collection path collects consent too.
-
-    app/messages.py refuses a submission whose consent is not True, so an
-    inline form without the control would be refused every single time —
-    the failure mode that makes "just wire the button" the wrong fix. The
-    checkbox has to be INSIDE the form: the shared send() reads it with
-    form.querySelector("[name=consent]"), so one sitting beside the form
-    would be invisible to it and every inline send would be refused with the
-    box plainly ticked on screen.
-
-    The privacy link is asserted here too. A consent control pointing at
-    nothing is a consent nobody could have given informedly, and it is the
-    inline form's own link that is checked — the dialog has its own, and
-    a document-wide search would be satisfied by either.
-    """
-    match = re.search(
-        r'<form[^>]*class="[^"]*contact-form[^"]*"[^>]*>(.*?)</form>',
-        page_html,
-        re.DOTALL,
-    )
-    assert match is not None, "no .contact-form in the served document"
-    body = match.group(1)
-
-    consent = re.search(r'<input[^>]*name="consent"[^>]*>', body)
-    assert consent is not None, "the inline form collects no consent"
-    assert 'type="checkbox"' in consent.group(0), consent.group(0)
-    assert 'class="gdpr-open"' in body, (
-        "nothing in the inline form opens the privacy statement"
-    )
-
-
-def test_the_two_consent_sentences_are_one_sentence(page_html):
-    """One promise, one string — enforced rather than hoped.
-
-    The dialog and the on-page form both ask for consent now, and they must
-    ask for the SAME thing. Two sentences that drift apart are two different
-    consents recorded in one column, and nothing else in this suite would
-    notice: each would still be a plausible Finnish sentence beside a
-    checkbox.
-
-    Compared through element_text, which concatenates descendant text nodes,
-    so the <a> the dialog's copy carries around one word does not make the
-    two differ. That is the same property the cp-contact-dialog criteria
-    depend on.
-    """
-    inline = cd_text(page_html, "contact-consent")
-    dialog = cd_text(page_html, "cd-consent")
-    assert inline is not None, "no .contact-consent on the page"
-    assert dialog is not None, "no .cd-consent in the dialog"
-    assert inline.strip() == dialog.strip(), (inline, dialog)
-
-
 def test_the_dialogs_consent_row_gained_a_link_and_lost_no_words(page_html):
     """The link went into the dialog's consent row, and it did no damage.
 
@@ -1290,7 +1252,8 @@ def test_the_dialogs_consent_row_gained_a_link_and_lost_no_words(page_html):
     ]
     assert len(links) == 2, (
         "expected exactly two privacy links in the V1 document — one in the "
-        f"page's own form and one in the dialog's consent row, got {links}"
+        "site footer and one in the dialog's consent row, got "
+        f"{links}"
     )
     # The row's link is NESTED, unlike the page's, which sits beside its
     # label. Inside a <label> that is safe: a label's activation behaviour
@@ -1298,6 +1261,194 @@ def test_the_dialogs_consent_row_gained_a_link_and_lost_no_words(page_html):
     # interactive content — and the opener cancels the default action
     # anyway, for the href="#" jump.
     assert '<a class="gdpr-open" href="#">tietosuojaselosteen</a>' in page_html
+
+
+# --- USR-COP-1: the dialog's four labels are the owner's words --------------
+
+# Four strings absent from app/, so a template that kept its own literal fails
+# here rather than passing by looking right.
+DIALOG_VALUES = {
+    "name_label": "Kutsumanimesi",
+    "email_label": "Postiosoitteesi verkossa",
+    "message_label": "Kerro asiasi lyhyesti",
+    "thanks": "Kiitos! Palaan asiaan torstaihin mennessä.",
+}
+
+# The strings contact_dialog.html owned before USR-COP-1 moved these four
+# fields into it from the deleted on-page form. None of them may survive in
+# the dialog's markup once the store carries different words — an edit that
+# APPENDS the stored value beside the literal, or leaves the literal on a
+# second element, passes an equality check on one element and fails here.
+DIALOG_LITERALS = {
+    "name_label": "Nimi",
+    "email_label": "Sähköposti",
+    "message_label": "Mitä etsit?",
+    "thanks": "Kiitos viestistäsi! Otan yhteyttä lähipäivinä.",
+}
+
+
+def dialog_markup(html):
+    """The dialog element's own markup, attributes included.
+
+    Attributes, because email_label is drawn as a placeholder and an
+    aria-label rather than as a text node — cd_text cannot see either. The
+    slice ends at the dialog's script, which sits outside the element
+    (test_the_dialog_script_sits_outside_the_dialog_element) and would
+    otherwise satisfy any string check with its own source.
+    """
+    start = html.index('<div class="contact-dialog"')
+    end = html.index('<script id="contact-dialog-script"', start)
+    return html[start:end]
+
+
+@pytest.mark.parametrize(
+    "field, cls",
+    [
+        ("name_label", "cd-name-label"),
+        ("message_label", "cd-message-label"),
+        ("thanks", "cd-thanks"),
+        ("email_label", None),
+    ],
+    ids=["name_label", "message_label", "thanks", "email_label"],
+)
+def test_the_dialog_draws_the_owners_words(app, client, field, cls):
+    """The four fields USR-COP-1 rehomed are read from the store, not typed
+    into contact_dialog.html.
+
+    They were yhteydenotto.name_label, .email_label, .message_label and
+    .thanks all along — owner-editable in the side panel — but the elements
+    that drew them were in the on-page form this change deletes. Rehoming them
+    into the dialog is what keeps them rendering anywhere at all; this is the
+    test that says they actually arrive there.
+
+    The reader is app/sections.py:contact_dialog_copy. THIS TEST COVERS THE
+    PUBLIC ROUTE ONLY. The other two routes that build their own context are
+    covered by test_every_route_that_serves_the_dialog_serves_the_owners_words
+    below, which exists precisely because a missed spread renders the label
+    blank instead of raising — dropping it from app/edit.py or
+    app/direct_edit.py was measured to leave this test, and the whole suite,
+    green.
+
+    cls=None is email_label, which has no element of its own: it draws the
+    email input's placeholder AND its accessible name, and the two are
+    asserted equal to each other — one string in two roles, so the input
+    cannot end up announced as one thing and captioned as another.
+    """
+    assert_absent_from_app(*DIALOG_VALUES.values())
+
+    edit_published_payload(
+        app, "yhteydenotto", lambda payload: payload.update(**DIALOG_VALUES)
+    )
+    after = client.get("/").get_data(as_text=True)
+    expected = DIALOG_VALUES[field]
+
+    if cls is None:
+        email_input = re.search(
+            r'<input[^>]*name="email"[^>]*>', dialog_markup(after)
+        )
+        assert email_input is not None, "no email input in the dialog"
+        attrs = dict(
+            re.findall(r'(\w[\w-]*)="([^"]*)"', email_input.group(0))
+        )
+        # Both attributes are checked against the OWNER'S value, which also
+        # settles that they equal each other — a third assertion comparing
+        # them could not fail once both have been pinned to `expected`.
+        assert attrs.get("placeholder") == expected, email_input.group(0)
+        assert attrs.get("aria-label") == expected, email_input.group(0)
+    else:
+        scoped = cd_text(after, cls)
+        assert scoped is not None, f"no element carries class {cls}"
+        assert scoped.strip() == expected, scoped
+
+    # ...and the word the template used to own is gone from the dialog with
+    # it. Without this half, a build that rendered the literal AND the stored
+    # value would pass the assertion above.
+    assert DIALOG_LITERALS[field] not in dialog_markup(after), field
+
+
+# Every route that serves contact_dialog.html, and there are three: the public
+# page, the draft preview and direct edit mode. Each builds its own context and
+# each has to spread contact_dialog_copy into it — three chances to miss one,
+# and a missed one renders the labels BLANK rather than raising, because a bare
+# undefined name in Jinja is the empty string.
+DIALOG_ROUTES = ["/", "/muokkaa/esikatselu", "/muokkaa/sivu"]
+DIALOG_ROUTE_IDS = ["public", "preview", "direct-edit"]
+
+
+@pytest.mark.parametrize("path", DIALOG_ROUTES, ids=DIALOG_ROUTE_IDS)
+def test_every_route_that_serves_the_dialog_serves_the_owners_words(
+    app, logged_in_admin, path
+):
+    """The four rehomed fields arrive on EVERY route the dialog is served on,
+    not only the public one.
+
+    test_the_dialog_draws_the_owners_words above asks this of `/` and pins
+    which element draws which field. It cannot see the other two routes, and
+    dropping the spread from either of them was measured to leave the whole
+    suite green: app/edit.py's /muokkaa/esikatselu and app/direct_edit.py's
+    /muokkaa/sivu build their own contexts, so an owner previewing the site or
+    editing it in place would open the contact dialog and find every label
+    blank, with nothing red anywhere.
+
+    Containment in the dialog's markup rather than a per-element check,
+    deliberately: WHICH element draws each field is already pinned on `/`, and
+    what this test is for is the wiring — whose failure mode is a label that is
+    not in the document at all. The literal half is asserted too, so a route
+    that fell back to contact_dialog.html's old hardcoded words is red here
+    rather than green on a string that merely looks right.
+    """
+    assert_absent_from_app(*DIALOG_VALUES.values())
+    edit_published_payload(
+        app, "yhteydenotto", lambda payload: payload.update(**DIALOG_VALUES)
+    )
+
+    response = logged_in_admin.get(path)
+    assert response.status_code == 200, (path, response.status_code)
+    markup = dialog_markup(response.get_data(as_text=True))
+
+    for field, value in DIALOG_VALUES.items():
+        assert value in markup, (path, field, markup)
+        assert DIALOG_LITERALS[field] not in markup, (path, field)
+
+
+@pytest.mark.parametrize("path", DIALOG_ROUTES, ids=DIALOG_ROUTE_IDS)
+def test_hiding_the_contact_section_leaves_the_dialogs_labels_alone(
+    app, logged_in_admin, path
+):
+    """Hiding Yhteydenotto removes the SECTION and must not touch the DIALOG.
+
+    This is the reason app/sections.py:contact_dialog_copy reads the row by
+    kind and ignores state, exactly as site_chrome does. Every other section
+    loader filters: visible_sections takes state = 'published' and
+    draft_sections drops the hidden rows, so a reader built the obvious way
+    would blank all four labels the moment the owner hid the section — while
+    the header button and both hero CTAs went on opening the dialog, which is
+    included unconditionally.
+
+    tests/test_sections.py asks this of the function. This asks it of the three
+    ROUTES, which is where the property is actually consumed, and it is asked
+    of all three because the two admin routes read the DRAFT column through a
+    second call site.
+
+    The section's absence is asserted first, so the test cannot pass by the
+    section never having been hidden — which would make every assertion below
+    it a statement about the ordinary page.
+    """
+    edit_published_payload(
+        app, "yhteydenotto", lambda payload: payload.update(**DIALOG_VALUES)
+    )
+    set_section_state(app, "yhteydenotto", "hidden")
+
+    response = logged_in_admin.get(path)
+    assert response.status_code == 200, (path, response.status_code)
+    html = response.get_data(as_text=True)
+    assert 'data-kind="yhteydenotto"' not in html, (
+        f"{path} still renders the contact section, so hiding it proved nothing"
+    )
+
+    markup = dialog_markup(html)
+    for field, value in DIALOG_VALUES.items():
+        assert value in markup, (path, field, markup)
 
 
 def test_the_gdpr_dialog_ships_hidden_with_exactly_one_script(page_html):

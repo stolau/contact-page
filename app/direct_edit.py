@@ -18,7 +18,7 @@ from flask import Blueprint, current_app, render_template
 from . import auth
 from . import db as database
 from .fields import ANCHORS, FIELD_LABELS, FIELDS, NAV_LABELS, SECTION_NAMES
-from .sections import draft_sections, site_chrome
+from .sections import contact_dialog_copy, draft_sections, site_chrome
 from .styles import template_for
 
 bp = Blueprint("direct_edit", __name__)
@@ -39,6 +39,7 @@ def sivu():
         sections = draft_sections(conn)
         owner = conn.execute("SELECT username FROM admin_user").fetchone()
         chrome = site_chrome(conn, "draft")
+        dialog_copy = contact_dialog_copy(conn, "draft")
     finally:
         conn.close()
     bootstrap = {
@@ -60,4 +61,5 @@ def sivu():
         section_names=SECTION_NAMES,
         bootstrap=bootstrap,
         **chrome,
+        **dialog_copy,
     )

@@ -138,8 +138,8 @@ SEED_SECTIONS = [
         "yhteydenotto",
         {
             "name_label": "Nimi",
-            "email_label": "Sähköposti tai puhelin",
-            "message_label": "Viesti",
+            "email_label": "Sähköposti",
+            "message_label": "Mitä etsit?",
             "send_label": "Lähetä",
             "thanks": "Kiitos yhteydenotosta! Palaan asiaan mahdollisimman pian.",
             "section_label": "YHTEYDENOTTO",
