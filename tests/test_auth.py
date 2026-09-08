@@ -26,7 +26,7 @@ import pytest
 from werkzeug.security import check_password_hash
 
 import app as app_module
-from app import LOGIN_ERROR, auth, create_app, messages
+from app import LOGIN_ERROR, auth, create_app, messages, totp
 from app import db as database
 from tests.conftest import (
     ADMIN_PASSWORD as PASSWORD,
@@ -1265,3 +1265,818 @@ def test_logout_invalidates_the_old_cookie_server_side(gated_app):
     response = client.get("/_suojattu")
     assert response.status_code == 302
     assert urlparse(response.headers["Location"]).path == "/yllapito"
+
+
+# --- the second factor (LLM-COP-39): the flow proofs -------------------------
+#
+# tests/test_totp.py carries the whole correctness burden for the ARITHMETIC,
+# against RFC 4226 and RFC 6238's published vectors. Nothing below re-proves
+# it: every test here computes its expected code with app/totp.py itself, so
+# these can only prove the FLOW — that the route, the store and the limiter
+# behave as the second factor's six hazards demand. Saying which test is
+# load-bearing for what is the difference between a proof and a rigged
+# fixture.
+#
+# Everything runs against real temp-file databases and the real routes. Two
+# injections, both of which observe real work rather than replacing it:
+# app.totp._now (the module's own documented seam, so a step boundary is a
+# decision rather than a race) and, in enrol() only, app.totp.random_secret —
+# see that helper for why a CliRunner leaves no other honest option.
+
+# A step whose epoch is safely in the PAST. It has to be: the restart proof
+# runs a child interpreter on the real clock, and a FROZEN in the future
+# would leave that child's code below the step enrolment already spent, so it
+# would be refused by the REPLAY rule while the test claimed to be about the
+# rate limiter.
+ENROL_AT = (1_700_000_000 // totp.TOTP_PERIOD) * totp.TOTP_PERIOD + 15
+
+# One period on. The enrolling code is spent at enrolment (admin-totp-enable
+# stores its step in totp_last_step, deliberately), so a flow test that logs
+# in at the enrolment step is refused by the replay rule and proves nothing
+# about the thing it names.
+LOGIN_AT = ENROL_AT + totp.TOTP_PERIOD
+
+# Drawn once, by the real random_secret, at import.
+ENROL_SECRET = totp.random_secret()
+
+# The seventeen rules require_admin marks today. The sweep below reads the
+# live url_map, so a route added later is covered without anyone remembering
+# — but the set is pinned as well as swept, because a route that silently
+# LOSES its gate would otherwise just shrink the sweep and stay green.
+GATED_PATHS = {
+    "/api/kuvat",
+    "/api/kuvat/<digest>",
+    "/api/publish",
+    "/api/sections",
+    "/api/sections/<int:section_id>/draft",
+    "/api/sections/<int:section_id>/restore",
+    "/api/sections/<int:section_id>/state",
+    "/api/sections/order",
+    "/muokkaa",
+    "/muokkaa/esikatselu",
+    "/muokkaa/osiot",
+    "/muokkaa/osiot/rivi/<int:section_id>",
+    "/muokkaa/sivu",
+    "/yllapito/alustus",
+    "/yllapito/kirjaudu-ulos",
+    "/yllapito/viestit",
+    "/yllapito/viestit/<int:message_id>/poista",
+}
+
+
+def freeze_totp(monkeypatch, at):
+    """Pin app/totp.py's clock seam, so a step boundary cannot be a race."""
+    monkeypatch.setattr(totp, "_now", lambda: at)
+
+
+def code_for(at, offset=0, secret=ENROL_SECRET):
+    """The account's own code for the step containing `at`, plus `offset`."""
+    return totp.hotp(totp.decode_secret(secret), totp.step_for(at) + offset)
+
+
+def wrong_code(at=None, secret=ENROL_SECRET):
+    """A code that is genuinely this account's, five steps away.
+
+    Deliberately not "000000": a literal is only PROBABLY wrong (one in a
+    million per candidate step), and a test whose meaning depends on luck is
+    a test that will one day go red for the wrong reason. Five steps is
+    outside TOTP_SKEW by four, so this is deterministically refused.
+    """
+    return code_for(time.time() if at is None else at, 5, secret)
+
+
+def recovery_codes_in(output):
+    """The recovery codes admin-totp-enable printed, by their pinned shape."""
+    return [
+        line.strip()
+        for line in output.splitlines()
+        if auth.RECOVERY_PATTERN.match(line.strip())
+    ]
+
+
+def enrol(app, monkeypatch, at=ENROL_AT, secret=ENROL_SECRET):
+    """Turn the factor on through the REAL admin-totp-enable command.
+
+    Returns the ten recovery codes it printed.
+
+    The one injection: totp.random_secret answers a secret this module drew
+    itself, with the real function, at import. A CliRunner has to know the
+    command's whole input before the command runs, and the operator's code is
+    computed from a secret the command has not generated yet — so a test that
+    faked nothing could not answer the prompt at all. Everything else is the
+    real command: it verifies with the real accepted_step (a wrong code still
+    fails it — see the enrolment test below), writes the real rows and issues
+    real recovery codes. The randomness of random_secret is proved in
+    tests/test_totp.py, where it is the subject.
+    """
+    monkeypatch.setattr(totp, "random_secret", lambda: secret)
+    freeze_totp(monkeypatch, at)
+    result = app.test_cli_runner().invoke(
+        args=["admin-totp-enable"], input=f"{code_for(at)}\n"
+    )
+    assert result.exit_code == 0, result.output
+    assert secret in result.output  # the operator really was shown it
+    codes = recovery_codes_in(result.output)
+    assert len(codes) == auth.RECOVERY_CODE_COUNT, result.output
+    return codes
+
+
+def totp_row(app):
+    c = app_conn(app)
+    try:
+        return c.execute("SELECT * FROM admin_user").fetchone()
+    finally:
+        c.close()
+
+
+def table_rows(app, table):
+    c = app_conn(app)
+    try:
+        return c.execute(f"SELECT * FROM {table}").fetchall()
+    finally:
+        c.close()
+
+
+def reset_last_step(app):
+    """Put totp_last_step back to NULL, straight in the store.
+
+    The skew sub-cases need this between them: without it, accepting a code
+    at one step makes the NEXT sub-case fail by the REPLAY rule, and the
+    assertion would prove nothing about the window it names.
+    """
+    c = app_conn(app)
+    try:
+        c.execute("UPDATE admin_user SET totp_last_step = NULL")
+        c.commit()
+    finally:
+        c.close()
+
+
+def clear_attempts(app):
+    """Empty login_attempts, the way login-unlock does.
+
+    Same reason as reset_last_step: a sub-case about the skew window must not
+    be decided by the rate limiter instead.
+    """
+    c = app_conn(app)
+    try:
+        auth.clear_all_login_attempts(c)
+    finally:
+        c.close()
+
+
+def pending_token_of(response):
+    """The admin_pending cookie the password step set, or None."""
+    jar = SimpleCookie()
+    for header in response.headers.getlist("Set-Cookie"):
+        jar.load(header)
+    if auth.PENDING_COOKIE not in jar:
+        return None
+    return jar[auth.PENDING_COOKIE].value
+
+
+def post_code(client, code, address=None):
+    kwargs = {}
+    if address is not None:
+        kwargs["environ_base"] = {"REMOTE_ADDR": address}
+    return client.post("/yllapito/koodi", data={"koodi": code}, **kwargs)
+
+
+def pending_lookup(app, conn, token):
+    """current_pending_login for a request carrying the pending cookie."""
+    with app.test_request_context(
+        "/", headers={"Cookie": f"{auth.PENDING_COOKIE}={token}"}
+    ):
+        return auth.current_pending_login(conn)
+
+
+# --- hazard 1: the partial state is not a session ----------------------------
+
+
+def gated_rules(app):
+    """Every rule whose view carries require_admin's marker.
+
+    __admin_gated__ and not hasattr(view, "__wrapped__"): the latter matches
+    any functools.wraps decorator and would quietly include or exclude routes
+    for reasons that have nothing to do with the gate.
+    """
+    return [
+        rule
+        for rule in app.url_map.iter_rules()
+        if getattr(
+            app.view_functions[rule.endpoint], "__admin_gated__", False
+        )
+    ]
+
+
+def rule_requests(rule):
+    """(method, path) for every method a rule really serves."""
+    _host, path = rule.build({name: 1 for name in rule.arguments})
+    return [
+        (method, path)
+        for method in sorted(rule.methods - {"HEAD", "OPTIONS"})
+    ]
+
+
+def test_the_password_step_mints_nothing_a_session_cookie_could_carry(
+    admin_app, monkeypatch
+):
+    """Hazard 1, the store side: a correct password writes no session.
+
+    If the password step minted anything the sessions table holds, the second
+    factor would be decorative whatever the sweep below said.
+    """
+    enrol(admin_app, monkeypatch)
+    freeze_totp(monkeypatch, LOGIN_AT)
+    client = admin_app.test_client()
+
+    response = login(client)
+
+    assert response.status_code == 200
+    cookies = response.headers.getlist("Set-Cookie")
+    assert not any(
+        header.startswith(f"{auth.SESSION_COOKIE}=") for header in cookies
+    ), cookies
+    assert pending_token_of(response) is not None  # it did mint the half-state
+    c = app_conn(admin_app)
+    try:
+        assert session_rows(c) == []
+        assert len(c.execute("SELECT * FROM pending_logins").fetchall()) == 1
+    finally:
+        c.close()
+    assert audit_events(admin_app)[-1] == (
+        f"login password ok, code required username={USERNAME}"
+    )
+
+
+def test_the_pending_token_reaches_no_admin_route(admin_app, monkeypatch):
+    """Hazard 1, swept and not sampled.
+
+    Every gated rule in the live url_map, by every method it serves, twice:
+    once with the pending token under its own cookie name, once with the SAME
+    token presented as admin_session — because the token being useless is one
+    claim and the cookie NAME being the only thing that saves us is another,
+    and only the second probe can tell them apart. Never 200.
+    """
+    enrol(admin_app, monkeypatch)
+    freeze_totp(monkeypatch, LOGIN_AT)
+    token = pending_token_of(login(admin_app.test_client()))
+    assert token is not None
+
+    rules = gated_rules(admin_app)
+    assert {rule.rule for rule in rules} == GATED_PATHS
+    probed = 0
+    for rule in rules:
+        for method, path in rule_requests(rule):
+            for name in (auth.PENDING_COOKIE, auth.SESSION_COOKIE):
+                probe = admin_app.test_client()
+                probe.set_cookie(name, token)
+                response = probe.open(path, method=method)
+                where = (method, path, name)
+                assert response.status_code in (302, 401), where
+                if response.status_code == 302:
+                    location = urlparse(response.headers["Location"]).path
+                    assert location == "/yllapito", where
+                probed += 1
+
+    assert probed == 2 * len(GATED_PATHS)  # every rule, both cookie names
+    c = app_conn(admin_app)
+    try:
+        assert session_rows(c) == []  # and not one probe minted anything
+    finally:
+        c.close()
+
+
+def test_the_password_step_answers_the_code_step(admin_app, monkeypatch):
+    """The second state of the dialog: the code form, and nothing else.
+
+    The password-show assertion is objection 6's companion. A test client
+    never runs the toggle script, so it cannot observe the TypeError a code
+    step with no #password-show would throw in a browser; what it CAN say is
+    that the button and its script are not on this page at all.
+    """
+    enrol(admin_app, monkeypatch)
+    freeze_totp(monkeypatch, LOGIN_AT)
+
+    html = login(admin_app.test_client()).get_data(as_text=True)
+
+    assert 'name="koodi"' in html
+    assert 'name="salasana"' not in html
+    assert 'name="pysy"' not in html
+    assert "password-show" not in html
+    # The shared chrome survives — same dialog, second step.
+    assert "Ylläpitäjän kirjautuminen" in html
+    assert element_text(html, "div", "login-dialog") is not None
+
+
+# --- hazard 2: replay --------------------------------------------------------
+
+
+def test_a_code_cannot_be_replayed_inside_its_own_step(
+    admin_app, monkeypatch
+):
+    """Hazard 2, at the route, with the clock pinned.
+
+    Both logins happen at the same frozen instant, so they are provably
+    inside one 30-second window with no sleep and no wall-clock race. The
+    six digits that just worked must not work again.
+    """
+    enrol(admin_app, monkeypatch)
+    freeze_totp(monkeypatch, LOGIN_AT)
+    code = code_for(LOGIN_AT)
+
+    client = admin_app.test_client()
+    assert login(client).status_code == 200
+    first = post_code(client, code)
+    assert first.status_code == 302
+    c = app_conn(admin_app)
+    try:
+        assert len(session_rows(c)) == 1
+    finally:
+        c.close()
+
+    assert client.post("/yllapito/kirjaudu-ulos").status_code == 302
+
+    replay = admin_app.test_client()
+    assert login(replay).status_code == 200
+    second = post_code(replay, code)
+
+    assert second.status_code == 200
+    assert LOGIN_ERROR in second.get_data(as_text=True)
+    assert "Set-Cookie" not in second.headers
+    c = app_conn(admin_app)
+    try:
+        assert session_rows(c) == []  # the logout emptied it and it stayed so
+    finally:
+        c.close()
+    assert audit_events(admin_app)[-1] == (
+        f"login failed (wrong code) username={USERNAME}"
+    )
+
+
+# --- hazard 3: the code step is rate-limited ---------------------------------
+
+
+_CODE_RESTART_CHILD = """
+import json
+import sys
+import time
+
+from app import create_app, totp
+
+app = create_app(instance_path=sys.argv[1])
+secret, pending, address = sys.argv[2], sys.argv[3], sys.argv[4]
+client = app.test_client()
+client.set_cookie("admin_pending", pending)
+code = totp.hotp(totp.decode_secret(secret), totp.step_for(time.time()))
+response = client.post(
+    "/yllapito/koodi",
+    data={"koodi": code},
+    environ_base={"REMOTE_ADDR": address},
+)
+print(json.dumps({
+    "status": response.status_code,
+    "cookie": "Set-Cookie" in response.headers,
+}))
+"""
+
+
+def test_the_code_steps_refusal_survives_a_process_restart(
+    tmp_path, monkeypatch
+):
+    """Hazard 3, in a genuinely new interpreter.
+
+    The child holds everything a successful login needs — a VALID pending
+    cookie minted by the real password step, the account's real secret, and
+    a code it computes for its own real clock — so the only thing between it
+    and a session is the limiter. That matters: "refused and set no cookie"
+    is also what a request with no pending cookie gets, so a child without a
+    cookie would pass this test with the limiter deleted.
+
+    The discriminator is the LAST assertion pair, copied from
+    test_the_refusal_survives_a_process_restart above: the attempt count is
+    unmoved (the child was refused AT the gate and wrote no row), and then
+    the very same cookie and a freshly computed code DO mint a session once
+    login-unlock clears the counter. Without that positive control this test
+    could not tell a durable limiter from a broken pending row.
+    """
+    instance = str(tmp_path / "instance")
+    app = create_app(instance_path=instance)
+    create_admin(app)
+    enrol(app, monkeypatch)
+    # Give the seam back: the child runs on the real clock, and so must the
+    # parent's own probes from here on.
+    monkeypatch.setattr(totp, "_now", time.time)
+
+    client = app.test_client()
+    first = client.post(
+        "/yllapito/kirjaudu",
+        data={"kayttajatunnus": USERNAME, "salasana": PASSWORD},
+        environ_base={"REMOTE_ADDR": CLIENT},
+    )
+    assert first.status_code == 200
+    token = pending_token_of(first)
+    assert token is not None
+    assert attempt_count(app, CLIENT) == 1
+
+    for i in range(THRESHOLD - 1):
+        response = post_code(client, wrong_code(), address=CLIENT)
+        assert response.status_code == 200, i
+    assert attempt_count(app, CLIENT) == THRESHOLD
+
+    env = {k: v for k, v in os.environ.items() if k != "TRUSTED_PROXY"}
+    env["PYTHONPATH"] = REPO_ROOT
+    proc = subprocess.run(
+        [sys.executable, "-c", _CODE_RESTART_CHILD, instance, ENROL_SECRET,
+         token, CLIENT],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+
+    report = proc.stdout + proc.stderr
+    assert proc.returncode == 0, (
+        f"the restarted interpreter exited {proc.returncode}\n{report}"
+    )
+    answer = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert answer == {"status": 200, "cookie": False}, report
+    # The count it was refused on came off the disk, not out of this process,
+    # and the refusal happened at the gate: no row was added for it.
+    assert attempt_count(app, CLIENT) == THRESHOLD
+    c = app_conn(app)
+    try:
+        assert session_rows(c) == []
+    finally:
+        c.close()
+
+    # The positive control. Same cookie, same account, correct code — the
+    # only thing that changed is the counter.
+    assert (
+        app.test_cli_runner().invoke(args=["login-unlock"]).exit_code == 0
+    )
+    unlocked = app.test_client()
+    unlocked.set_cookie(auth.PENDING_COOKIE, token)
+    response = post_code(unlocked, code_for(time.time()), address=CLIENT)
+    assert response.status_code == 302, response.get_data(as_text=True)
+    c = app_conn(app)
+    try:
+        assert len(session_rows(c)) == 1
+    finally:
+        c.close()
+
+
+def test_a_fresh_password_post_does_not_re_arm_the_code_step(
+    admin_app, monkeypatch
+):
+    """Hazard 3's real hole: the guessing budget must not be refillable.
+
+    An attacker who holds the password can post it again whenever they like.
+    If the password step cleared login_attempts on the second-factor branch —
+    as the one-step success path does, and as app/__init__.py did before this
+    change — they would get unlimited guesses at six digits.
+
+    Asserted on the ROW COUNT in login_attempts, through attempt_count's own
+    connection, and not on the response: a response-only assertion stays
+    green while the counter is reset, because a wrong code is answered the
+    same way either way. That is why this test looks at the store.
+    """
+    enrol(admin_app, monkeypatch)
+    freeze_totp(monkeypatch, LOGIN_AT)
+    client = admin_app.test_client()
+
+    def password_step():
+        """The CORRECT password: a wrong one never reached
+        clear_login_attempts even before this change, so it would prove
+        nothing."""
+        return client.post(
+            "/yllapito/kirjaudu",
+            data={"kayttajatunnus": USERNAME, "salasana": PASSWORD},
+            environ_base={"REMOTE_ADDR": CLIENT},
+        )
+
+    def guess():
+        return post_code(client, wrong_code(LOGIN_AT), address=CLIENT)
+
+    assert password_step().status_code == 200
+    assert attempt_count(admin_app, CLIENT) == 1
+    assert guess().status_code == 200
+    assert attempt_count(admin_app, CLIENT) == 2
+
+    assert password_step().status_code == 200
+    # THE assertion: the counter ROSE. It did not reset, and it did not stand
+    # still. This is the line that goes red if clear_login_attempts is left
+    # on the second-factor branch.
+    assert attempt_count(admin_app, CLIENT) == 3
+
+    assert guess().status_code == 200
+    assert attempt_count(admin_app, CLIENT) == 4
+    assert password_step().status_code == 200
+    assert attempt_count(admin_app, CLIENT) == THRESHOLD
+
+    # The budget is spent, so the next code is refused whatever it says —
+    # and this one is CORRECT.
+    refused = post_code(client, code_for(LOGIN_AT), address=CLIENT)
+    assert refused.status_code == 200
+    assert LOGIN_ERROR in refused.get_data(as_text=True)
+    assert "Set-Cookie" not in refused.headers
+    assert attempt_count(admin_app, CLIENT) == THRESHOLD  # refused at the gate
+    c = app_conn(admin_app)
+    try:
+        assert session_rows(c) == []
+    finally:
+        c.close()
+
+
+# --- hazard 4: clock skew ----------------------------------------------------
+
+
+def test_the_code_step_accepts_one_step_either_side_and_no_wider(
+    admin_app, monkeypatch
+):
+    """Hazard 4, with the order stated and the other two rules held off.
+
+    Between every sub-case, totp_last_step goes back to NULL and
+    login_attempts is emptied. Without the first, accepting +1 makes a later
+    -1 fail by REPLAY and the test would go red with a perfectly correct
+    window; without the second, the fifth request would be refused by the
+    RATE LIMITER. Either way the assertion would be about something other
+    than the window it names.
+    """
+    enrol(admin_app, monkeypatch)
+    freeze_totp(monkeypatch, LOGIN_AT)
+    sessions = 0
+
+    for offset, accepted in ((-1, True), (1, True), (-2, False), (2, False)):
+        reset_last_step(admin_app)
+        clear_attempts(admin_app)
+        client = admin_app.test_client()
+        assert login(client).status_code == 200, offset
+
+        response = post_code(client, code_for(LOGIN_AT, offset))
+
+        if accepted:
+            assert response.status_code == 302, offset
+            sessions += 1
+            assert totp_row(admin_app)["totp_last_step"] == (
+                totp.step_for(LOGIN_AT) + offset
+            ), offset
+        else:
+            assert response.status_code == 200, offset
+            assert LOGIN_ERROR in response.get_data(as_text=True), offset
+            assert "Set-Cookie" not in response.headers, offset
+            assert totp_row(admin_app)["totp_last_step"] is None, offset
+        c = app_conn(admin_app)
+        try:
+            assert len(session_rows(c)) == sessions, offset
+        finally:
+            c.close()
+
+    # The fifth sub-case, deliberately WITHOUT the reset: the replay rule
+    # seen from the skew test's side, at the edge of the window. This is the
+    # one place the two rules are allowed to interact, and it is named.
+    reset_last_step(admin_app)
+    clear_attempts(admin_app)
+    edge = admin_app.test_client()
+    assert login(edge).status_code == 200
+    assert post_code(edge, code_for(LOGIN_AT, -1)).status_code == 302
+    again = admin_app.test_client()
+    assert login(again).status_code == 200
+    assert post_code(again, code_for(LOGIN_AT, -1)).status_code == 200
+
+
+# --- hazard 5: recovery ------------------------------------------------------
+
+
+def test_a_recovery_code_signs_in_once_and_never_again(
+    admin_app, monkeypatch
+):
+    """Hazard 5: single use, proved against a second code that still works.
+
+    The control matters. "The second attempt is refused" is also what a
+    broken recovery path answers, so an unused sibling code is spent
+    immediately afterwards: the refusal was single-use, not the feature
+    falling over.
+    """
+    codes = enrol(admin_app, monkeypatch)
+    freeze_totp(monkeypatch, LOGIN_AT)
+    spent_step = totp_row(admin_app)["totp_last_step"]
+    assert spent_step is not None  # enrolment spent its own code
+
+    client = admin_app.test_client()
+    assert login(client).status_code == 200
+    first = post_code(client, codes[0])
+
+    assert first.status_code == 302
+    c = app_conn(admin_app)
+    try:
+        assert len(session_rows(c)) == 1
+    finally:
+        c.close()
+    # A recovery code says nothing about a time step, so the TOTP replay
+    # guard must be exactly where enrolment left it.
+    assert totp_row(admin_app)["totp_last_step"] == spent_step
+    used = [
+        row
+        for row in table_rows(admin_app, "recovery_codes")
+        if row["used_at"] is not None
+    ]
+    assert len(used) == 1
+    assert audit_events(admin_app)[-1] == (
+        f"login ok (recovery code) username={USERNAME}"
+    )
+
+    assert client.post("/yllapito/kirjaudu-ulos").status_code == 302
+    second = admin_app.test_client()
+    assert login(second).status_code == 200
+
+    refused = post_code(second, codes[0])
+    assert refused.status_code == 200
+    assert LOGIN_ERROR in refused.get_data(as_text=True)
+    c = app_conn(admin_app)
+    try:
+        assert session_rows(c) == []
+    finally:
+        c.close()
+
+    # The control: a different, unused code — in upper case, because they
+    # are typed back by hand — still signs in on the same pending row.
+    ok = post_code(second, codes[1].upper())
+    assert ok.status_code == 302
+    c = app_conn(admin_app)
+    try:
+        assert len(session_rows(c)) == 1
+    finally:
+        c.close()
+
+
+def test_admin_totp_disable_returns_the_account_to_one_step_login(
+    admin_app, monkeypatch
+):
+    """Hazard 5's backstop: the way back in, and no half-state left behind."""
+    enrol(admin_app, monkeypatch)
+    freeze_totp(monkeypatch, LOGIN_AT)
+    stale = admin_app.test_client()
+    assert login(stale).status_code == 200  # a half-authenticated token
+    assert len(table_rows(admin_app, "pending_logins")) == 1
+
+    result = admin_app.test_cli_runner().invoke(args=["admin-totp-disable"])
+
+    assert result.exit_code == 0, result.output
+    row = totp_row(admin_app)
+    assert row["totp_enabled"] == 0
+    assert row["totp_secret"] is None
+    assert row["totp_last_step"] is None
+    assert table_rows(admin_app, "recovery_codes") == []
+    assert table_rows(admin_app, "pending_logins") == []
+
+    # The token minted a moment before is dead, not merely pointless.
+    assert post_code(stale, code_for(LOGIN_AT)).status_code == 200
+
+    # And conftest's stock login() — the one the whole non-2FA suite uses —
+    # is a WHOLE login again, in one step.
+    client = admin_app.test_client()
+    response = login(client)
+    assert response.status_code == 302
+    assert f"{auth.SESSION_COOKIE}=" in response.headers["Set-Cookie"]
+    c = app_conn(admin_app)
+    try:
+        assert len(session_rows(c)) == 1
+    finally:
+        c.close()
+
+
+# --- enrolment ---------------------------------------------------------------
+
+
+def test_admin_totp_enable_refuses_a_code_that_does_not_verify(
+    admin_app, monkeypatch
+):
+    """One verified code or nothing: an account left holding a secret it
+    cannot prove is a lockout dressed up as an enrolment."""
+    monkeypatch.setattr(totp, "random_secret", lambda: ENROL_SECRET)
+    freeze_totp(monkeypatch, ENROL_AT)
+
+    result = admin_app.test_cli_runner().invoke(
+        args=["admin-totp-enable"], input=f"{wrong_code(ENROL_AT)}\n"
+    )
+
+    assert result.exit_code != 0
+    row = totp_row(admin_app)
+    assert row["totp_enabled"] == 0
+    assert row["totp_secret"] is None
+    assert row["totp_last_step"] is None
+    assert table_rows(admin_app, "recovery_codes") == []
+    # Nothing was half-written: the account still signs in the way it did
+    # before the operator typed the command.
+    assert login(admin_app.test_client()).status_code == 302
+
+
+def test_admin_totp_enable_writes_the_secret_and_no_plaintext_code(
+    admin_app, monkeypatch
+):
+    """The success path, and the at-rest caveat asserted rather than promised.
+
+    The recovery codes are NOT in the database file — only werkzeug hashes.
+    The secret IS, in plaintext, because verifying a code needs it: that is
+    the caveat README.md states, and pinning it here means the README cannot
+    quietly become a lie in either direction.
+    """
+    codes = enrol(admin_app, monkeypatch)
+
+    row = totp_row(admin_app)
+    assert row["totp_enabled"] == 1
+    assert row["totp_secret"] == ENROL_SECRET
+    assert row["totp_last_step"] == totp.step_for(ENROL_AT)
+    with open(admin_app.config["DATABASE"], "rb") as handle:
+        blob = handle.read()
+    for code in codes:
+        assert code.encode() not in blob, code
+    assert ENROL_SECRET.encode() in blob  # the documented at-rest caveat
+
+    # And it refuses to re-enrol over a live enrolment, which would throw
+    # away ten recovery codes the owner may be relying on.
+    again = admin_app.test_cli_runner().invoke(
+        args=["admin-totp-enable"], input="123456\n"
+    )
+    assert again.exit_code != 0
+    assert "admin-totp-disable" in again.output
+    assert totp_row(admin_app)["totp_secret"] == ENROL_SECRET
+
+
+# --- the seams the two steps stand on ----------------------------------------
+
+
+def test_a_recovery_code_can_never_look_like_a_totp_code(conn):
+    """The format closes its own loop.
+
+    koodi() only tries the recovery path when the input is NOT six ASCII
+    digits. Without this test the two halves of that decision are coupled by
+    intention alone, and a future change to the code format would silently
+    kill the lockout backstop while the comment about CPU amplification still
+    read fine.
+    """
+    drawn = [auth._recovery_code() for _ in range(200)]
+    for code in drawn:
+        assert auth.RECOVERY_PATTERN.match(code), code
+        assert not app_module._looks_like_a_totp_code(code), code
+    assert len(set(drawn)) == 200  # a constant would pass everything else
+
+    issued = auth.issue_recovery_codes(conn, 1)
+    assert len(issued) == auth.RECOVERY_CODE_COUNT
+    stored = conn.execute("SELECT * FROM recovery_codes").fetchall()
+    for code in issued:
+        assert auth.RECOVERY_PATTERN.match(code), code
+        assert not app_module._looks_like_a_totp_code(code), code
+        assert not any(code in str(tuple(row)) for row in stored), code
+
+
+def test_mint_pending_leaves_one_live_row_per_account(app):
+    """One live pending row is an invariant, not a hope.
+
+    GET /yllapito renders the password step even mid-flow, so an owner who
+    reloads and re-posts would otherwise mint a second redeemable token, and
+    current_pending_login only ever deletes the one it read.
+    """
+    c = app_conn(app)
+    try:
+        first = auth.mint_pending(c, 1, False)
+        second = auth.mint_pending(c, 1, True)
+
+        rows = c.execute(
+            "SELECT * FROM pending_logins WHERE user_id = 1"
+        ).fetchall()
+        assert len(rows) == 1
+        # Only sha256(token) is stored — mint_session's discipline.
+        assert first not in str(tuple(rows[0]))
+        assert second not in str(tuple(rows[0]))
+        assert rows[0]["token_hash"] == hashlib.sha256(
+            second.encode()
+        ).hexdigest()
+
+        assert pending_lookup(app, c, first) is None  # the older token is dead
+        live = pending_lookup(app, c, second)
+        assert live is not None
+        assert live["remember"] == 1  # remember rides on the row, not the form
+    finally:
+        c.close()
+
+
+def test_an_expired_pending_row_is_deleted_not_merely_refused(app):
+    """current_admin_session's discipline, kept on the half-state too: the
+    token can never validate again, not merely fail on this request."""
+    c = app_conn(app)
+    try:
+        token = auth.mint_pending(c, 1, False)
+        c.execute(
+            "UPDATE pending_logins SET expires_at = expires_at - ?",
+            (auth.PENDING_LIFETIME + 60,),
+        )
+        c.commit()
+
+        assert pending_lookup(app, c, token) is None
+        assert c.execute("SELECT * FROM pending_logins").fetchall() == []
+    finally:
+        c.close()
