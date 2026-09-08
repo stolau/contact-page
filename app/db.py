@@ -467,6 +467,56 @@ def _migration_9(conn):
             )
 
 
+def _migration_10(conn):
+    # Login rate limiting (LLM-COP-37). Failed admin logins are counted PER
+    # CLIENT KEY, and THAT is why a new table exists: the throttle this
+    # replaces counted audit_log rows, and audit_log is (id, at, event) and
+    # nothing else (migration 2 above), so there is no client column to key
+    # on and no way to add one without giving that table a second meaning it
+    # is also trimmed away (AUDIT_KEEP, app/auth.py). Counting per client is
+    # impossible against the schema as it stood; this table is the schema
+    # the control needs.
+    #
+    # Being on disk also keeps the count across a restart and shared by every
+    # worker — properties app/messages.py's process-local _rate_windows does
+    # not have, and which the audit_log count did already have. `at` is an
+    # integer Unix epoch in seconds, the representation migration 2
+    # established.
+    #
+    # One row per attempt that was ADMITTED to a credential check; a refused
+    # attempt writes nothing (app/auth.py: admit_login_attempt) and a
+    # successful login deletes the key's rows, so the rows that survive to
+    # reach the threshold are exactly the failures.
+    #
+    # THIS MIGRATION ADDS A TABLE AND NOTHING ELSE. It reads no sections row,
+    # writes no payload, and touches no draft/published/previous_published
+    # text — so the frozen-literal splice that proves migrations 4-9
+    # (tests/test_prechange_upgrade.py) has nothing to splice here. What has
+    # to be proved instead is that it changes NOTHING.
+    #
+    # IF NOT EXISTS for the reason _migration_6 gives above, and load-bearing
+    # here for exactly that reason: this was written as 10 while a sibling
+    # unit was writing its own migration as 11, and either may land first. A
+    # developer whose database ran this as 10 before a rebase is stamped at
+    # user_version 10, so migrate() would run it again as 11 and die on
+    # "table login_attempts already exists". Like _migration_6, this one is
+    # shaped to be renumbered: it reads no row, writes no payload, and
+    # nothing depends on its number.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS login_attempts (
+            id         INTEGER PRIMARY KEY,
+            client_key TEXT NOT NULL,
+            at         INTEGER NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS login_attempts_key_at"
+        " ON login_attempts (client_key, at)"
+    )
+
+
 MIGRATIONS = [
     _migration_1,
     _migration_2,
@@ -477,6 +527,7 @@ MIGRATIONS = [
     _migration_7,
     _migration_8,
     _migration_9,
+    _migration_10,
 ]
 
 

@@ -352,6 +352,65 @@ def test_migration_7_appends_style_to_the_frozen_hero_text_byte_for_byte(
     conn.close()
 
 
+def test_migration_10_leaves_the_frozen_install_byte_for_byte_unchanged(
+    tmp_path,
+):
+    """LLM-COP-37's migration adds a table and NOTHING else — proved, not said.
+
+    The house standard for a migration here is a frozen-literal splice: the
+    expectation is built by string arithmetic over the captured install so a
+    separator, a sort_keys or an ensure_ascii mistake in the migration's own
+    serialiser shows up as a diff. Migration 10 has nothing to splice — it
+    reads no sections row, writes no payload and touches no
+    draft/published/previous_published text — so minting a new
+    MIGRATED_10_* constant would be a ritual that proves nothing: it would be
+    MIGRATED_9_HERO_DRAFT with a different name.
+
+    What has to be proved instead is that the whole stored install comes
+    through the new head byte-for-byte, and that is what this asserts:
+    against the same frozen user_version = 6 capture the rest of the file
+    uses, with expectations spliced from the FROZEN LITERALS (never
+    round-tripped through the migration's own serialiser) and every badge
+    compared to hard-coded FROZEN_BADGES rather than to a badge recomputed
+    from the migrated rows — a recomputed badge would agree with a migration
+    that flipped all six.
+
+    The last two assertions are the anti-vacuity guard. "Nothing changed" is
+    also true of a migration that did nothing at all, so the new table has to
+    be shown to exist — and to be EMPTY, because a migration that seeded a
+    login lockout onto an upgrading install would lock the owner out of their
+    own site on deploy.
+    """
+    conn = frozen_v6_store(tmp_path / "ten.sqlite3")
+
+    database.migrate(conn)
+
+    (version,) = conn.execute("PRAGMA user_version").fetchone()
+    assert version == len(database.MIGRATIONS) == 10
+
+    stored = rows_by_kind(conn)
+    # The hero, through the whole frozen -> +style -> +portrait_alt ->
+    # +background splice chain, and no further: migration 10 must leave the
+    # same literal migration 9 left.
+    assert stored["hero"]["draft"] == MIGRATED_9_HERO_DRAFT
+    assert stored["hero"]["published"] == MIGRATED_9_HERO_DRAFT
+    for kind, _position, _state, draft, published, previous in FROZEN_V6_ROWS:
+        assert stored[kind]["previous_published"] == previous, kind
+        if kind == "hero":
+            continue
+        suffix = MIGRATION_8_SUFFIXES[kind]
+        assert stored[kind]["draft"] == draft[:-1] + suffix, kind
+        assert stored[kind]["published"] == published[:-1] + suffix, kind
+    for kind, row in stored.items():
+        assert badge(row["state"], row["draft"], row["published"]) == (
+            FROZEN_BADGES[kind]
+        ), kind
+
+    (count,) = conn.execute("SELECT COUNT(*) FROM login_attempts").fetchone()
+    assert count == 0
+    conn.close()
+
+
 def test_the_frozen_v6_install_upgrades_with_every_badge_unchanged(tmp_path):
     """The headline hazard: an upgrade that marks the owner's whole site dirty.
 
@@ -367,7 +426,7 @@ def test_the_frozen_v6_install_upgrades_with_every_badge_unchanged(tmp_path):
     database.migrate(conn)
 
     (version,) = conn.execute("PRAGMA user_version").fetchone()
-    assert version == len(database.MIGRATIONS) == 9
+    assert version == len(database.MIGRATIONS) == 10
     stored = rows_by_kind(conn)
     for kind, row in stored.items():
         assert badge(row["state"], row["draft"], row["published"]) == (
@@ -875,7 +934,7 @@ def test_the_style_value_changes_nothing_until_it_names_another_template(
     conn = database.connect(app.config["DATABASE"])
     try:
         (version,) = conn.execute("PRAGMA user_version").fetchone()
-        assert version == 9
+        assert version == 10
     finally:
         conn.close()
 

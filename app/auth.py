@@ -8,9 +8,21 @@ Sessions are server-side rows keyed by the SHA-256 of a random token; the raw
 token lives only in the visitor's cookie — the database never holds it, so a
 database read cannot leak a usable session. All timestamps are integer Unix
 epoch seconds (see app/db.py migration 2).
+
+client_key() lives here rather than in app/messages.py because both limiters
+need it: TRUSTED_PROXY is read per request, and with it unset the
+X-Forwarded-For header is ignored entirely, so a spoofed header cannot mint a
+fresh window on either route.
+
+Failed admin logins are counted per client key in the login_attempts table
+(app/db.py migration 10) rather than in a process dict, so the count is shared
+by every worker and thread and survives a restart — the property the audit_log
+count this replaces already had, and which app/messages.py's process-local
+_rate_windows does not.
 """
 
 import hashlib
+import os
 import secrets
 import time
 from functools import wraps
@@ -23,12 +35,8 @@ SESSION_COOKIE = "admin_session"
 IDLE_LIMIT = 30 * 60  # "Istunto päättyy 30 min käyttämättömyyden jälkeen."
 REMEMBER_LIFETIME = 30 * 24 * 60 * 60  # remember-me: 30 days absolute
 AUDIT_KEEP = 1000  # the audit log keeps only the newest rows (trim on write)
-FAILURE_WINDOW = 5 * 60
-FAILURE_THRESHOLD = 3
-FAILURE_DELAY = 1.0  # seconds
-
-# Injection point so tests can observe or disarm the rate-limit delay.
-_sleep = time.sleep
+LOGIN_FAILURE_WINDOW = 15 * 60
+LOGIN_FAILURE_THRESHOLD = 5
 
 
 def _now():
@@ -37,6 +45,36 @@ def _now():
 
 def _hash_token(token):
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def client_key():
+    """The identity a rate-limit window belongs to.
+
+    TRUSTED_PROXY is read here, per request, so the deployment can be
+    changed without a restart and so a test can set it around one call.
+    """
+    if os.environ.get("TRUSTED_PROXY"):
+        forwarded = request.headers.get("X-Forwarded-For", "")
+        entries = [part.strip() for part in forwarded.split(",")]
+        entries = [entry for entry in entries if entry]
+        if entries:
+            # The rightmost entry is the one our own trusted proxy appended;
+            # everything left of it is client-supplied and forgeable.
+            return entries[-1]
+    return request.remote_addr
+
+
+def bucket_key(key):
+    """The storage form of a client key — the single place it is normalised.
+
+    login_attempts.client_key is NOT NULL, and client_key() returns
+    request.remote_addr unchanged, which can be None. Such a request must
+    fail CLOSED onto one shared bucket rather than onto no limit at all.
+    "" rather than a sentinel word because "" cannot collide with a real
+    key: remote_addr is never empty when it is present, and client_key()
+    filters empty X-Forwarded-For entries out.
+    """
+    return key or ""
 
 
 def mint_session(conn, remember):
@@ -113,16 +151,92 @@ def audit(conn, event):
     conn.commit()
 
 
-def throttle_failures(conn):
-    """Rate limit: with >= FAILURE_THRESHOLD login failures inside the last
-    FAILURE_WINDOW seconds, sleep a fixed beat before answering."""
+def admit_login_attempt(conn, key):
+    """Decide whether this login attempt may be evaluated, and record it if so.
+
+    Returns (admitted, crossed). `crossed` is True only on the attempt that
+    brings this client to LOGIN_FAILURE_THRESHOLD; the caller consults it on
+    the failure branch only, because an attempt that crosses and then SUCCEEDS
+    clears the counter and is not a lockout.
+
+    Called BEFORE check_password_hash, on purpose. The count is read and the
+    row written as one step, so no second request can pass the gate on a count
+    this one has already consumed. Doing it after the hash would put a full
+    scrypt between the read and the write — an interval an order of magnitude
+    longer than the storage work either side of it — and the documented server
+    (`flask --app app run`) is thread-per-connection with no ceiling, so the
+    overshoot would be the attacker's socket count.
+
+    The first count is deliberately OUTSIDE the transaction: a client already
+    over the threshold is refused there and never touches the write lock, so a
+    flood costs one indexed read and no lock contention. Readers are not
+    blocked by a writer holding RESERVED, so that read cannot stall behind a
+    login that is mid-insert.
+
+    A failure to take the write lock (BEGIN IMMEDIATE past the busy timeout)
+    is NOT swallowed into an admission: it propagates, the request errors, and
+    no password is evaluated. Refusing to decide must never read as "allowed".
+    """
+    key = bucket_key(key)
+    cutoff = _now() - LOGIN_FAILURE_WINDOW
     (count,) = conn.execute(
-        "SELECT COUNT(*) FROM audit_log"
-        " WHERE at > ? AND event LIKE 'login failed%'",
-        (_now() - FAILURE_WINDOW,),
+        "SELECT COUNT(*) FROM login_attempts WHERE client_key = ? AND at > ?",
+        (key, cutoff),
     ).fetchone()
-    if count >= FAILURE_THRESHOLD:
-        _sleep(FAILURE_DELAY)
+    if count >= LOGIN_FAILURE_THRESHOLD:
+        return False, False
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        (count,) = conn.execute(
+            "SELECT COUNT(*) FROM login_attempts"
+            " WHERE client_key = ? AND at > ?",
+            (key, cutoff),
+        ).fetchone()
+        if count >= LOGIN_FAILURE_THRESHOLD:
+            conn.rollback()
+            return False, False
+        conn.execute("DELETE FROM login_attempts WHERE at <= ?", (cutoff,))
+        conn.execute(
+            "INSERT INTO login_attempts (client_key, at) VALUES (?, ?)",
+            (key, _now()),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    return True, count + 1 == LOGIN_FAILURE_THRESHOLD
+
+
+def clear_login_attempts(conn, key):
+    """Drop one client's recorded attempts — called on a successful login.
+
+    It matters BELOW the threshold only, and that is its whole role: an owner
+    who mistyped four times and then got it right must not be one typo from a
+    lockout. A client already past the threshold never reaches this, because
+    the route refuses before the password is checked — so a correct password
+    does not end a lockout, deliberately (the refusal must not pay for a
+    scrypt, and must not touch the username). The window, or login-unlock, is
+    the way out.
+
+    It also deletes the row this very attempt inserted, so a success leaves
+    the key with zero rows.
+    """
+    conn.execute(
+        "DELETE FROM login_attempts WHERE client_key = ?", (bucket_key(key),)
+    )
+    conn.commit()
+
+
+def clear_all_login_attempts(conn):
+    """Empty the whole table and answer how many rows went — the seam the
+    login-unlock CLI command needs.
+
+    Every statement against login_attempts lives in this module, which is why
+    this is a function here rather than SQL in the command.
+    """
+    cursor = conn.execute("DELETE FROM login_attempts")
+    conn.commit()
+    return cursor.rowcount
 
 
 def _prefers_json():
