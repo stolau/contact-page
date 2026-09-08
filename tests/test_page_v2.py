@@ -40,6 +40,13 @@ from tests.conftest import (
     edit_published_payload,
 )
 
+# LLM-COP-32's fences ask the same questions of both skins, so the three
+# instruments are imported rather than retyped — a second copy of
+# server_cap_literals would be the very duplication it exists to forbid.
+# The precedent for importing another test module is tests/test_page.py,
+# which takes DAYS/DURATION/HOURS out of tests/test_seed.py.
+from tests.test_messages import cd_text, class_attrs, server_cap_literals
+
 V2_TEMPLATE = "page_v2.html"
 V1_TEMPLATE = "page.html"
 
@@ -459,3 +466,152 @@ def test_no_mockup_persona_in_the_v2_files(path):
         text = handle.read()
     hits = re.findall(PERSONA_PATTERN, text, flags=re.IGNORECASE)
     assert not hits, f"{path} carries mockup persona text: {sorted(set(hits))}"
+
+
+# --- LLM-COP-32: the card's Lähetä sends the card ---------------------------
+#
+# V2 is the skin the artifact was actually filed against: its contact card
+# rendered a real form with three real inputs and a button that carried
+# .cta-contact, so filling it in and pressing Lähetä threw the answers away
+# and opened a dialog asking the same three questions again. The tests below
+# pin the two halves of the fix that a later edit could undo silently —
+# the class the button must NOT have, and the association it must have
+# instead — plus the consent the second collection path has to carry.
+#
+# tests/browser/test_browser_contact_submit.py drives all of it in a real
+# Chrome. These are the cheap fences that say WHY the browser test would
+# start failing.
+
+
+def tags(html, name):
+    """Every <name ...> start tag in the document, as raw source text."""
+    return re.findall(rf"<{name}\b[^>]*>", html)
+
+
+def test_v2s_send_button_submits_the_card_and_no_longer_opens_the_dialog(
+    v2_html,
+):
+    """The defect, executable, and the fix's own two halves.
+
+    .cta-contact ABSENT is half of it: contact_dialog.html binds that class
+    as a dialog opener, and while the button carried it no amount of
+    submitting would have helped — the dialog opened over the answers.
+
+    form= PRESENT and naming a real form is the other half, and it is not
+    cosmetic: the design puts this button in the actions column, OUTSIDE
+    the copy column that holds the form, so containment cannot associate
+    them. That attribute is also what makes this the form's DEFAULT button,
+    which is why Enter in a text field submits the card at all.
+
+    data-section and data-field stay ADJACENT and in that order, because
+    BINDING at the top of this file reads them as one pattern and the
+    in-place editor's whole V1/V2 fence is built on it.
+    """
+    send = [tag for tag in tags(v2_html, "button") if "v2-contact-primary" in tag]
+    assert len(send) == 1, send
+    tag = send[0]
+
+    assert "cta-contact" not in tag, (
+        "the card's Lähetä is a dialog opener again — pressing it discards "
+        "what the visitor typed and asks for it a second time"
+    )
+    assert 'type="submit"' in tag, tag
+    assert 'data-field="send_label"' in tag, tag
+    assert re.search(r'data-section="\d+"\s+data-field="send_label"', tag), (
+        "data-section and data-field must stay adjacent and in that order"
+    )
+
+    named = re.search(r'form="([^"]+)"', tag)
+    assert named is not None, "the button is outside the form and names none"
+    assert f'id="{named.group(1)}"' in v2_html, (
+        f"form={named.group(1)!r} names no form in the document, so the "
+        "button submits nothing and Enter submits nothing"
+    )
+
+
+def test_v2s_hero_button_is_still_the_dialogs_opener(v2_html):
+    """The half of the ask that was already right.
+
+    test_v2_carries_the_class_hooks_other_files_bind_to only asks whether
+    the string "cta-contact" is anywhere in the document, which stays true
+    while the class sits on entirely the wrong control. This says WHICH
+    button carries it: exactly one, and it is the hero's contact_label.
+    """
+    openers = [tag for tag in tags(v2_html, "button") if "cta-contact" in tag]
+    assert len(openers) == 1, openers
+    assert 'data-field="contact_label"' in openers[0], openers[0]
+    # And the top bar, which the artifact says must keep working, is still
+    # the other opener contact_dialog.html binds.
+    assert "header-contact" in v2_html
+
+
+def test_v2s_contact_form_carries_consent_a_link_and_two_named_slots(v2_html):
+    """The same four claims tests/test_messages.py makes of V1's form.
+
+    Asked again here rather than inherited, because a second template is a
+    second place each of them can go missing and nothing raises when one
+    does: the form simply stops being able to send, or sends without the
+    consent the server demands and is refused every time.
+    """
+    match = re.search(
+        r'<form[^>]*class="[^"]*contact-form[^"]*"[^>]*>(.*?)</form>',
+        v2_html,
+        re.DOTALL,
+    )
+    assert match is not None, "no .contact-form in the V2 document"
+    opening, body = match.group(0)[: match.group(0).index(">") + 1], match.group(1)
+
+    # No browser form post: the submission is JSON from the dialog's script,
+    # and an action would navigate the page away and lose that contract.
+    assert "action=" not in opening, opening
+    assert "method=" not in opening, opening
+
+    consent = re.search(r'<input[^>]*name="consent"[^>]*>', body)
+    assert consent is not None, "V2's inline form collects no consent"
+    assert 'type="checkbox"' in consent.group(0), consent.group(0)
+    assert 'class="gdpr-open"' in body, "V2's form opens no privacy statement"
+
+    for attribute in ("data-result", "data-error"):
+        named = re.search(rf'{attribute}="([^"]+)"', opening)
+        assert named is not None, attribute
+        assert f'id="{named.group(1)}"' in v2_html, (
+            f"{attribute} names an id nothing in the document answers to, so "
+            "a send reports neither success nor failure"
+        )
+
+
+def test_v2s_consent_sentence_is_the_dialogs_consent_sentence(v2_html):
+    """One promise, one string, on this skin too — and the same string the
+    V1 document carries, since both include the same dialog."""
+    inline = cd_text(v2_html, "contact-consent")
+    dialog = cd_text(v2_html, "cd-consent")
+    assert inline is not None, "no .contact-consent in the V2 document"
+    assert dialog is not None, "no .cd-consent in the V2 document"
+    assert inline.strip() == dialog.strip(), (inline, dialog)
+
+
+def test_v2_serves_the_gdpr_dialog_hidden_and_names_the_endpoint_once(v2_html):
+    """The new dialog reaches this skin too, shut, and brings no second
+    copy of the endpoint with it.
+
+    The once-and-only-once rule on /api/messages is what keeps the
+    submission path a single source of truth; a second inline script is the
+    obvious way to break it, and the GDPR dialog is exactly that — a second
+    inline script, included on both skins.
+    """
+    roots = class_attrs(v2_html, "gdpr-dialog")
+    assert len(roots) == 1, roots
+    assert "hidden" in roots[0][1], roots[0][1]
+    assert v2_html.count('id="gdpr-dialog-script"') == 1
+    assert v2_html.count("/api/messages") == 1
+
+
+def test_v2s_client_never_duplicates_the_servers_length_caps(v2_html):
+    """The same fence tests/test_messages.py lays over the V1 document.
+
+    Both skins include the one script, so the JavaScript half is the same
+    text twice — but the MARKUP half is not: a maxlength copied into this
+    template alone would pass over there and fail here, which is the whole
+    reason this is asked of the served document rather than of the script.
+    """
+    assert server_cap_literals(v2_html) == []

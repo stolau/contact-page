@@ -221,6 +221,19 @@ main section { padding: 3.5rem 3rem; max-width: 1100px; margin: 0 auto; }
 .contact-form .gdpr-open { align-self: flex-start; font-size: 0.85rem; }
 .contact-result { margin: 0; }
 .contact-error { margin: 0; color: #a03123; font-size: 0.9rem; }
+/* A sent form disappears — and without this it does not (LLM-COP-32).
+   contact_dialog.html's send() sets form.hidden on 201, but the UA's
+   `[hidden] { display: none }` is an author-stylesheet loss: the two rules
+   above set `display: flex` on these forms, and any author declaration
+   beats the UA sheet whatever the specificity. The measured result was a
+   form still showing every field the visitor had just sent, with a
+   thank-you underneath it and the send button still live — an invitation
+   to send the same message twice. It was true of the DIALOG's form from
+   LLM-COP-3 onward, which is why .contact-dialog-form is named here too.
+   Written as [hidden] rather than a class the script toggles so that the
+   attribute the script actually sets is the attribute that hides. */
+.contact-form[hidden],
+.contact-dialog-form[hidden] { display: none; }
 
 /* Sijainti */
 .location { border-top: 1px solid var(--line); }

@@ -134,7 +134,12 @@
      data-result / data-error name the two outcome slots by id. thanks is
      rendered as a bare text node, exactly as the three field labels above
      are, so it stays the owner's string in the side panel (Kiitosviesti)
-     without adding a data-field pair to either skin. #}
+     without adding a data-field pair to either skin.
+     BOTH OUTCOME LINES SIT OUTSIDE THE FORM, exactly as the dialog's
+     #contact-error and #contact-thanks do. A successful send hides the
+     form; a result line inside it would be hidden with it and the visitor
+     would be thanked by a blank space. They are addressed by id, so where
+     they sit is a layout question and not a wiring one. #}
   <form class="contact-form" data-result="contact-result-{{ sid }}" data-error="contact-error-{{ sid }}">
     <label>{{ p.name_label }}<input type="text" name="name"></label>
     <label>{{ p.email_label }}<input type="text" name="email"></label>
@@ -142,9 +147,9 @@
     <label class="contact-consent"><input type="checkbox" name="consent" value="1"> Hyväksyn, että viestini käsitellään tietosuojaselosteen mukaisesti. En lähetä arkaluonteisia terveystietoja.</label>
     <a class="gdpr-open" href="#">Tietosuojaseloste</a>
     <button type="submit" class="button primary" data-section="{{ sid }}" data-field="send_label">{{ p.send_label }}</button>
-    <p class="contact-error" id="contact-error-{{ sid }}" role="alert" hidden></p>
-    <p class="contact-result" id="contact-result-{{ sid }}" hidden>{{ p.thanks }}</p>
   </form>
+  <p class="contact-error" id="contact-error-{{ sid }}" role="alert" hidden></p>
+  <p class="contact-result" id="contact-result-{{ sid }}" hidden>{{ p.thanks }}</p>
 </section>
 {%- endmacro %}
 

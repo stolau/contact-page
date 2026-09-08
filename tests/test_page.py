@@ -553,3 +553,38 @@ def test_fact_card_count_follows_the_data(app, client):
         assert fact["label"] in after
         for line in fact["value"].split("\n"):
             assert line in after
+
+
+# --- LLM-COP-32: two buttons, two jobs --------------------------------------
+
+
+def test_the_hero_button_opens_the_dialog_and_the_forms_button_sends(page_html):
+    """V1's two contact buttons stopped being the same kind of thing.
+
+    No V1 spec addresses the on-page form — cp-main's screenshot ends
+    inside the about section and cp-main-phone has no yhteydenotto region
+    at all — so this is not a criterion test. It is the fence under the
+    behaviour change: the hero's Ota yhteyttä is a dialog OPENER and must
+    keep .cta-contact, while the form's Lähetä is a SUBMITTER and must
+    never acquire it. Give the second one that class and V1 reproduces
+    exactly the defect the artifact was filed about on V2 — press Lähetä,
+    lose what you typed, and be asked for it again in a dialog.
+
+    Asserted on the two tags rather than on the document, because
+    "cta-contact is somewhere in the page" stays true with the class on the
+    wrong control, which is precisely the state being forbidden.
+    """
+    buttons = re.findall(r"<button\b[^>]*>", page_html)
+
+    openers = [tag for tag in buttons if "cta-contact" in tag]
+    assert len(openers) == 1, openers
+    assert 'data-field="contact_label"' in openers[0], openers[0]
+
+    senders = [tag for tag in buttons if 'data-field="send_label"' in tag]
+    assert len(senders) == 1, senders
+    assert "cta-contact" not in senders[0], (
+        "the contact form's Lähetä opens the dialog again instead of sending"
+    )
+    assert 'type="submit"' in senders[0], senders[0]
+    # It was type="button" and bound to nothing until this artifact — the
+    # silence the author reported. Both attributes are the change.

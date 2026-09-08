@@ -466,8 +466,18 @@ h1, h2 { font-family: var(--v2-serif); color: var(--v2-ink); font-weight: 400; }
   font-size: 0.85rem;
 }
 .v2-contact-form .gdpr-open { align-self: flex-start; font-size: 0.85rem; color: #c3d5e3; }
-.v2-contact-form .contact-result { margin: 0; color: #eaf2f8; font-size: 0.95rem; }
-.v2-contact-form .contact-error { margin: 0; color: #ffb4a2; font-size: 0.9rem; }
+/* The two outcome lines are siblings of the form, not children of it: a
+   successful send hides the form, and a result line inside it would go
+   with it. Scoped to the copy column, which is where they now sit. */
+.v2-contact-copy .contact-result { margin: 0; color: #eaf2f8; font-size: 0.95rem; }
+.v2-contact-copy .contact-error { margin: 0; color: #ffb4a2; font-size: 0.9rem; }
+/* And the form really disappears. See the same rule in style.css: the
+   `display: flex` above outranks the UA's `[hidden] { display: none }`,
+   so without this a sent form stays on screen, still filled and still
+   sendable. Both forms named, because both are hidden by the same line of
+   contact_dialog.html's send(). */
+.contact-form[hidden],
+.contact-dialog-form[hidden] { display: none; }
 .v2-contact-actions { display: flex; flex-direction: column; gap: 0.8rem; }
 .v2-contact-primary { width: 100%; padding: 0.85rem 1.5rem; }
 .v2-contact-action-row {

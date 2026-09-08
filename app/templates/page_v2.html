@@ -240,9 +240,12 @@
         <label>{{ p.message_label }}<textarea name="message" rows="3"></textarea></label>
         <label class="contact-consent"><input type="checkbox" name="consent" value="1"> Hyväksyn, että viestini käsitellään tietosuojaselosteen mukaisesti. En lähetä arkaluonteisia terveystietoja.</label>
         <a class="gdpr-open" href="#">Tietosuojaseloste</a>
-        <p class="contact-error" id="contact-error-{{ sid }}" role="alert" hidden></p>
-        <p class="contact-result" id="contact-result-{{ sid }}" hidden>{{ p.thanks }}</p>
       </form>
+      {# Outside the form, as in page.html and as in the dialog: a
+         successful send hides the form, and a result line inside it would
+         be hidden along with it. Both are addressed by id. #}
+      <p class="contact-error" id="contact-error-{{ sid }}" role="alert" hidden></p>
+      <p class="contact-result" id="contact-result-{{ sid }}" hidden>{{ p.thanks }}</p>
       <p class="v2-contact-caveat" data-section="{{ sid }}" data-field="caveat">{{ p.caveat }}</p>
     </div>
     <div class="v2-contact-actions">
