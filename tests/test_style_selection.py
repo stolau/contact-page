@@ -53,6 +53,7 @@ from app.styles import (
     resolve_style,
     template_for,
 )
+from tests.conftest import edit_published_payload
 
 V1_TEMPLATE = "page.html"
 V2_TEMPLATE = "page_v2.html"
@@ -666,3 +667,52 @@ def test_switching_style_and_back_leaves_every_other_row_and_the_hero_bytes_alon
     assert final["hero"]["draft"] == json.dumps(
         dict(seed_payload, style="v1"), ensure_ascii=False
     )
+
+
+# --- the admin surfaces the owner's palette must NOT reach (USR-COP-2) ------
+
+
+def test_the_owner_palette_reaches_the_public_page_and_no_admin_surface(
+    logged_in_admin,
+):
+    """The owner's colours paint the PUBLIC page and nothing else.
+
+    Found by reading rather than assumed, which is why it is asserted here:
+    app/templates/inbox.html links style.css and renders .site-header and
+    .brand, so it looks like a surface the override would repaint. It is not
+    — the inbox route passes no chrome (app/messages.py), so site_colors_css
+    is unbound there, the {% if %} in page.html never runs for it, and every
+    token keeps its :root default. The panel is safer still: edit.html links
+    only edit.css.
+
+    That is a property of two route implementations, not a rule anything
+    enforces, so it is worth a test: an owner who picks a very dark main
+    colour must not find the admin chrome they are working in repainted with
+    it, and a later hand that adds **chrome to the inbox route would learn so
+    here rather than from a screenshot.
+
+    THE 200 IS ASSERTED FIRST, and deliberately. "no <style in the body" is
+    trivially true of a 404 or a login redirect, so without the status check
+    this test would keep passing after the route was renamed — which is
+    exactly how a guard becomes decoration.
+    """
+    edit_published_payload(
+        logged_in_admin.application,
+        "hero",
+        lambda p: p.update(color_main="#1a1a2e", color_accent="#ffe9a8"),
+    )
+
+    public = logged_in_admin.get("/")
+    assert public.status_code == 200
+    body = public.get_data(as_text=True)
+    # The premise: the colour really is reaching the public page, so the
+    # absences below are about the admin routes and not about a store that
+    # never took the write.
+    assert body.count("<style") == 1
+    assert "--header-bg:#1a1a2e" in body
+    assert "<style" in body[: body.index("</head>")]
+
+    for path in ("/yllapito/viestit", "/muokkaa"):
+        response = logged_in_admin.get(path)
+        assert response.status_code == 200, path
+        assert "<style" not in response.get_data(as_text=True), path

@@ -169,6 +169,47 @@ body {
   font-weight: bold;
 }
 
+/* The two colour rows (USR-COP-2), beneath the style list in the same body.
+   .kuva-row's layout, deliberately: a labelled row with its controls on the
+   right is a shape this panel already has, and copying it is cheaper than
+   inventing a second one. The label and the detail line stack on the left,
+   the swatch and Palauta sit at the end.
+
+   NOTE THAT THIS PANEL KEEPS THE SKIN'S OWN COLOURS. edit.css is linked by
+   edit.html alone and the owner's <style> block is emitted only into the two
+   PUBLIC templates, so --accent here stays #1f6f5c whatever the owner picks
+   — which is what keeps the panel legible while they are choosing. */
+.vari-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  margin-top: 0.8rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+}
+.vari-label { font-size: 0.95rem; }
+.vari-detail {
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+/* A native swatch, sized to sit beside a button rather than at whatever the
+   UA's default is — Chrome's is roughly this, Firefox's is wider. The
+   padding is zeroed because the UA draws the swatch inside it, which on a
+   short control leaves a hairline of the button's own background showing. */
+.vari-input {
+  width: 2.6rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  background: none;
+  cursor: pointer;
+}
+.vari-reset { padding: 0.35rem 0.8rem; font-size: 0.85rem; }
+
 .section-title-row {
   display: flex;
   align-items: baseline;

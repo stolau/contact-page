@@ -58,6 +58,13 @@ def test_style_carries_no_field_label():
     # bespoke control. Labelling it would draw a text input the owner could
     # type a digest into by hand.
     assert FIELD_LABELS["hero"].get("background") is None
+    # And USR-COP-2's two colours, the same shape a third time. Labelling
+    # either would draw a plain text input the owner could type "red" — or a
+    # closing </style> — into, which is exactly the value app/palette.py's
+    # whitelist exists to reject. Their editor is the Ulkoasu tab's
+    # <input type="color">, which can emit nothing but #rrggbb.
+    assert FIELD_LABELS["hero"].get("color_main") is None
+    assert FIELD_LABELS["hero"].get("color_accent") is None
 
 
     # LLM-COP-25 appended a THIRD unlabelled-key candidate and deliberately
@@ -96,6 +103,13 @@ NEW_FIELD_TAILS = {
         # position that does not rewrite every stored hero payload.
         "background",
         "background_alt",
+        # USR-COP-2, appended after LLM-COP-30's pair for the same reason
+        # that pair was appended after portrait_alt. These two read as
+        # though they belong beside style — they are the other half of the
+        # Ulkoasu tab — and appending is still the only position that does
+        # not rewrite every stored hero payload.
+        "color_main",
+        "color_accent",
     ],
     "tietoa": ["nostolause", "leipäteksti", "facts", "section_label"],
     "palvelut": ["services", "more_label", "section_label"],

@@ -2,6 +2,9 @@
 
 import json
 
+from .palette import palette_css
+from .styles import resolve_style
+
 
 def badge(state, draft, published):
     """The admin-panel badge for a section row.
@@ -68,7 +71,8 @@ def initials(brand):
 def site_chrome(conn, column="published"):
     """The page-wide chrome the templates render — brand, browser title and
     footer — plus the avatar initials derived from the brand (LLM-COP-10),
-    and the site-wide style the caller picks a template with (LLM-COP-22).
+    and the site-wide style the caller picks a template with (LLM-COP-22),
+    and the owner's colour override as ready-to-emit CSS (USR-COP-2).
 
     Read from the hero row by kind and *ignoring state*, so hiding the
     Aloitusosio does not blank the header and the tab title. A missing row or
@@ -103,6 +107,30 @@ def site_chrome(conn, column="published"):
         # it through template_for; a missing row or key gives "", which
         # resolves to the default rather than raising.
         "site_style": payload.get("style", ""),
+        # The owner's colour override, already rendered (USR-COP-2). "" when
+        # neither colour is set, which is what makes the <style> block absent
+        # rather than empty on a site that has chosen nothing.
+        #
+        # A FLAT STRING, never a dict of colours, for the reason this
+        # docstring gives above: page.html is imported as a macro module by
+        # _section_row.html with a context that binds none of these, and
+        # attribute access on an unbound name raises UndefinedError there —
+        # a 500 on the section-list routes.
+        #
+        # And the key deliberately does NOT contain the substring
+        # "site_style": tests/test_style_selection.py fences page.html's
+        # SOURCE TEXT against that substring, so a new context key carrying
+        # it would fail a guard that is about something else entirely.
+        #
+        # The style is resolve_style'd here and NOT above, because the two
+        # readers want different things: the panel needs the raw value to
+        # tell "" apart from "v1", and the palette needs to know which skin's
+        # token vocabulary to write.
+        "site_colors_css": palette_css(
+            resolve_style(payload.get("style", "")),
+            payload.get("color_main", ""),
+            payload.get("color_accent", ""),
+        ),
     }
 
 

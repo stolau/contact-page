@@ -511,18 +511,46 @@ EXCLUDED_SCALARS = {
         " and the reason it carries a FIELD_LABELS entry too: the generated"
         " form (Taustakuvan tekstivastine) is its only editor."
     ),
+    # USR-COP-2's pair, and both take hero.style's shape rather than a new
+    # one: they name how the page is painted, not anything on it.
+    ("hero", "color_main"): (
+        "not content — it names the colour the site's header is painted"
+        " (USR-COP-2), so there is no element on either public page whose"
+        " TEXT it is. It renders as a :root declaration inside a <style>"
+        " block in <head>, which direct-edit.js has nothing to bind to. It"
+        " is not a form field either: no FIELD_LABELS entry, so the"
+        " schema-driven panel form never draws it — deliberately, because a"
+        " text input would let an owner type a value the whitelist has to"
+        " reject. Its editor is the Ulkoasu tab's <input type=\"color\">."
+    ),
+    ("hero", "color_accent"): (
+        "verbatim the reason color_main carries above, for the other role:"
+        " it paints the buttons and the accent text rather than being any"
+        " element's content. Same <style>-block rendering, same absent"
+        " FIELD_LABELS entry, same Ulkoasu-tab colour input."
+    ),
 }
 
-# 35 scalars across the six kinds since LLM-COP-30 added two more to
-# LLM-COP-25's ten. USR-COP-1 moved four of them out of the deleted on-page
-# form and into contact_dialog.html, and V1's served bytes DID change there —
-# but neither count moves, because all four were already excluded above, the
-# six bound yhteydenotto pairs survive intact, and no data-field is added
-# anywhere. In particular contact_dialog.html carries none: the whole
-# /muokkaa/sivu document is searched, dialog included, so a data-field in that
-# file would push BOUND_SCALAR_COUNT up by three without binding anything.
+# 37 scalars across the six kinds: LLM-COP-25's ten, LLM-COP-30's two, and
+# USR-COP-2's two. NEITHER COUNT BELOW MOVES, and for two independent
+# reasons that happen to land together here.
+#
+# USR-COP-1 moved four scalars out of the deleted on-page form and into
+# contact_dialog.html, and V1's served bytes DID change there — but all four
+# were already excluded above, the six bound yhteydenotto pairs survive
+# intact, and no data-field is added anywhere. In particular
+# contact_dialog.html carries none: the whole /muokkaa/sivu document is
+# searched, dialog included, so a data-field in that file would push
+# BOUND_SCALAR_COUNT up by three without binding anything.
+#
+# USR-COP-2's two colour fields are both excluded above, so
+# BOUND_SCALAR_COUNT does not move and neither public template gains a
+# data-field — which is how "the served markup is unchanged" stays true by
+# construction rather than by inspection. It does change the served BYTES of
+# a site that has CHOSEN a colour, by one <style> element in <head>, and
+# nothing else.
 BOUND_SCALAR_COUNT = 23
-EXCLUDED_SCALAR_COUNT = 12
+EXCLUDED_SCALAR_COUNT = 14
 
 
 def test_every_scalar_field_is_bound_or_excluded(direct_html):

@@ -36,6 +36,8 @@
   var panelTabs = document.querySelectorAll(".panel-tab[data-tab]");
   var panelBodies = document.querySelectorAll(".panel-body[data-panel]");
   var tyyliOptions = document.querySelectorAll(".tyyli-option");
+  var variInputs = document.querySelectorAll(".vari-input");
+  var variResets = document.querySelectorAll(".vari-reset");
 
   var current = 0;
   var draft = null; // the working payload
@@ -226,8 +228,10 @@
     refreshImageRows(section.kind !== "hero");
     // The style mark's SOURCE changes with the open section — `draft` when
     // the hero is open, hero.payload otherwise — so switching sections owes
-    // it a refresh even though the stored value did not move.
+    // it a refresh even though the stored value did not move. The two colour
+    // swatches read the same two sources and owe the same refresh.
     refreshStyleOptions();
+    refreshColorInputs();
     clearErrors();
     buildForm();
     buildMuutOsiot();
@@ -340,11 +344,12 @@
     });
   }
 
-  /* ---- ulkoasu: the site-wide style (LLM-COP-22) ---- */
+  /* ---- ulkoasu: the site-wide style (LLM-COP-22) and the two colours
+         (USR-COP-2) ---- */
 
-  // The style is a field on the HERO payload, so it follows draft and
-  // publish like any other content — but its control sits outside the
-  // section form and is reachable while another section is open. Hence two
+  // All three are fields on the HERO payload, so they follow draft and
+  // publish like any other content — but their controls sit outside the
+  // section form and are reachable while another section is open. Hence two
   // branches everywhere below: the hero open (the value lives in `draft`)
   // and the hero not open (it lives in that section's `payload`).
 
@@ -355,20 +360,32 @@
     return undefined;
   }
 
-  function styleNow() {
+  function heroValueNow(key) {
     var hero = heroSection();
     if (!hero) return "";
-    return (sections[current] === hero ? draft : hero.payload).style || "";
+    return (sections[current] === hero ? draft : hero.payload)[key] || "";
   }
 
   function refreshStyleOptions() {
-    var active = styleNow();
+    var active = heroValueNow("style");
     tyyliOptions.forEach(function (option) {
       option.classList.toggle("active", option.dataset.style === active);
     });
   }
 
-  function setStyle(value) {
+  // The swatch shows the STORED colour when there is one and the skin's own
+  // colour otherwise, which is the same rule the style mark follows — what
+  // the panel displays is what is stored, never what was last clicked. A
+  // colour input has no empty state, so "nothing chosen" is drawn as the
+  // default the server rendered into data-default.
+  function refreshColorInputs() {
+    variInputs.forEach(function (input) {
+      input.value =
+        heroValueNow("color_" + input.dataset.color) || input.dataset.default;
+    });
+  }
+
+  function setHeroValue(key, value, refresh) {
     var hero = heroSection();
     if (!hero) return;
     // Wait for the queued save if there is one, otherwise for the in-flight
@@ -389,25 +406,57 @@
         // optimistically, exactly as every other field in the panel behaves
         // on a failed save — the value stays, showErrors explains, Peruuta
         // reverts it.
-        draft.style = value;
-        refreshStyleOptions();
-        return save().then(refreshStyleOptions, refreshStyleOptions);
+        draft[key] = value;
+        refresh();
+        return save().then(refresh, refresh);
       }
       // Hero not open: nothing is marked on the click. The mark comes from
       // hero.payload, which advances only on a successful PUT, so an
       // aborted fetch or a 400 leaves it exactly where it was.
       var payload = deepCopy(hero.payload);
-      payload.style = value;
-      return putDraft(hero, payload).then(
-        refreshStyleOptions,
-        refreshStyleOptions
-      );
+      payload[key] = value;
+      return putDraft(hero, payload).then(refresh, refresh);
     });
+  }
+
+  // ONE LINE, and it stays one line. The whole shipped style write path —
+  // including the aborted-request case — is fenced by
+  // tests/browser/test_browser_panel.py, and that fence is only worth
+  // anything while setStyle really is setHeroValue with the key bound.
+  function setStyle(value) {
+    return setHeroValue("style", value, refreshStyleOptions);
   }
 
   tyyliOptions.forEach(function (option) {
     option.addEventListener("click", function () {
       setStyle(option.dataset.style);
+    });
+  });
+
+  variInputs.forEach(function (input) {
+    // `change`, NOT `input`, and this is not a preference. <input
+    // type="color"> fires `input` CONTINUOUSLY while the picker is dragged —
+    // dozens of events for one choice — and every one of them would flow
+    // through setHeroValue into a draft write, against the queued and
+    // in-flight save machinery whose stale-copy window the comment above
+    // describes as narrowed but still open. `change` fires once, when the
+    // owner has settled on a colour.
+    input.addEventListener("change", function () {
+      setHeroValue(
+        "color_" + input.dataset.color,
+        input.value,
+        refreshColorInputs
+      );
+    });
+  });
+
+  variResets.forEach(function (button) {
+    // Palauta stores "", which is "skin default" — not the default colour
+    // itself. Storing the literal would freeze the site's colours at
+    // whatever the current skin's happen to be, so switching skin afterwards
+    // would carry the old skin's palette across (app/palette.py).
+    button.addEventListener("click", function () {
+      setHeroValue("color_" + button.dataset.color, "", refreshColorInputs);
     });
   });
 
@@ -464,7 +513,9 @@
       // Same debt for the style: Peruuta is a writer of draft.style too,
       // through the hero-open branch of setStyle, so an optimistic mark left
       // by a failed style write has to go back with the rest of the draft.
+      // And for the two colours, which take the same hero-open branch.
       refreshStyleOptions();
+      refreshColorInputs();
       reloadPreview();
       savedNote.hidden = true;
       peruutaNote.hidden = false;

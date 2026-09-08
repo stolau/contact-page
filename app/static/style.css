@@ -8,6 +8,31 @@
   --paper: #faf7f2;
   --card: #ffffff;
   --line: #e4ddd3;
+
+  /* The six tokens the owner's colour override writes into (USR-COP-2).
+     Every default below is the literal or the var() that supplied the value
+     before this change, so a site that has chosen no colour renders exactly
+     what it rendered before — the override is a <style> block that is
+     ABSENT, not empty, until an owner picks something (app/palette.py).
+
+     --header-bg exists because --card could not play the part: the header's
+     ground was var(--card), and var(--card) is eleven surfaces on this page
+     — every white panel on it. Repainting --card to the owner's main colour
+     would repaint all eleven. This token is referenced at .site-header and
+     nowhere else.
+
+     --accent-ink and --accent-dark-ink are TWO tokens, not one, and the
+     sweep is why: the primary button's rest and hover grounds are different
+     colours, and no single black-or-white label clears 4.5:1 against both
+     (the best manages 3.7680, at #e400f3). --accent-fg is the accent as
+     TEXT — the same colour by default, pushed toward black or white only
+     when a chosen one would be illegible on --paper or --card. */
+  --header-bg: var(--card);
+  --header-ink: var(--ink);
+  --header-accent: var(--accent);
+  --accent-ink: #ffffff;
+  --accent-dark-ink: #ffffff;
+  --accent-fg: var(--accent);
 }
 
 * { box-sizing: border-box; }
@@ -23,7 +48,7 @@ body {
 /* Layout toggles: one responsive document, two renderings. */
 .phone-only { display: none; }
 
-a { color: var(--accent); }
+a { color: var(--accent-fg); }
 
 .button {
   display: inline-block;
@@ -35,9 +60,9 @@ a { color: var(--accent); }
   cursor: pointer;
   text-decoration: none;
 }
-.button.primary { background: var(--accent); color: #fff; }
-.button.primary:hover { background: var(--accent-dark); }
-.button.secondary { background: transparent; color: var(--accent); }
+.button.primary { background: var(--accent); color: var(--accent-ink); }
+.button.primary:hover { background: var(--accent-dark); color: var(--accent-dark-ink); }
+.button.secondary { background: transparent; color: var(--accent-fg); }
 
 /* Header */
 .site-header {
@@ -45,7 +70,10 @@ a { color: var(--accent); }
   align-items: center;
   gap: 1.5rem;
   padding: 0.9rem 3rem;
-  background: var(--card);
+  background: var(--header-bg);
+  /* .brand sets no colour of its own, so this is what it inherits — which
+     is why the header's ink lives here and not on .brand. */
+  color: var(--header-ink);
   border-bottom: 1px solid var(--line);
   position: sticky;
   top: 0;
@@ -54,17 +82,17 @@ a { color: var(--accent); }
 .brand-avatar {
   width: 2rem; height: 2rem;
   border-radius: 50%;
-  background: var(--accent); color: #fff;
+  background: var(--accent); color: var(--accent-ink);
   font-size: 0.8rem;
   align-items: center; justify-content: center;
   margin-right: 0.5rem;
 }
 .nav-links { display: flex; gap: 1.4rem; }
-.nav-links a { color: var(--ink); text-decoration: none; font-size: 0.95rem; }
-.nav-links a:hover { color: var(--accent); }
+.nav-links a { color: var(--header-ink); text-decoration: none; font-size: 0.95rem; }
+.nav-links a:hover { color: var(--header-accent); }
 .menu-toggle {
   background: none; border: none; font-size: 1.3rem;
-  cursor: pointer; color: var(--ink);
+  cursor: pointer; color: var(--header-ink);
 }
 
 /* Sections */
@@ -73,7 +101,7 @@ main section { padding: 3.5rem 3rem; max-width: 1100px; margin: 0 auto; }
   font-family: "Helvetica Neue", Arial, sans-serif;
   font-size: 0.78rem;
   letter-spacing: 0.12em;
-  color: var(--accent);
+  color: var(--accent-fg);
   margin: 0 0 1.2rem;
 }
 
@@ -92,7 +120,7 @@ main section { padding: 3.5rem 3rem; max-width: 1100px; margin: 0 auto; }
   font-size: 0.85rem;
 }
 .portrait-icon { font-size: 1.6rem; }
-.portrait-browse { color: var(--accent); text-decoration: underline; cursor: pointer; }
+.portrait-browse { color: var(--accent-fg); text-decoration: underline; cursor: pointer; }
 /* The dashed ring is a drop-here affordance; around a real photograph it
    would read as an unfinished upload. */
 .portrait.has-image { border-style: solid; border-color: transparent; overflow: hidden; }
@@ -307,7 +335,7 @@ main section { padding: 3.5rem 3rem; max-width: 1100px; margin: 0 auto; }
 .password-show {
   background: none; border: none;
   font: inherit; font-size: 0.85rem;
-  color: var(--accent);
+  color: var(--accent-fg);
   cursor: pointer;
   padding: 0;
 }

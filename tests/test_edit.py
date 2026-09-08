@@ -28,6 +28,7 @@ import pytest
 
 from app import db as database
 from app.fields import FIELD_LABELS, FIELDS
+from app.palette import ROLE_TOKENS
 from app.sections import badge, draft_sections
 from app.seed import SEED_SECTIONS
 from app.styles import STYLE_CHOICES, STYLE_TEMPLATES
@@ -730,3 +731,99 @@ def test_the_ulkoasu_body_wears_its_own_heading_class(muokkaa_html):
     """
     assert 'class="tyyli-title"' in muokkaa_html
     assert muokkaa_html.count('class="section-name"') == 1
+
+
+def test_the_ulkoasu_body_serves_both_colour_controls(muokkaa_html):
+    """The two colour rows (USR-COP-2) are inside the Ulkoasu BODY, not a
+    fourth tab, and each is a native colour input.
+
+    THE TAB STRIP IS A SPEC CRITERION, and that is why the location is
+    asserted rather than assumed: cp-main-edit.editor-panel.panel-tabs AC2
+    says item-count 3, so a colour control shipped as a fourth tab would
+    contradict a criterion on the server. The Ulkoasu body's contents are
+    addressed by no region at all, which is what makes this the one place the
+    control can go — reported as a spec delta, never fixed by editing a spec.
+
+    type="color" is asserted because it carries the security argument: a
+    native colour input can emit nothing but #rrggbb, which is why the panel
+    cannot originate the hostile values app/palette.py's whitelist rejects on
+    the READ path. Turn it into a text box and that argument is gone with no
+    other test noticing.
+
+    And .tyyli-title is still the ONLY one, for the reason the test above
+    gives: a second element wearing a class the browser suite locates
+    strictly fails it with a strict-mode violation rather than an assertion.
+    """
+    start = muokkaa_html.index('<div class="panel-body" data-panel="ulkoasu"')
+    body = muokkaa_html[start : muokkaa_html.index("</aside>", start)]
+    for role in ("main", "accent"):
+        assert (
+            f'type="color" class="vari-input" id="vari-{role}"'
+            f' data-color="{role}"' in body
+        ), role
+        assert f'class="button secondary vari-reset" data-color="{role}"' in (
+            body
+        ), role
+    assert body.count('class="vari-input"') == 2
+    assert body.count('class="tyyli-title"') == 1
+    assert muokkaa_html.count('class="tyyli-title"') == 1
+
+
+def test_the_colour_swatches_show_the_skin_s_own_colours_by_default(
+    logged_in_admin,
+):
+    """value= is the SKIN's colour, never black, and never the OWNER's.
+
+    An <input type="color"> has no empty state: with no value attribute it
+    renders #000000, which would tell an owner who has chosen nothing that
+    their header was black. So the server renders the skin's own literals —
+    ROLE_TOKENS', the same constants app/palette.py derives from, so there is
+    one copy of them and this test fails if a second appears.
+
+    Both skins are asserted, because the value is resolve_style'd: switching
+    the drafted style must move the swatch, and a server that rendered V1's
+    literals whatever the skin would leave a V2 owner looking at V1's green.
+    """
+    def swatches(style):
+        conn = database.connect(
+            logged_in_admin.application.config["DATABASE"]
+        )
+        try:
+            row = conn.execute(
+                "SELECT id, draft FROM sections WHERE kind = 'hero'"
+            ).fetchone()
+            payload = json.loads(row["draft"])
+            payload["style"] = style
+            conn.execute(
+                "UPDATE sections SET draft = ? WHERE id = ?",
+                (json.dumps(payload, ensure_ascii=False), row["id"]),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        html = logged_in_admin.get("/muokkaa").get_data(as_text=True)
+        return re.findall(
+            r'data-color="(\w+)" data-default="(#[0-9a-f]{6})"'
+            r' value="(#[0-9a-f]{6})"',
+            html,
+        )
+
+    # "" is not a style the panel marks, but it IS a style the renderer
+    # resolves — to v1 — so the swatch shows v1's colours.
+    assert swatches("") == [
+        ("main", ROLE_TOKENS["v1"]["default_main"],
+         ROLE_TOKENS["v1"]["default_main"]),
+        ("accent", ROLE_TOKENS["v1"]["default_accent"],
+         ROLE_TOKENS["v1"]["default_accent"]),
+    ]
+    assert swatches("v2") == [
+        ("main", ROLE_TOKENS["v2"]["default_main"],
+         ROLE_TOKENS["v2"]["default_main"]),
+        ("accent", ROLE_TOKENS["v2"]["default_accent"],
+         ROLE_TOKENS["v2"]["default_accent"]),
+    ]
+    # The two skins really differ, so the assertions above are not both true
+    # of a server that ignores the style.
+    assert (
+        ROLE_TOKENS["v1"]["default_main"] != ROLE_TOKENS["v2"]["default_main"]
+    )

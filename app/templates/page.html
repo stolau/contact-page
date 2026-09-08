@@ -6,6 +6,16 @@
 <title>{{ site_title }}</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 {% if direct_edit %}<link rel="stylesheet" href="{{ url_for('static', filename='direct-edit.css') }}">{% endif %}
+{# The owner's colour override (USR-COP-2), LAST in <head> so it wins the
+   cascade over the stylesheet above — it redeclares :root tokens the
+   stylesheet already declared, and equal specificity means source order
+   decides. Absent, not empty, when the owner has chosen nothing.
+
+   Emitted WITHOUT |safe on purpose. app/palette.py's output alphabet is
+   [-a-z0-9:;#{}] by construction and autoescaping is provably a no-op on
+   it today, so this costs nothing; what it buys is that if a future bug
+   ever let a < through, the browser sees &lt; instead of a tag. #}
+{% if site_colors_css %}<style>{{ site_colors_css }}</style>{% endif %}
 </head>
 <body>
 
