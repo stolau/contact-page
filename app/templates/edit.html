@@ -77,6 +77,31 @@
 
       <form class="section-form"></form>
 
+      {# The availability notice's toggle (USR-COP-4). yhteydenotto.notice_on
+         is a flag, not content, and it carries no FIELD_LABELS entry
+         deliberately (app/fields.py), so the generated form above never
+         draws it — a text box an owner types "kyllä" into is exactly the
+         value app/notice.py would then have to refuse. This is its only
+         editor, the way the two picture rows are hero.portrait's and
+         hero.background's.
+
+         BELOW the form, not above it: notice_text is declared last in its
+         kind, so the builder draws Ilmoitusteksti last and the toggle lands
+         directly under the field it switches on. And in the Sisältö body,
+         never a fourth tab — cp-main-edit.editor-panel.panel-tabs pins
+         item-count 3.
+
+         Shown only while the Yhteydenottolomake section is open, by
+         edit.js's refreshNoticeRow, the same mechanism refreshImageRows
+         uses for the picture rows. Its classes are its OWN — not
+         .section-name, .kuva-row, .muotokuva-row or .kuva-error, each of
+         which the browser suite locates strictly, so a second element
+         wearing one would be a strict-mode violation rather than a pass. #}
+      <label class="ilmoitus-row" hidden>
+        <input type="checkbox" class="ilmoitus-toggle">
+        <span class="ilmoitus-text">Näytä ilmoitus</span>
+      </label>
+
       <div class="muut-osiot">
         <h3 class="muut-osiot-title">Muut osiot</h3>
         <ul class="muut-osiot-list"></ul>

@@ -65,6 +65,16 @@ def test_style_carries_no_field_label():
     # <input type="color">, which can emit nothing but #rrggbb.
     assert FIELD_LABELS["hero"].get("color_main") is None
     assert FIELD_LABELS["hero"].get("color_accent") is None
+    # USR-COP-4's yhteydenotto.notice_on is the FIRST unlabelled key outside
+    # the hero, which is why it is worth its own sentence rather than one
+    # more line above. Same shape, same reason: it is a flag with a
+    # constrained vocabulary ("on", or not shown), resolved in Python by
+    # app/notice.py, and labelling it would draw a text input the owner
+    # could type "kyllä" into — a value that would silently mean off. Its
+    # editor is the panel's Ilmoitus row. Its sibling notice_text IS
+    # labelled and IS drawn: that one is the owner's sentence.
+    assert FIELDS["yhteydenotto"]["notice_on"] == {"type": "plain"}
+    assert FIELD_LABELS["yhteydenotto"].get("notice_on") is None
 
 
     # LLM-COP-25 appended a THIRD unlabelled-key candidate and deliberately
@@ -125,6 +135,13 @@ NEW_FIELD_TAILS = {
         "email",
         "body",
         "caveat",
+        # USR-COP-4's availability notice, appended after LLM-COP-25's four
+        # for the reason every tail in this table is appended: any other
+        # position rewrites every stored yhteydenotto payload on the owner's
+        # first save. notice_text then notice_on, the text before the flag
+        # that switches it on.
+        "notice_text",
+        "notice_on",
     ],
     "sijainti": ["address", "section_label"],
 }
@@ -152,6 +169,11 @@ def test_the_new_keys_are_declared_last_in_their_kind(kind):
         ("yhteydenotto", "email"),
         ("yhteydenotto", "body"),
         ("yhteydenotto", "caveat"),
+        # USR-COP-4. Its sibling yhteydenotto.notice_on is deliberately NOT
+        # here for the same reason hero.background is not: it is a flag, not
+        # content, and carries no label — asserted in
+        # test_style_carries_no_field_label instead.
+        ("yhteydenotto", "notice_text"),
         ("sijainti", "section_label"),
     ],
 )

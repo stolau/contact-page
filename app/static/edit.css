@@ -239,6 +239,26 @@ body {
    two rows the leak is twice the size, so the attribute is given its meaning
    back rather than carried forward. */
 .kuva-row[hidden] { display: none; }
+/* The availability notice's toggle (USR-COP-4), shown only with the
+   Yhteydenottolomake section open. Its own selector, not .kuva-row: that
+   one is the two picture rows' handle and edit.js loops over it. */
+.ilmoitus-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  margin-bottom: 1.2rem;
+  cursor: pointer;
+}
+/* The same collision the rule above solves, and it is owed the moment the
+   rule above declares a `display`: edit.js sets this row's `hidden` for
+   every non-yhteydenotto section, but author-origin `display: flex` beats
+   the UA sheet's [hidden] rule, so without this line the row would be drawn
+   on every section — the exact defect .kuva-row shipped with once. */
+.ilmoitus-row[hidden] { display: none; }
+.ilmoitus-text { font-size: 0.95rem; }
 .kuva-icon {
   width: 2.4rem; height: 2.4rem;
   border: 2px dashed var(--line);

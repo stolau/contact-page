@@ -1250,20 +1250,32 @@ def _v10_hero_payload():
 
 
 def _v10_database(path, previous=None, state="published", hero=None):
-    """A database at exactly the version BELOW the head, with one hero row.
+    """A database at exactly version 10, with one hero row — migration 11's.
 
-    The slice and the PRAGMA are written relative to the head rather than as
-    the literals 10 and 10, and that is deliberate (USR-COP-2): index 9 held
-    a reservation for a sibling change taking migration 10, and at the rebase
-    that sibling's real migration took the slot. A fixture written as
-    MIGRATIONS[:10] is now still correct by luck; written this way it is
-    correct because it says what it means — every migration except the one
-    under test has run.
+    THE SLICE AND THE PRAGMA ARE EXPLICIT LITERALS, and that is the point of
+    them. This fixture was written relative to the head — MIGRATIONS[:-1] and
+    len(MIGRATIONS) - 1 — on the reasoning that "every migration except the
+    one under test" says what it means (USR-COP-2). That reasoning was only
+    ever true while 11 WAS the head, and USR-COP-4 is the change that made it
+    stop being true: with a twelfth migration appended, the relative form
+    stamps user_version 11 and migrate() below runs migration 12 ALONE,
+    skipping the very migration these three tests exist to exercise.
+
+    Two of them go loudly red when that happens. The third,
+    test_migration_11_leaves_a_colour_the_owner_already_chose, goes SILENTLY
+    GREEN AND VACUOUS: it pre-seeds both colours, so every assertion in it
+    passes while the migration under test never runs at all. A dead test that
+    reports success is worse than no test, and it is why this is written as
+    10 and 10 now.
+
+    The general rule the next migration inherits: a fixture that pins a
+    version pins it as a LITERAL. Two siblings landing in parallel is exactly
+    when head-relative arithmetic stops describing the version it names.
     """
     c = database.connect(str(path))
-    for migration in database.MIGRATIONS[:-1]:
+    for migration in database.MIGRATIONS[:10]:
         migration(c)
-    c.execute(f"PRAGMA user_version = {len(database.MIGRATIONS) - 1}")
+    c.execute("PRAGMA user_version = 10")
     text = json.dumps(hero or _v10_hero_payload(), ensure_ascii=False)
     c.execute(
         "INSERT INTO sections (kind, position, state, draft, published,"
@@ -1389,34 +1401,39 @@ def test_migration_11_is_idempotent_byte_for_byte(tmp_path):
     c.close()
 
 
-def test_the_migration_head_is_eleven(tmp_path):
+def test_the_migration_head_is_twelve(tmp_path):
     """The head, named exactly once in the suite.
 
     Every other version assertion in this file is written as
     `len(database.MIGRATIONS)` on purpose, so migrations added later do not
     break tests that are not about them. This one is deliberately literal: it
-    is the single place a person adding migration 12 is told, by a red test,
+    is the single place a person adding migration 13 is told, by a red test,
     that a stamped store now upgrades one step further — and it pins that
     MIGRATIONS ends where the list says rather than where a stale PRAGMA does.
 
-    It did that job for LLM-COP-30, which found it red and moved it here
-    rather than silencing it. Rename it with the number, so the test's name
-    keeps stating the head instead of a head it used to have.
+    It did that job for LLM-COP-30 and again for USR-COP-4, each of which
+    found it red and moved it here rather than silencing it. Rename it with
+    the number, so the test's name keeps stating the head instead of a head
+    it used to have.
 
     The list is named by INDEX as well as by length, because the two say
     different things: the length pins where the ladder ends, and the
     identities pin that appending a migration appended it rather than
     displacing the one before. LLM-COP-37's migration 10 and USR-COP-2's
     migration 11 landed in that order, from different branches, and these
-    three lines are where that order is stated once.
+    lines are where that order is stated once. USR-COP-4 APPENDED migration
+    12 while a sibling change held 13: a collision here is resolved by
+    appending both, never by renumbering either — a renumbered migration
+    re-runs against a store already stamped past it.
     """
-    assert len(database.MIGRATIONS) == 11
+    assert len(database.MIGRATIONS) == 12
     assert database.MIGRATIONS[8] is database._migration_9
     assert database.MIGRATIONS[9] is database._migration_10
     assert database.MIGRATIONS[10] is database._migration_11
+    assert database.MIGRATIONS[11] is database._migration_12
 
     c = database.connect(str(tmp_path / "head.sqlite3"))
     database.migrate(c)
     (version,) = c.execute("PRAGMA user_version").fetchone()
-    assert version == 11
+    assert version == 12
     c.close()

@@ -454,7 +454,7 @@ def test_the_frozen_v6_install_upgrades_with_every_badge_unchanged(tmp_path):
     database.migrate(conn)
 
     (version,) = conn.execute("PRAGMA user_version").fetchone()
-    assert version == len(database.MIGRATIONS) == 11
+    assert version == len(database.MIGRATIONS) == 12
     stored = rows_by_kind(conn)
     for kind, row in stored.items():
         assert badge(row["state"], row["draft"], row["published"]) == (
@@ -478,6 +478,19 @@ def test_the_frozen_v6_install_upgrades_with_every_badge_unchanged(tmp_path):
     # same reason each of the lines above exists: without it "no badge moved"
     # would be true of a chain that stopped at migration 9.
     assert json.loads(stored["hero"]["draft"])["color_main"] == ""
+    # And once more for USR-COP-4's migration 12, the newest link. This one
+    # is the strongest of the five, because unlike every line above it the
+    # frozen row's value is NOT already what the migration writes: this
+    # store's send_label is the old default "Lähetä" (FROZEN_V6_ROWS), so
+    # reading "Ota yhteyttä" here can only mean migration 12 ran and renamed
+    # it. It is also what makes the badge comparison above load-bearing for
+    # this migration: FROZEN_V6_ROWS' yhteydenotto row has draft ==
+    # published, so a migration 12 that rewrote draft alone would leave them
+    # unequal and turn FROZEN_BADGES["yhteydenotto"] == "Julkaistu" into
+    # "Luonnos".
+    assert json.loads(stored["yhteydenotto"]["draft"])["send_label"] == (
+        "Ota yhteyttä"
+    )
     conn.close()
 
 
@@ -564,6 +577,12 @@ def test_migration_8_appends_its_keys_to_every_frozen_row_byte_for_byte(
     # Trimming rather than spelling "portrait_alt" keeps the expectation
     # derived: the trim is itself asserted, so reordering FIELDS still fails
     # here.
+    #
+    # yhteydenotto is now read TWO KEYS SHORT for the same reason, and it is
+    # the second kind to need a trim rather than the first to be special:
+    # USR-COP-4's migration 12 appended notice_text and notice_on, so the
+    # schema's yhteydenotto tail is two keys past what migration 8 leaves in
+    # this store. Same idiom, same asserted trim.
     for kind, row in stored.items():
         declared = list(FIELDS[kind])
         if kind == "hero":
@@ -574,6 +593,9 @@ def test_migration_8_appends_its_keys_to_every_frozen_row_byte_for_byte(
                 "color_accent",
             ]
             declared = declared[:-4]
+        if kind == "yhteydenotto":
+            assert declared[-2:] == ["notice_text", "notice_on"]
+            declared = declared[:-2]
         assert list(json.loads(row["draft"]))[-1] == declared[-1], kind
         assert list(json.loads(row["draft"])) == declared, kind
 
@@ -1077,7 +1099,15 @@ def test_the_style_value_changes_nothing_until_it_names_another_template(
     conn = database.connect(app.config["DATABASE"])
     try:
         (version,) = conn.execute("PRAGMA user_version").fetchone()
-        assert version == 11
+        # The premise, not the claim: this test is about what the STYLE
+        # value does, and it only needs the store to have been carried all
+        # the way to the head. Written as len(MIGRATIONS) rather than a
+        # literal, the house form for a premise — the head itself is pinned
+        # as a literal in exactly one place, test_db.py's
+        # test_the_migration_head_is_twelve. It was a literal 11 here, which
+        # made this test go red for USR-COP-4's migration 12 without having
+        # anything to say about it.
+        assert version == len(database.MIGRATIONS)
     finally:
         conn.close()
 

@@ -525,7 +525,7 @@ def test_the_send_button_edits_its_label_and_opens_no_dialog_in_direct_edit_mode
 ):
     """The riskiest thing this artifact creates, and its guard.
 
-    The card's Lähetä is now BOTH a .cta-contact dialog opener and a
+    The card's button is now BOTH a .cta-contact dialog opener and a
     data-field="send_label" editable — the exact collision LLM-COP-6 shipped
     once on the hero. While an owner is renaming it, a press must mean "edit
     me" and must not also open the dialog: the dialog's backdrop swallows

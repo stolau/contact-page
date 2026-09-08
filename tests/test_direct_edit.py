@@ -366,9 +366,19 @@ def test_direct_ingress_mobile_is_rendered_and_bound(direct_html):
 # contact card's button carries .cta-contact too, so there are TWO of them and
 # element_text returns the FIRST — the hero's, by document order alone. That
 # dependence is asserted below rather than relied on silently: the count pins
-# how many exist and the text pins which one was matched, so a reordering of
-# the two sections goes red here instead of quietly measuring the wrong
-# button.
+# how many exist and the EXACT-TAG assertion pins which one was matched, so a
+# reordering of the two sections goes red here instead of quietly measuring
+# the wrong button.
+#
+# It used to be the text that pinned which one was matched, and USR-COP-4
+# took that away: the card's send_label now defaults to "Ota yhteyttä" too,
+# so on the seeded page BOTH .cta-contact buttons carry those words and the
+# contains-text below no longer distinguishes them. It is kept because it
+# still catches a hero button rendering the wrong field's value, but the
+# discriminating work has moved to the tag assertion under it, which names
+# data-section and data-field. That is a real loss of power, recorded here
+# rather than left for someone to rediscover: if the tag assertion is ever
+# weakened, this test stops scoping to the hero at all.
 
 
 def cta_contact_count(html):
@@ -529,11 +539,43 @@ EXCLUDED_SCALARS = {
         " element's content. Same <style>-block rendering, same absent"
         " FIELD_LABELS entry, same Ulkoasu-tab colour input."
     ),
+    # USR-COP-4's pair. The first takes hero.background_alt's shape
+    # (excluded, labelled, the panel's generated form is its only editor);
+    # the second takes hero.style's (excluded, unlabelled, a bespoke
+    # control). Both are genuinely different from every entry above, which
+    # is why each gets its reasoning written out rather than a cross
+    # reference.
+    ("yhteydenotto", "notice_text"): (
+        "the paragraph that shows it renders contact_notice(payload)"
+        " (app/notice.py), a RESOLVED value, and is not emitted at all when"
+        " notice_on is off — so there is no element on either public page"
+        " whose TEXT this field is. Binding it would break direct-edit.js's"
+        " read/write identity: bindPlain's commit() writes"
+        " element.textContent straight into the payload and field.read"
+        " returns the same, so with the notice off the element would show"
+        " \"\" while the field held the owner's sentence, and one keystroke"
+        " or one undo would write the empty value over it — destroying"
+        " exactly what \"switched off without losing its text\" exists to"
+        " protect. The alternative of always emitting the element, hidden"
+        " when off, and binding it was considered and rejected on its own"
+        " ground: hidden still ships a withdrawn notice into the served"
+        " document, where view-source shows it and search engines index it."
+        " Its editor is the panel's generated form (Ilmoitusteksti)."
+    ),
+    ("yhteydenotto", "notice_on"): (
+        "not content — it names whether the notice is shown at all, so"
+        " there is no element whose text it is. No FIELD_LABELS entry"
+        " either, and deliberately: the schema-driven form would draw a"
+        " text box an owner could type \"kyllä\" into, which app/notice.py"
+        " would then have to read as off. Its editor is the panel's"
+        " Ilmoitus row (Näytä ilmoitus), a checkbox that can emit nothing"
+        " but \"on\" or \"\"."
+    ),
 }
 
-# 37 scalars across the six kinds: LLM-COP-25's ten, LLM-COP-30's two, and
-# USR-COP-2's two. NEITHER COUNT BELOW MOVES, and for two independent
-# reasons that happen to land together here.
+# 39 scalars across the six kinds: LLM-COP-25's ten, LLM-COP-30's two,
+# USR-COP-2's two and USR-COP-4's two. EXACTLY ONE OF THE TWO COUNTS BELOW
+# MOVES — the excluded one, by USR-COP-4's two — and the bound one does not.
 #
 # USR-COP-1 moved four scalars out of the deleted on-page form and into
 # contact_dialog.html, and V1's served bytes DID change there — but all four
@@ -549,8 +591,25 @@ EXCLUDED_SCALARS = {
 # construction rather than by inspection. It does change the served BYTES of
 # a site that has CHOSEN a colour, by one <style> element in <head>, and
 # nothing else.
+#
+# USR-COP-4 added the contact band's availability notice — notice_text and
+# notice_on — and BOTH are excluded above, so EXCLUDED_SCALAR_COUNT is the
+# only number that moves, by two. BOUND_SCALAR_COUNT stays where it is
+# because neither public template gained a data-field: the notice paragraph
+# is emitted conditionally and carries none, which is also what keeps the
+# V1/V2 binding fence (tests/test_page_v2.py) satisfied by construction in
+# every data state rather than only the seeded one. That invariant was
+# checked before the constant was touched — `grep -c 'data-field='` over
+# both templates returns the same two numbers before and after the change —
+# and it is the falsifier for this block: if the bound count had moved, a
+# template grew a binding it was not supposed to, and the fix is in the
+# template, never in this constant.
+#
+# The rename of yhteydenotto.send_label's default moves neither count: it
+# changes a stored word, not a binding. It does cost the assertion at the
+# top of Decision D some of its discriminating power — see the note there.
 BOUND_SCALAR_COUNT = 23
-EXCLUDED_SCALAR_COUNT = 14
+EXCLUDED_SCALAR_COUNT = 16
 
 
 def test_every_scalar_field_is_bound_or_excluded(direct_html):

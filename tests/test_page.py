@@ -61,9 +61,12 @@ SEED_BY_KIND = dict(SEED_SECTIONS)
 #
 # The two labels are deliberately NOT in SEEDED_RENDERS either, for two
 # different reasons. A whole-document substring for "Ota yhteyttä" cannot fail
-# while the header's button at app/templates/page.html:128 carries those same
+# while the header's button at app/templates/page.html:159 carries those same
 # words as a template literal: delete the hero's binding entirely and such a
-# row still passes. "Lue palveluista" has no such literal, so a whole-document
+# row still passes. USR-COP-4 made that argument stronger, not weaker — the
+# contact card's send_label now defaults to the same two words, so a seeded
+# page carries them on THREE elements, only one of which is the hero's
+# binding. "Lue palveluista" has no such literal, so a whole-document
 # row does catch a deleted binding — but it cannot say which element rendered
 # the value: swap the hero's two bindings and both whole-document rows still
 # pass while every element-scoped case goes red.
@@ -395,7 +398,7 @@ def test_cta_labels_are_data_the_owner_can_change(app, client):
     strings appear nowhere in app/, so this fails against any implementation
     that keeps a template literal in the hero.
 
-    The third assertion is the header's own Ota yhteyttä (page.html:128,
+    The third assertion is the header's own Ota yhteyttä (page.html:159,
     criterion cp-main.header.header-contact-button), which is a TEMPLATE
     literal and must not follow the field. It is not decoration: bind that
     button to hero.contact_label and the header silently starts tracking a
@@ -409,8 +412,8 @@ def test_cta_labels_are_data_the_owner_can_change(app, client):
     alone. So the count is asserted here and the hero's stored string is what
     the matched element must carry. Flip the two sections and this goes red
     instead of quietly measuring the card's button. (It would have gone red
-    anyway, the card's button saying "Lähetä" — but accidental safety is not
-    safety.)
+    anyway, the card's button saying "Ota yhteyttä" — but accidental safety
+    is not safety.)
     """
     def rewrite(payload):
         payload["contact_label"] = "Soita minulle heti"
@@ -543,6 +546,189 @@ def test_the_contact_cards_four_fields_are_data_the_owner_can_change(
         assert text.strip() == CONTACT_VALUES[field], cls
 
 
+# --- USR-COP-4: the availability notice, on V1 ------------------------------
+#
+# The notice is the one element in this band that is NOT emitted
+# unconditionally, and every test below is about that decision rather than
+# about the words. Its sibling set on V2 lives in tests/test_page_v2.py; both
+# are needed, because the whole claim is that the resolver decides once and
+# both skins obey it.
+
+NOTICE_TEXT = "Ajanvaraus on tauolla marraskuun loppuun asti"
+# The author's other example, and it is a PROMISE. Asserted alongside the
+# first so nothing here can quietly become "warnings only".
+NOTICE_PROMISE = "Uusia aikoja avautuu heti alkuvuodesta"
+
+
+def test_the_availability_notice_shows_the_owners_text_when_it_is_switched_on(
+    app, client
+):
+    """The stored sentence reaches the page, inside its own element.
+
+    Read out of p.contact-notice rather than as a bare substring of the
+    document: a document-wide check would pass with the text rendered into
+    the body paragraph, which is the arrangement this feature exists not to
+    be.
+    """
+    assert_absent_from_app(NOTICE_TEXT, NOTICE_PROMISE)
+
+    edit_published_payload(
+        app,
+        "yhteydenotto",
+        lambda p: p.update(notice_text=NOTICE_TEXT, notice_on="on"),
+    )
+
+    after = client.get("/").get_data(as_text=True)
+    text = element_text(after, "p", cls="contact-notice")
+    assert text is not None, "no p.contact-notice in the served page"
+    assert text.strip() == NOTICE_TEXT
+
+    edit_published_payload(
+        app, "yhteydenotto", lambda p: p.update(notice_text=NOTICE_PROMISE)
+    )
+    promise = element_text(
+        client.get("/").get_data(as_text=True), "p", cls="contact-notice"
+    )
+    assert promise is not None
+    assert promise.strip() == NOTICE_PROMISE
+
+
+def test_switching_the_notice_off_removes_it_from_the_served_bytes(app, client):
+    """THE ASSERTION THIS WHOLE DESIGN TURNS ON, and the one a `hidden`
+    element would fail.
+
+    "Switched off" has to mean ABSENT FROM THE DOCUMENT, not invisible in it.
+    An always-emitted paragraph carrying `hidden` would keep the withdrawn
+    sentence in the served HTML, where view-source shows it and a search
+    engine indexes it — a stale "no appointments" outliving the owner's
+    decision is precisely the defect the toggle exists to prevent. So the
+    text is asserted absent from the raw response bytes, not merely absent
+    from a rendered element.
+
+    And the second half is the other half of the feature: the store still
+    holds the sentence. Two fields rather than one is exactly what buys
+    that, and this is where it is proved rather than promised.
+    """
+    assert_absent_from_app(NOTICE_TEXT)
+
+    edit_published_payload(
+        app,
+        "yhteydenotto",
+        lambda p: p.update(notice_text=NOTICE_TEXT, notice_on="on"),
+    )
+    assert NOTICE_TEXT in client.get("/").get_data(as_text=True)
+
+    # The TEXT is left exactly where it is; only the flag moves.
+    edit_published_payload(app, "yhteydenotto", lambda p: p.update(notice_on=""))
+
+    after = client.get("/").get_data(as_text=True)
+    assert NOTICE_TEXT not in after
+    assert "contact-notice" not in after
+
+    # And the sentence survived. Proved by switching the flag back on and
+    # nothing else — no second write of notice_text anywhere in this test —
+    # so the text reappearing can only mean the store kept it through the
+    # off state. Reading the column directly would prove the same thing more
+    # weakly: this way the round trip through the real route is what answers.
+    edit_published_payload(
+        app, "yhteydenotto", lambda p: p.update(notice_on="on")
+    )
+    back = element_text(
+        client.get("/").get_data(as_text=True), "p", cls="contact-notice"
+    )
+    assert back is not None, "the notice did not come back when re-enabled"
+    assert back.strip() == NOTICE_TEXT
+
+
+@pytest.mark.parametrize(
+    "notice_on,notice_text",
+    [
+        # The flag on, with nothing to say.
+        ("on", ""),
+        ("on", "   "),
+        # The spellings an owner would type if the flag were ever a text box,
+        # which is why it is not one (tests/test_fields.py).
+        ("KYLLÄ", NOTICE_TEXT),
+        ("ON", NOTICE_TEXT),
+        ("1", NOTICE_TEXT),
+        ("on ", NOTICE_TEXT),
+        ("", NOTICE_TEXT),
+    ],
+)
+def test_an_empty_or_unrecognised_notice_renders_nothing_and_still_200s(
+    app, client, notice_on, notice_text
+):
+    edit_published_payload(
+        app,
+        "yhteydenotto",
+        lambda p: p.update(notice_text=notice_text, notice_on=notice_on),
+    )
+
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "contact-notice" not in response.get_data(as_text=True)
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("notice_on", {}),
+        ("notice_on", []),
+        ("notice_on", {"on": True}),
+        ("notice_text", {}),
+        ("notice_text", []),
+        ("notice_text", 7),
+    ],
+)
+def test_a_wrongly_typed_notice_value_serves_200_rather_than_500(
+    app, client, key, value
+):
+    """app/styles.py records a REAL 500 caused by ignoring exactly this, and
+    this is that failure made executable for the new pair.
+
+    The values are written straight into the store, past validate_payload —
+    which is honest, because that is the only way they can get there. Nothing
+    in the app writes a JSON object into a plain field; an API client, a
+    rolled-back build or a hand-edited sqlite file can. `in` on a dict hashes
+    its operand and .strip() on one raises AttributeError, so both of these
+    take a different path from a merely unrecognised string, and an unknown
+    string could never have caught it.
+    """
+    # The flag is set to "on" in both cases on purpose. For the notice_text
+    # rows it is what carries the request PAST the flag check and into the
+    # text guard, which is the second of the two isinstance calls and the one
+    # an implementation copied from resolve_style would not have.
+    edit_published_payload(
+        app,
+        "yhteydenotto",
+        lambda p: p.update({"notice_on": "on", key: value}),
+    )
+
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "contact-notice" not in response.get_data(as_text=True)
+
+
+def test_the_notice_is_not_marked_up_as_an_error(app, client):
+    """The author's own second example is a promise ("Seuraavat ajat mm.yyyy
+    alussa"), so the tone is the owner's to set and the markup must not set
+    it for them. No role="alert", no aria-live: an assistive technology that
+    interrupts the page for an availability note is asserting an urgency the
+    product has no way to know about.
+    """
+    edit_published_payload(
+        app,
+        "yhteydenotto",
+        lambda p: p.update(notice_text=NOTICE_TEXT, notice_on="on"),
+    )
+
+    after = client.get("/").get_data(as_text=True)
+    tag = re.search(r'<p\b[^>]*class="[^"]*\bcontact-notice\b[^"]*"[^>]*>', after)
+    assert tag is not None, "no p.contact-notice start tag in the served page"
+    assert "role=" not in tag.group(0), tag.group(0)
+    assert "aria-live" not in tag.group(0), tag.group(0)
+
+
 def test_fact_card_count_follows_the_data(app, client):
     seeded = SEED_BY_KIND["hero"]["facts"]
     dropped, kept = seeded[2], [seeded[0], seeded[1], seeded[3]]
@@ -576,8 +762,10 @@ def test_both_v1_contact_buttons_open_the_dialog(page_html):
     inside the about section and cp-main-phone has no yhteydenotto region at
     all — so this is not a criterion test. It is the fence under the behaviour
     change: the page collects a message in ONE place, the dialog, so the
-    hero's Ota yhteyttä and the contact card's Lähetä both carry .cta-contact
-    and both open it. Neither may submit anything: there is no form on the
+    hero's Ota yhteyttä and the contact card's button both carry .cta-contact
+    and both open it — and since USR-COP-4 renamed the card's default the two
+    read the same words, which is why this test never looks at their text.
+    Neither may submit anything: there is no form on the
     page any more, and a type="submit" outside a form is a button that looks
     like it does something and does not.
 

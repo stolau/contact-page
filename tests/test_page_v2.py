@@ -399,6 +399,133 @@ def test_the_v2_contact_card_renders_its_four_stored_values(app):
         assert cls in empty, cls
 
 
+# --- USR-COP-4: the availability notice, on V2 ------------------------------
+#
+# The V1 siblings of these live in tests/test_page.py. BOTH sets are needed
+# and neither is a copy of the other's claim: app/notice.py decides once, and
+# what these say is that each skin obeys that one decision — including the
+# "off means absent from the bytes" half, which is the assertion a `hidden`
+# element would fail on either skin independently.
+
+V2_NOTICE_TEXT = "Vastaanotto on suljettu heinäkuun ajan"
+
+
+def test_the_v2_card_shows_the_availability_notice_when_it_is_switched_on(app):
+    assert_absent_from_app(V2_NOTICE_TEXT)
+
+    edit_published_payload(
+        app,
+        "yhteydenotto",
+        lambda p: p.update(notice_text=V2_NOTICE_TEXT, notice_on="on"),
+    )
+
+    html = render_public(app, V2_TEMPLATE)
+    assert V2_NOTICE_TEXT in html
+    assert "v2-contact-notice" in html
+    # Between the body and the caveat, which is the reading position the
+    # notice takes on both skins. Asserted by document order rather than by
+    # a line number, so reformatting the template cannot break it and moving
+    # the element can.
+    assert (
+        html.index("v2-contact-body")
+        < html.index("v2-contact-notice")
+        < html.index("v2-contact-caveat")
+    )
+
+
+def test_switching_the_v2_notice_off_removes_it_from_the_rendered_bytes(app):
+    """The same claim tests/test_page.py makes for V1, asked of V2's own
+    document: off means the sentence is not in the served HTML at all, not
+    that it is in there wearing `hidden`."""
+    assert_absent_from_app(V2_NOTICE_TEXT)
+
+    edit_published_payload(
+        app,
+        "yhteydenotto",
+        lambda p: p.update(notice_text=V2_NOTICE_TEXT, notice_on="on"),
+    )
+    assert V2_NOTICE_TEXT in render_public(app, V2_TEMPLATE)
+
+    edit_published_payload(app, "yhteydenotto", lambda p: p.update(notice_on=""))
+
+    off = render_public(app, V2_TEMPLATE)
+    assert V2_NOTICE_TEXT not in off
+    assert "v2-contact-notice" not in off
+
+
+@pytest.mark.parametrize(
+    "notice_on,notice_text",
+    [
+        ("on", ""),
+        ("on", "   "),
+        ("KYLLÄ", V2_NOTICE_TEXT),
+        ("1", V2_NOTICE_TEXT),
+        ("", V2_NOTICE_TEXT),
+    ],
+)
+def test_an_empty_or_unrecognised_v2_notice_renders_no_element(
+    app, notice_on, notice_text
+):
+    edit_published_payload(
+        app,
+        "yhteydenotto",
+        lambda p: p.update(notice_text=notice_text, notice_on=notice_on),
+    )
+    assert "v2-contact-notice" not in render_public(app, V2_TEMPLATE)
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [("notice_on", {}), ("notice_on", []), ("notice_text", {}), ("notice_text", [])],
+)
+def test_a_wrongly_typed_v2_notice_value_renders_rather_than_raising(
+    app, key, value
+):
+    """app/styles.py's recorded 500, asked of the second skin. Rendering at
+    all is the assertion: an unguarded membership test or .strip() raises
+    inside the template and the whole document is lost, not just the notice.
+    """
+    edit_published_payload(
+        app, "yhteydenotto", lambda p: p.update({"notice_on": "on", key: value})
+    )
+
+    html = render_public(app, V2_TEMPLATE)
+    assert "v2-contact-card" in html
+    assert "v2-contact-notice" not in html
+
+
+def test_the_v2_notice_is_not_marked_up_or_painted_as_an_error(app):
+    """Not a warning (the author's second example is a promise), and
+    specifically not wearing this card's own error ink: #ffb4a2 is
+    .v2-contact-copy .contact-error's colour in app/static/style-v2.css, and
+    reusing it would make an availability note read as a failure. The rule
+    reuses .v2-contact-body's #c3d5e3 instead, which is also why this change
+    adds no new colour literal to that stylesheet.
+    """
+    edit_published_payload(
+        app,
+        "yhteydenotto",
+        lambda p: p.update(notice_text=V2_NOTICE_TEXT, notice_on="on"),
+    )
+
+    html = render_public(app, V2_TEMPLATE)
+    tag = re.search(
+        r'<p\b[^>]*class="[^"]*\bv2-contact-notice\b[^"]*"[^>]*>', html
+    )
+    assert tag is not None, "no p.v2-contact-notice start tag in the document"
+    assert "role=" not in tag.group(0), tag.group(0)
+    assert "aria-live" not in tag.group(0), tag.group(0)
+
+    # Read by the same relative path test_no_mockup_persona_in_the_v2_files
+    # below uses, so there is one convention in this file for reaching a
+    # source file rather than two.
+    with open("app/static/style-v2.css", encoding="utf-8") as handle:
+        css = handle.read()
+    rule = re.search(r"\.v2-contact-notice\s*\{[^}]*\}", css)
+    assert rule is not None, "no .v2-contact-notice rule in style-v2.css"
+    assert "#ffb4a2" not in rule.group(0), rule.group(0)
+
+
 # --- the lists are the owner's, so only their arity is asserted -------------
 
 
@@ -470,11 +597,16 @@ def test_no_mockup_persona_in_the_v2_files(path):
     assert not hits, f"{path} carries mockup persona text: {sorted(set(hits))}"
 
 
-# --- LLM-COP-32: the card's Lähetä sends the card ---------------------------
+# --- LLM-COP-32: the card's button sends the card ---------------------------
+#
+# (It read "Lähetä" then. USR-COP-4 renamed the default to "Ota yhteyttä",
+# which is what the button has actually done since USR-COP-1 — it opens the
+# dialog — so it is named below by its binding, send_label, and by its class,
+# never by its words.)
 #
 # V2 is the skin the artifact was actually filed against: its contact card
 # rendered a real form with three real inputs and a button that carried
-# .cta-contact, so filling it in and pressing Lähetä threw the answers away
+# .cta-contact, so filling it in and pressing that button threw the answers away
 # and opened a dialog asking the same three questions again. The tests below
 # pin the two halves of the fix that a later edit could undo silently —
 # the class the button must NOT have, and the association it must have
@@ -491,7 +623,7 @@ def tags(html, name):
 
 
 def test_v2s_card_button_opens_the_dialog_and_submits_nothing(v2_html):
-    """The card's Lähetä is an OPENER again, and this time there is nothing
+    """The card's button is an OPENER again, and this time there is nothing
     left on the card for it to submit.
 
     LLM-COP-32 made it a submitter because the class had it reopening a
@@ -513,7 +645,7 @@ def test_v2s_card_button_opens_the_dialog_and_submits_nothing(v2_html):
     tag = send[0]
 
     assert "cta-contact" in tag, (
-        "the card's Lähetä opens nothing — the card has no form left to send,"
+        "the card's button opens nothing — the card has no form left to send,"
         " so a button without the opener class does nothing at all"
     )
     assert 'type="button"' in tag, tag
