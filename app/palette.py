@@ -239,7 +239,7 @@ def _step(color, endpoint):
 # V1: --paper and --card. Enumerated by elimination, not by assumption —
 # `grep -n background app/static/style.css`, minus every `var(--card)` and
 # `var(--paper)`, minus `none`, `transparent` and the `background-*`
-# longhands, leaves exactly ONE line: :257, the login dialog's
+# longhands, leaves exactly ONE line: :285, the login dialog's
 # rgba(34,51,59,0.55) scrim, which carries no text at all.
 V1_SURFACES = ("#faf7f2", "#ffffff")
 
@@ -249,24 +249,24 @@ V1_SURFACES = ("#faf7f2", "#ffffff")
 # them" is a claim about a set, and a set stated loosely is a set nobody can
 # re-check:
 #
-#   :138 .v2-hero-photo      gradient standing in for the hero photograph;
+#   :164 .v2-hero-photo      gradient standing in for the hero photograph;
 #                            the card that carries the text floats OVER it
-#                            on --v2-card (:168)
-#   :152 .v2-hero-fade       the fade at the foot of the band — no text
-#   :193 .v2-hero-rule       a 1px gradient rule — no text
-#   :300 .v2-section-label::after   the short rust bar — no text; it is one
+#                            on --v2-card (:194)
+#   :178 .v2-hero-fade       the fade at the foot of the band — no text
+#   :219 .v2-hero-rule       a 1px gradient rule — no text
+#   :326 .v2-section-label::after   the short rust bar — no text; it is one
 #                            of the non-text-contrast sites this change
 #                            deliberately leaves unconstrained (below)
-#   :359 .portrait           #eceff1; its placeholder text is --v2-muted
-#   :382 .portrait.has-image `background: none` — the photograph itself
-#   :415 .v2-contact-card    --v2-navy; its one <a>, .gdpr-open, is
-#                            overridden to #c3d5e3 at :468, and its result
+#   :385 .portrait           #eceff1; its placeholder text is --v2-muted
+#   :408 .portrait.has-image `background: none` — the photograph itself
+#   :441 .v2-contact-card    --v2-navy; its one <a>, .gdpr-open, is
+#                            overridden to #c3d5e3 at :494, and its result
 #                            and error lines to #eaf2f8 / #ffb4a2
-#   :455 .v2-contact-form input/textarea  rgba(255,255,255,0.07); the field
+#   :481 .v2-contact-form input/textarea  rgba(255,255,255,0.07); the field
 #                            text is #eaf2f8
-#   :500 .v2-footer          --v2-navy-deep; its link is #b8cbdb at :505
-#   :572 .v2-contact-band    `background: none` inside the phone breakpoint
-#   :593 .dialog-backdrop    the scrim — no text
+#   :526 .v2-footer          --v2-navy-deep; its link is #b8cbdb at :531
+#   :598 .v2-contact-band    `background: none` inside the phone breakpoint
+#   :619 .dialog-backdrop    the scrim — no text
 #
 # So the rust colour renders as text on --v2-page, --v2-card and --v2-tint,
 # and on nothing else.
