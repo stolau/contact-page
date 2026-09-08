@@ -47,6 +47,11 @@ V1_TEMPLATE = "page.html"
 # a URL, so this is what "an image has been uploaded" looks like to a
 # template. No file has to exist for the markup question these tests ask.
 DIGEST = "b" * 64
+# The second reference (LLM-COP-30). DIFFERENT from DIGEST on purpose: the
+# whole claim of the hero-photo test below is that the two pictures are two
+# pictures, and one digest in both fields cannot tell a correct build from
+# the one this artifact exists to fix.
+BACKGROUND_DIGEST = "c" * 64
 
 BINDING = re.compile(r'data-section="(\d+)"\s+data-field="([^"]+)"')
 KIND = re.compile(r'data-kind="([^"]+)"')
@@ -224,16 +229,41 @@ def test_admin_link_says_yllapito(v2_html):
 # --- the uploaded image, and the fallback when there is none ----------------
 
 
-def test_an_uploaded_image_reaches_both_the_hero_photo_and_the_portrait(app):
-    """hero.portrait is the product's one stored image reference
-    (LLM-COP-21) and V2 needs a picture in two places: the full-bleed hero
-    photograph (v2-cp-hero.hero-photo) and the portrait circle
-    (v2-cp-section-portrait.portrait-section.portrait). Both read the same
-    reference, so both fill from one upload."""
-    edit_published_payload(app, "hero", lambda p: p.update(portrait=DIGEST))
+def test_the_hero_photo_and_the_portrait_are_two_different_pictures(app):
+    """The two V2 image sites read two DIFFERENT stored references
+    (LLM-COP-30): the full-bleed hero photograph (v2-cp-hero.hero-photo)
+    from hero.background, the portrait circle
+    (v2-cp-section-portrait.portrait-section.portrait) from hero.portrait.
+
+    This test is the defect written down and then the fix written down. It
+    used to be called ..._reaches_both_the_hero_photo_and_the_portrait and
+    asserted `count(one digest) == 2`, because there was one reference and
+    V2 painted it in both places — the owner could not put a photograph
+    behind the hero card without also making it their profile picture. Two
+    digests each appearing EXACTLY ONCE is the same question with the
+    answer the product now gives.
+
+    Exactly once matters in both directions. `>= 1` would pass a build that
+    still fed the hero from portrait as well; `== 1` on one digest alone
+    would pass a build that dropped the other picture entirely.
+    """
+    edit_published_payload(
+        app,
+        "hero",
+        lambda p: p.update(portrait=DIGEST, background=BACKGROUND_DIGEST),
+    )
     html = render_public(app, V2_TEMPLATE)
 
-    assert html.count(f"/kuvat/{DIGEST}") == 2, html.count(f"/kuvat/{DIGEST}")
+    assert html.count(f"/kuvat/{DIGEST}") == 1, html.count(f"/kuvat/{DIGEST}")
+    assert html.count(f"/kuvat/{BACKGROUND_DIGEST}") == 1, html.count(
+        f"/kuvat/{BACKGROUND_DIGEST}"
+    )
+    # And each is in ITS OWN site, not merely somewhere on the page: a build
+    # that swapped the two would satisfy both counts above.
+    assert f'<img class="v2-hero-image" src="/kuvat/{BACKGROUND_DIGEST}"' in html
+    assert f'src="/kuvat/{DIGEST}"' in html
+    assert f'<img class="v2-hero-image" src="/kuvat/{DIGEST}"' not in html
+
     assert "has-image" in html
     assert "Muotokuva" not in html
     assert "browse files" not in html
@@ -250,6 +280,29 @@ def test_a_non_digest_portrait_falls_back_to_the_placeholder(app):
 
     assert "etc/passwd" not in html
     assert "Muotokuva" in html
+
+
+def test_a_non_digest_background_draws_no_hero_image(app):
+    """The sibling for LLM-COP-30's second reference: hero.background goes
+    through the same image_url filter, so junk there must not become a URL
+    either.
+
+    The two fields differ in what is left behind. A refused portrait falls
+    back to the placeholder, which has a label and a browse affordance; the
+    hero band has no placeholder and needs none — .v2-hero-photo renders
+    unconditionally and only the <img> inside it is conditional, so a refused
+    background leaves the band exactly as an unset one does. Asserted rather
+    than assumed, because "no URL" and "no broken <img>" are two claims.
+    """
+    edit_published_payload(
+        app, "hero", lambda p: p.update(background="../../etc/passwd")
+    )
+    html = render_public(app, V2_TEMPLATE)
+
+    assert "etc/passwd" not in html
+    assert "v2-hero-image" not in html
+    assert "has-image" not in html
+    assert 'class="v2-hero-photo"' in html
 
 
 # --- the section labels and the contact card are the owner's now ------------

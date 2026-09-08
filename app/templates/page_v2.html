@@ -72,11 +72,14 @@
    that is where it goes — same classes, same placeholder strings, so
    direct-edit.js still finds .portrait and the two asserted strings
    ("Muotokuva", "browse files") are still the ones the criteria name.
-   hero.portrait is the product's ONE stored image reference (LLM-COP-21);
-   image_url answers a URL only for a real digest, so anything else falls
-   through to the placeholder. alt is hero.portrait_alt (LLM-COP-25) — the
-   one stored picture has one stored description, and both bands that draw
-   it take the same one. #}
+   The source is hero.portrait — the PERSON, and since LLM-COP-30 only one
+   of the two stored image references. The hero band draws the other one
+   (hero.background) inside the hero macro and does not call this slot at
+   all, so this macro now has exactly one caller: the tietoa band. alt is
+   hero.portrait_alt, that picture's own description; the background
+   carries hero.background_alt and the two are never shared. image_url
+   answers a URL only for a real digest, so anything else falls through to
+   the placeholder. #}
 {% macro portrait_slot(src, alt='') -%}
 <div class="portrait{% if src %} has-image{% endif %}">
   {%- if src %}
@@ -102,10 +105,10 @@
    the browser gate runs at, which is the defect this artifact exists to
    avoid. #}
 {% macro hero(p, sid='') -%}
-{% set portrait_src = p.portrait|image_url %}
+{% set background_src = p.background|image_url %}
 <section id="{{ anchors['hero'] }}" class="v2-hero" data-section="{{ sid }}" data-kind="hero">
-  <div class="v2-hero-photo{% if portrait_src %} has-image{% endif %}">
-    {% if portrait_src %}<img class="v2-hero-image" src="{{ portrait_src }}" alt="{{ p.portrait_alt }}">{% endif %}
+  <div class="v2-hero-photo{% if background_src %} has-image{% endif %}">
+    {% if background_src %}<img class="v2-hero-image" src="{{ background_src }}" alt="{{ p.background_alt }}">{% endif %}
     <div class="v2-hero-fade" aria-hidden="true"></div>
   </div>
   <div class="v2-hero-card">
@@ -252,14 +255,15 @@
   <button type="button" class="menu-toggle phone-only" aria-label="Valikko">&#9776;</button>
 </header>
 
-{# The one stored image reference feeds both the hero photograph and the
-   portrait circle: the product has exactly one (hero.portrait), and the
-   portrait design's own note says so — "Here image is used as profile
-   picture, but should be same generic possibility than for other
-   sections". Read once, before the loop, because the band that draws the
-   portrait is not the section that stores it. The alt text rides alongside
-   for the same reason: one stored picture, one stored description, and the
-   band that draws it does not store either. #}
+{# Two stored image references now, not one (LLM-COP-30). hero.background is
+   the full-bleed photograph and is read INSIDE the hero macro above, because
+   the band that draws it is the section that stores it. hero.portrait is the
+   person — the portrait design's own note, "Here image is used as profile
+   picture" — and it is hoisted here, before the loop, because the band that
+   draws IT (tietoa's circle) is not the section that stores it. Its alt text
+   rides alongside for the same reason. The second half of that note, "should
+   be same generic possibility than for other sections", is still unmet and
+   is LLM-COP-28's. #}
 {% set shared = namespace(portrait=None, portrait_alt='') %}
 {% for section in sections %}{% if section.kind == 'hero' %}{% set shared.portrait = section.payload.portrait|image_url %}{% set shared.portrait_alt = section.payload.portrait_alt %}{% endif %}{% endfor %}
 

@@ -462,17 +462,36 @@ EXCLUDED_SCALARS = {
     ("hero", "portrait_alt"): (
         "rendered as the portrait <img>'s alt attribute, not a text node, so"
         " there is nothing for direct-edit.js to make contenteditable."
-        " Editable in the side panel (Kuvan tekstivastine) — which is why,"
-        " unlike hero.portrait and hero.style, it DOES carry a FIELD_LABELS"
-        " entry: the generated form is its only editor."
+        " Editable in the side panel (Muotokuvan tekstivastine) — which is"
+        " why, unlike hero.portrait and hero.style, it DOES carry a"
+        " FIELD_LABELS entry: the generated form is its only editor."
+    ),
+    # LLM-COP-30's pair, and each takes the shape of the one above it for the
+    # same reason rather than a new one.
+    ("hero", "background"): (
+        "not text — it names an image slot, the same Rule D shape as"
+        " hero.portrait. Binding it would also mean anchoring the disabled"
+        " 'Vaihda kuva' pill on the full-bleed hero photograph, and"
+        " direct-edit.js anchors that pill on .portrait and nowhere else."
+        " No FIELD_LABELS entry either, so it is not a form field anywhere:"
+        " its editor is the panel's Taustakuva row."
+    ),
+    ("hero", "background_alt"): (
+        "rendered as the hero photograph <img>'s alt attribute, not a text"
+        " node, so there is nothing for direct-edit.js to make"
+        " contenteditable. Verbatim the reason portrait_alt carries above,"
+        " and the reason it carries a FIELD_LABELS entry too: the generated"
+        " form (Taustakuvan tekstivastine) is its only editor."
     ),
 }
 
-# 33 scalars across the six kinds since LLM-COP-25 added ten fields, nine of
-# them bound in both public templates (5 x section_label, and yhteydenotto's
-# phone/email/body/caveat) and portrait_alt excluded above.
+# 35 scalars across the six kinds since LLM-COP-30 added two more to
+# LLM-COP-25's ten. Neither new field is bound: both are excluded above, so
+# BOUND_SCALAR_COUNT does not move and neither public template gains a
+# data-field — which is how "V1's served bytes are unchanged" stays true by
+# construction rather than by inspection.
 BOUND_SCALAR_COUNT = 23
-EXCLUDED_SCALAR_COUNT = 10
+EXCLUDED_SCALAR_COUNT = 12
 
 
 def test_every_scalar_field_is_bound_or_excluded(direct_html):

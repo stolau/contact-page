@@ -40,16 +40,39 @@
         <span class="section-position">Osio 1 / {{ sections|length }}</span>
       </div>
 
-      <div class="muotokuva-row">
-        <span class="muotokuva-icon" aria-hidden="true">&#128100;</span>
-        <span class="muotokuva-text">Muotokuva<br><span class="muotokuva-detail">Pyöreä rajaus</span></span>
+      {# Two picture rows (LLM-COP-30), one per hero image field, each
+         carrying its own data-field. .vaihda-input, .vaihda-button and
+         .poista-button therefore appear TWICE in this document and are only
+         ever reached from within a row — edit.js queries them off the row
+         element, never off the document.
+
+         .muotokuva-row and .muotokuva-error stay on the portrait row ALONE.
+         They are the scoping handle the browser suite resolves strictly
+         (tests/browser/test_browser_panel.py), so a second element wearing
+         either would be a strict-mode violation rather than a pass; the
+         background row's error is .taustakuva-error. Both rows share
+         .kuva-row for the JS loop and .kuva-error for the CSS. The portrait
+         row also keeps its Muotokuva / Pyöreä rajaus text, which is what the
+         cp-main-edit.editor-panel.panel-muotokuva addresses assert. #}
+      <div class="muotokuva-row kuva-row" data-field="portrait">
+        <span class="muotokuva-icon kuva-icon" aria-hidden="true">&#128100;</span>
+        <span class="muotokuva-text kuva-text">Muotokuva<br><span class="muotokuva-detail kuva-detail">Pyöreä rajaus</span></span>
         <button type="button" class="button secondary vaihda-button">Vaihda</button>
         <button type="button" class="button secondary poista-button" hidden>Poista</button>
         {# accept is a convenience filter for the file chooser only. The
            server trusts it for nothing: /api/kuvat validates the bytes and
            reads neither the filename nor the asserted content type. #}
         <input type="file" class="vaihda-input" accept="image/png,image/jpeg" hidden>
-        <span class="muotokuva-error" role="alert" hidden></span>
+        <span class="muotokuva-error kuva-error" role="alert" hidden></span>
+      </div>
+
+      <div class="taustakuva-row kuva-row" data-field="background">
+        <span class="taustakuva-icon kuva-icon" aria-hidden="true">&#127748;</span>
+        <span class="kuva-text">Taustakuva<br><span class="kuva-detail">Koko leveydeltä</span></span>
+        <button type="button" class="button secondary vaihda-button">Vaihda</button>
+        <button type="button" class="button secondary poista-button" hidden>Poista</button>
+        <input type="file" class="vaihda-input" accept="image/png,image/jpeg" hidden>
+        <span class="taustakuva-error kuva-error" role="alert" hidden></span>
       </div>
 
       <form class="section-form"></form>

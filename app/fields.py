@@ -38,11 +38,13 @@ FIELDS = {
         #
         # The rule is general, not a property of the site-wide keys that
         # happen to sit here: LLM-COP-25 appended hero.portrait_alt AFTER
-        # them, so the tail of this dict is no longer "the chrome keys". The
-        # price is paid in the panel — the generated form draws in this order
-        # (app/static/section-form.js), so Kuvan tekstivastine renders as the
-        # last row of the hero panel, under Alatunniste and far from the
-        # Muotokuva row that owns the picture. That is accepted: any other
+        # them, and LLM-COP-30 appended hero.background and
+        # hero.background_alt after THAT, so the tail of this dict is no
+        # longer "the chrome keys". The price is paid in the panel — the
+        # generated form draws in this order (app/static/section-form.js), so
+        # Muotokuvan tekstivastine and Taustakuvan tekstivastine render as the
+        # last rows of the hero panel, under Alatunniste and far from the
+        # picture rows that own the pictures. That is accepted: any other
         # position rewrites every stored hero payload on the owner's first
         # save. A display order is a panel-layout change, never a reorder here.
         #
@@ -67,6 +69,16 @@ FIELDS = {
         # chrome, but appended after the chrome keys because appending is the
         # only safe position — see the ordering rule above.
         "portrait_alt": {"type": "plain"},
+        # The V2 skin's full-bleed hero photograph and its alt text
+        # (LLM-COP-30). A SECOND image reference: hero.portrait stays the
+        # person — the circular portrait the tietoa band draws on both skins
+        # — and this one is the picture behind the hero card. The V1 template
+        # renders neither key, and _migration_9 backfills both from portrait
+        # anyway, so an owner who switches skins finds their photograph
+        # already there. background carries no FIELD_LABELS entry, the
+        # hero.portrait precedent: the panel's Taustakuva row is its editor.
+        "background": {"type": "plain"},
+        "background_alt": {"type": "plain"},
     },
     "tietoa": {
         "nostolause": {"type": "plain"},
@@ -138,11 +150,15 @@ FIELD_LABELS = {
         "brand": "Sivuston nimi",
         "page_title": "Selaimen otsikko",
         "footer": "Alatunniste",
-        # Unlike hero.portrait and hero.style, this one IS labelled: it
-        # renders as the <img>'s alt attribute, so there is nothing on the
-        # page for the in-place editor to make contenteditable and the
-        # generated form is its only editor.
-        "portrait_alt": "Kuvan tekstivastine",
+        # Unlike hero.portrait, hero.background and hero.style, these two ARE
+        # labelled: each renders as an <img>'s alt attribute, so there is
+        # nothing on the page for the in-place editor to make contenteditable
+        # and the generated form is their only editor. "Muotokuvan", not
+        # "Kuvan" (LLM-COP-30): there are two pictures now, and a row called
+        # "the image's alt text" beside "Taustakuvan tekstivastine" would
+        # leave the owner guessing which image the first one meant.
+        "portrait_alt": "Muotokuvan tekstivastine",
+        "background_alt": "Taustakuvan tekstivastine",
     },
     "tietoa": {
         "nostolause": "Nostolause",

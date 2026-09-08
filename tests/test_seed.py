@@ -159,12 +159,14 @@ def test_hero_carries_the_site_wide_keys_last(conn):
         "SELECT published FROM sections WHERE kind = 'hero'"
     ).fetchone()
     payload = json.loads(published)
-    assert list(payload)[-5:] == [
+    assert list(payload)[-7:] == [
         "brand",
         "page_title",
         "footer",
         "style",
         "portrait_alt",
+        "background",
+        "background_alt",
     ]
     assert all(payload[key].strip() for key in ("brand", "page_title", "footer"))
     # style is the one site-wide key seeded EMPTY: "" means "no style
@@ -174,6 +176,12 @@ def test_hero_carries_the_site_wide_keys_last(conn):
     # no picture, and alt text for a picture that does not exist would be an
     # invented description.
     assert payload["portrait_alt"] == ""
+    # LLM-COP-30's pair, empty for both reasons at once: the seed ships no
+    # background picture either, so there is neither a reference to store nor
+    # anything to describe. A seeded background would also be the one thing
+    # _migration_9 must never do — put a picture on a page that had none.
+    assert payload["background"] == ""
+    assert payload["background_alt"] == ""
     assert list(payload) == list(FIELDS["hero"])
 
 

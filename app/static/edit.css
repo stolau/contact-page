@@ -178,7 +178,10 @@ body {
 .section-name { margin: 0; font-size: 1.15rem; }
 .section-position { color: var(--muted); font-size: 0.85rem; }
 
-.muotokuva-row {
+/* One rule set for both picture rows (LLM-COP-30). The portrait row keeps
+   .muotokuva-row alongside .kuva-row — it is the browser suite's scoping
+   handle — so nothing that styled it is lost. */
+.kuva-row {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -188,7 +191,14 @@ body {
   border-radius: 0.5rem;
   margin-bottom: 1.2rem;
 }
-.muotokuva-icon {
+/* The same collision .button[hidden] solves at :45-52, and it was live here
+   before LLM-COP-30 without this line: edit.js has always set the row's
+   `hidden` for a non-hero section, but `display: flex` above beat the UA
+   sheet's [hidden] rule, so the row was drawn on every section anyway. With
+   two rows the leak is twice the size, so the attribute is given its meaning
+   back rather than carried forward. */
+.kuva-row[hidden] { display: none; }
+.kuva-icon {
   width: 2.4rem; height: 2.4rem;
   border: 2px dashed var(--line);
   border-radius: 50%;
@@ -197,14 +207,18 @@ body {
   justify-content: center;
   color: var(--muted);
 }
-.muotokuva-text { flex: 1; }
-.muotokuva-detail { color: var(--muted); font-size: 0.85rem; }
+/* The background is a full-bleed rectangle, not a circle: the icon says so
+   at a glance, which is the whole difference between the two rows once the
+   Vaihda buttons are identical. */
+.taustakuva-icon { border-radius: 0.3rem; }
+.kuva-text { flex: 1; }
+.kuva-detail { color: var(--muted); font-size: 0.85rem; }
 /* The upload refusal the server sends back (an unreadable file, a picture
    over the cap or past the dimension bound). flex-basis: 100% with the
    row's flex-wrap puts it on its own line under the button rather than
    squeezing it between the label and Vaihda, where a full Finnish sentence
    wraps to one word per line. */
-.muotokuva-error {
+.kuva-error {
   flex-basis: 100%;
   color: var(--error, #b3261e);
   font-size: 0.85rem;

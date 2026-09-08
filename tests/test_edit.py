@@ -466,9 +466,25 @@ def test_panel_draw_order_for_hero_matches_the_mockup(logged_in_admin):
         # alt-text row lands under the site-footer row instead, far from the
         # picture. Pinned here deliberately, so the reason sits beside the
         # fact; moving it is a panel-layout change, never a FIELDS reorder.
-        "Kuvan tekstivastine",
+        #
+        # RENAMED by LLM-COP-30, from "Kuvan tekstivastine". There are two
+        # pictures now, and a row called "the image's alt text" sitting next
+        # to "Taustakuvan tekstivastine" would not say which image it meant.
+        "Muotokuvan tekstivastine",
+        # LLM-COP-30 added TWO keys and exactly ONE row, which is the thing
+        # this list is asked to pin. hero.background carries no FIELD_LABELS
+        # entry — it names an image slot and the panel's Taustakuva row is
+        # its control — so `if (!labelFor(name)) return;` skips it and it is
+        # never drawn, the hero.portrait precedent. Only its alt text draws,
+        # for the same reason portrait_alt does and in the same last
+        # position, at the same price.
+        "Taustakuvan tekstivastine",
     ]
     assert FIELD_LABELS["hero"].get("portrait") is None  # why it is absent
+    # The assertion that PINS the one-row claim above rather than leaving it
+    # to arithmetic: background is declared and deliberately unlabelled, so a
+    # label added to it would draw a fourteenth row and fail the list.
+    assert FIELD_LABELS["hero"].get("background") is None
 
 
 def test_draft_put_of_a_reordered_payload_is_byte_identical(

@@ -632,8 +632,19 @@ def test_migration_7_backfills_style_without_flipping_any_badge(tmp_path):
     # migration 7 shipped; LLM-COP-25's migration 8 — which migrate() runs
     # here too — appended portrait_alt after it, so the TAIL moved to the
     # newest key while the rule ("appended, never inserted") did not change.
-    assert list(draft)[-1] == "portrait_alt"
-    assert list(draft)[-2] == "style"
+    # LLM-COP-30's migration 9 is the third link in that same chain: it
+    # appended background and background_alt after portrait_alt, so the tail
+    # moved once more and the rule again did not.
+    #
+    # Named as the WHOLE tail rather than by index, so the claim survives the
+    # fourth link without an index chase: style is still there, portrait_alt
+    # is still there, and nothing was inserted between any of them.
+    assert list(draft)[-4:] == [
+        "style",
+        "portrait_alt",
+        "background",
+        "background_alt",
+    ]
     assert list(draft) == list(FIELDS["hero"])
     assert row["draft"] == row["published"]
     assert badge(row["state"], row["draft"], row["published"]) == "Julkaistu"
@@ -987,21 +998,167 @@ def test_migration_8_backfills_previous_published_on_every_kind(tmp_path):
     c.close()
 
 
-def test_the_migration_head_is_eight(tmp_path):
+# --- migration 9: the hero's second picture (LLM-COP-30) -------------------
+#
+# Same standing job as the block above, and the same reason: every
+# previous_published in tests/test_prechange_upgrade.py's captured artifact is
+# NULL, so nothing there can reach migration 9's third column at all.
+#
+# THE GUARD ALREADY EXISTS TWICE, AND INCIDENTALLY — which is the honest case
+# for the test below rather than an argument against it.
+# test_migration_7_backfills_previous_published (above) and
+# test_migration_8_backfills_previous_published_on_every_kind both call
+# database.migrate(), which now runs migration 9 too, and both then assert
+# `list(previous) == list(FIELDS["hero"])` — at tests/test_db.py:703 and :973
+# respectively. A migration 9 whose column tuple named only draft and
+# published would turn both of those lines red today.
+#
+# So why write this one. Because an incidental guard is one refactor away
+# from deletion: a reader tidying migration 7's suite has every reason to
+# think :703 is about migration 7, and nothing on the line says otherwise. It
+# also names the wrong migration when it fails, sending the next person to
+# _migration_7's body to look for a bug that is in _migration_9's. This test
+# makes the guard STATED — it fails with migration 9 in its name, over a
+# store stamped at exactly 8 — at the cost of one fixture modelled on the one
+# directly above it.
+
+
+# A digest-shaped reference and an owner's own sentence: neither is a value
+# any migration has a default for, so "the copy took the row's own portrait"
+# is asserted against something no constant could produce.
+_V8_PORTRAIT = "d" * 64
+_V8_PORTRAIT_ALT = "Kasvokuva työhuoneen ikkunan ääressä"
+
+
+def _v8_hero_payload():
+    """A hero payload as a user_version-8 store actually held one: the
+    fifteen keys of that era — the fourteen of the v7 era plus LLM-COP-25's
+    portrait_alt — and no background.
+
+    A FROZEN LITERAL by construction, for the reason _v3_hero_payload states
+    — it extends _v7_hero_payload(), which is itself frozen, with the one key
+    migration 8 appends to the hero kind, written out here rather than read
+    from FIELDS.
+
+    THE PORTRAIT IS NOT EMPTY, and that is deliberate. Every other fixture in
+    this file inherits _v3_hero_payload's `"portrait": ""`, and against an
+    empty portrait migration 9's copy and a constant-"" backfill produce the
+    same bytes — so a fixture that kept it would let the test below pass
+    against the very migration the design rejects. This is an owner who has
+    uploaded a picture, which is the only owner migration 9 can harm.
+    """
+    payload = _v7_hero_payload()
+    payload["portrait"] = _V8_PORTRAIT
+    payload["portrait_alt"] = _V8_PORTRAIT_ALT
+    return payload
+
+
+def _v8_database(path, previous=None, state="published"):
+    """A database at exactly user_version 8 with one hero row, carrying a
+    NON-NULL previous_published that differs from its published text — the
+    state a restore reads, and the one the captured artifact cannot express.
+
+    MIGRATIONS[:8] and an explicit PRAGMA, the idiom every fixture above
+    uses, so _migration_9 really is the only thing that has not run yet.
+    """
+    c = database.connect(str(path))
+    for migration in database.MIGRATIONS[:8]:
+        migration(c)
+    c.execute("PRAGMA user_version = 8")
+    text = json.dumps(_v8_hero_payload(), ensure_ascii=False)
+    c.execute(
+        "INSERT INTO sections (kind, position, state, draft, published,"
+        " previous_published) VALUES ('hero', 1, ?, ?, ?, ?)",
+        (state, text, text, previous),
+    )
+    c.commit()
+    return c
+
+
+def test_migration_9_backfills_previous_published(tmp_path):
+    """The branch the captured install cannot reach, said of migration 9 by
+    name.
+
+    Palauta edellinen versio copies previous_published VERBATIM into draft
+    (app/sectionlist.py), so a payload short of a declared key there is not a
+    cosmetic gap: the owner restores a version and the very next save 400s,
+    with nothing on screen to explain why. The failure this pins is a
+    _migration_9 whose column tuple names only draft and published — and
+    which would leave every assertion in tests/test_prechange_upgrade.py
+    green, because every previous_published in that artifact is NULL.
+
+    The older version is an owner's OWN earlier picture, different from the
+    current one. So this asks two things of the third column at once: that it
+    gained the keys at all, and that it gained them from ITS OWN portrait
+    rather than from the row's draft or from a constant — three columns, one
+    pure function of each column's own text.
+    """
+    older = _v8_hero_payload()
+    older[_OWNER_MARKER["hero"]] = _RESTORABLE_MARKER
+    older["portrait"] = "e" * 64
+    older["portrait_alt"] = "Vanha kasvokuva"
+    c = _v8_database(
+        tmp_path / "prev9.sqlite3",
+        previous=json.dumps(older, ensure_ascii=False),
+    )
+    before = _hero_row(c)
+    assert badge(before["state"], before["draft"], before["published"]) == (
+        "Julkaistu"
+    )
+    # The premise: nothing here carries the new keys yet, so every assertion
+    # below is migration 9's doing and not the fixture's.
+    assert "background" not in json.loads(before["previous_published"])
+
+    database.migrate(c)
+
+    row = _hero_row(c)
+    previous = json.loads(row["previous_published"])
+    # The owner's own stored content is untouched...
+    assert previous[_OWNER_MARKER["hero"]] == _RESTORABLE_MARKER
+    # ...but every declared key is there, in declaration order, so a restore
+    # followed by a save cannot 400.
+    assert list(previous) == list(FIELDS["hero"])
+    assert validate_payload("hero", previous)[1] == {}
+    # And restoring it really would store those exact bytes back: a payload
+    # that validates but re-serialises differently would flip the badge on
+    # the save after the restore.
+    clean, _errors = validate_payload("hero", previous)
+    assert json.dumps(clean, ensure_ascii=False) == row["previous_published"]
+
+    # Each column was backfilled from ITS OWN portrait. A migration that read
+    # the draft's portrait for all three, or wrote a constant, passes the two
+    # assertions above and fails here.
+    assert previous["background"] == "e" * 64
+    assert previous["background_alt"] == "Vanha kasvokuva"
+    assert json.loads(row["draft"])["background"] == _V8_PORTRAIT
+    assert json.loads(row["published"])["background"] == _V8_PORTRAIT
+    assert json.loads(row["draft"])["background_alt"] == _V8_PORTRAIT_ALT
+
+    # The other two columns moved together, so no badge moved with them.
+    assert row["draft"] == row["published"]
+    assert badge(row["state"], row["draft"], row["published"]) == "Julkaistu"
+    c.close()
+
+
+def test_the_migration_head_is_nine(tmp_path):
     """The head, named exactly once in the suite.
 
     Every other version assertion in this file is written as
     `len(database.MIGRATIONS)` on purpose, so migrations added later do not
     break tests that are not about them. This one is deliberately literal: it
-    is the single place a person adding migration 9 is told, by a red test,
+    is the single place a person adding migration 10 is told, by a red test,
     that a stamped store now upgrades one step further — and it pins that
     MIGRATIONS ends where the list says rather than where a stale PRAGMA does.
+
+    It did that job for LLM-COP-30, which found it red and moved it here
+    rather than silencing it. Rename it with the number, so the test's name
+    keeps stating the head instead of a head it used to have.
     """
-    assert len(database.MIGRATIONS) == 8
-    assert database.MIGRATIONS[7] is database._migration_8
+    assert len(database.MIGRATIONS) == 9
+    assert database.MIGRATIONS[8] is database._migration_9
 
     c = database.connect(str(tmp_path / "head.sqlite3"))
     database.migrate(c)
     (version,) = c.execute("PRAGMA user_version").fetchone()
-    assert version == 8
+    assert version == 9
     c.close()

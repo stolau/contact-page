@@ -536,6 +536,10 @@ def test_no_bound_field_on_v2_is_covered_by_something_else(v2_page):
 # --- the same picture, the same words, the OTHER skin (LLM-COP-25) ---------
 
 V2_PORTRAIT_ALT = "Ikkunan edessä seisova henkilö, otettu sivusta, päivänvalossa"
+# LLM-COP-30's second description, for the second picture. Deliberately not a
+# variant of the first: the test below asserts each alt lands on ITS OWN
+# image, so two strings that shared a prefix could pass a mixed-up build.
+V2_BACKGROUND_ALT = "Valoisa vastaanottotila ylhäältä kuvattuna, leveä rajaus"
 V2_RENAMED_KICKER = "NÄIN AUTAN SINUA ETEENPÄIN"
 
 
@@ -571,28 +575,36 @@ def publish(page, base_url):
     assert response.ok, response.text()
 
 
-def test_the_portrait_and_its_alt_text_reach_both_v2_images(
+def test_the_two_v2_images_render_their_own_reference_and_alt_text(
     v2_page, expect, live_app
 ):
-    """Gate item 3 for the second skin: an uploaded image renders with its
+    """Gate item 3 for the second skin: uploaded images render with their
     alt text under V2 as well as V1.
 
-    V2 draws the ONE stored reference in two places — the full-bleed hero
-    photograph and the tietoa band's portrait circle, the second of them fed
-    by the shared-portrait namespace at the bottom of page_v2.html rather
-    than by the section that stores the value. Both are asserted, because
-    that second site is the one an alt-text change silently misses, and each
-    is asserted as a PAIR: the attribute AND naturalWidth, since an alt on an
-    image that never loaded describes nothing.
+    V2 draws TWO stored references since LLM-COP-30 — hero.background in the
+    full-bleed hero photograph, read inside the hero macro, and hero.portrait
+    in the tietoa band's portrait circle, fed by the shared-portrait
+    namespace at the bottom of page_v2.html rather than by the section that
+    stores the value. Until LLM-COP-30 this test asserted the SAME ref and
+    the SAME alt on both selectors, because there was one reference painted
+    twice; it now asserts a different pair on each, which is the defect
+    turned into its fix.
+
+    Each is asserted as a TRIPLE: src, alt AND naturalWidth. src and alt
+    together are what make the two references distinguishable — a build that
+    fed the hero from portrait again would put the right alt beside the wrong
+    picture, or the same picture in both bands, and each of those fails a
+    different line below. naturalWidth is the third, since an alt on an image
+    that never loaded describes nothing.
 
     HOW THIS DIFFERS FROM THE V1 PROOF, said plainly rather than left to be
     assumed. The V1 test in tests/browser/test_browser_panel.py drives the
     owner's whole path — the file goes in through the real .vaihda-input and
-    the alt text is TYPED into the panel's Kuvan tekstivastine row. Here both
-    are planted through the real routes on the browser's own authenticated
-    session, because there is one panel and that row is already proven
-    typeable in it; what is new on this side is the rendering. This test's
-    claim is about page_v2.html, not about the editor.
+    the alt text is TYPED into the panel's Muotokuvan tekstivastine row. Here
+    both are planted through the real routes on the browser's own
+    authenticated session, because there is one panel and that row is already
+    proven typeable in it; what is new on this side is the rendering. This
+    test's claim is about page_v2.html, not about the editor.
 
     The v2_page fixture is what makes it a claim about V2 at all: it refuses
     to yield unless the served document really came back as the V2 skin, and
@@ -600,40 +612,55 @@ def test_the_portrait_and_its_alt_text_reach_both_v2_images(
     it.
     """
     assert_absent_from_app(V2_PORTRAIT_ALT)
+    assert_absent_from_app(V2_BACKGROUND_ALT)
     base = live_app.base_url
 
-    upload = v2_page.request.post(
-        f"{base}/api/kuvat",
-        multipart={
-            "kuva": {
-                "name": "muotokuva.png",
-                "mimeType": "image/png",
-                "buffer": png_bytes(56, 56),
-            }
-        },
-        headers={"Accept": "application/json"},
-    )
-    assert upload.ok, upload.text()
-    ref = upload.json()["ref"]
+    def upload_png(name, width, height):
+        response = v2_page.request.post(
+            f"{base}/api/kuvat",
+            multipart={
+                "kuva": {
+                    "name": name,
+                    "mimeType": "image/png",
+                    "buffer": png_bytes(width, height),
+                }
+            },
+            headers={"Accept": "application/json"},
+        )
+        assert response.ok, response.text()
+        return response.json()["ref"]
+
+    # Different sizes, so genuinely different bytes and different digests:
+    # /api/kuvat dedupes by content, so two identical PNGs would answer one
+    # ref and this test could not tell the two bands apart at all.
+    ref = upload_png("muotokuva.png", 56, 56)
+    background_ref = upload_png("taustakuva.png", 72, 48)
+    assert background_ref != ref
 
     sid = section_id(live_app, "hero")
     payload = drafts(live_app)[str(sid)]
     payload["portrait"] = ref
     payload["portrait_alt"] = V2_PORTRAIT_ALT
+    payload["background"] = background_ref
+    payload["background_alt"] = V2_BACKGROUND_ALT
     put_draft(v2_page, base, sid, payload)
     publish(v2_page, base)
 
     # The public page, which that publish has just made V2: the drafted style
-    # the fixture planted went public along with the picture.
+    # the fixture planted went public along with the pictures.
     public = v2_page.context.new_page()
     public.goto(f"{base}/")
     assert public.locator(V2_STYLESHEET).count() == 1, (
         "the public page is not the V2 skin, so nothing below is about V2"
     )
 
-    for selector in ("img.v2-hero-image", ".v2-band-media img.portrait-image"):
+    expected = {
+        "img.v2-hero-image": (background_ref, V2_BACKGROUND_ALT),
+        ".v2-band-media img.portrait-image": (ref, V2_PORTRAIT_ALT),
+    }
+    for selector, (expected_ref, expected_alt) in expected.items():
         image = public.locator(selector)
-        expect(image).to_have_attribute("alt", V2_PORTRAIT_ALT)
+        expect(image).to_have_attribute("alt", expected_alt)
         public.wait_for_function(
             """selector => {
                 const el = document.querySelector(selector);
@@ -641,7 +668,7 @@ def test_the_portrait_and_its_alt_text_reach_both_v2_images(
             }""",
             arg=selector,
         )
-        assert image.get_attribute("src") == f"/kuvat/{ref}", selector
+        assert image.get_attribute("src") == f"/kuvat/{expected_ref}", selector
     public.close()
 
 
