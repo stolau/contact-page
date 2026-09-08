@@ -27,11 +27,18 @@ command line (there is no email reset flow):
 ```sh
 .venv/bin/flask --app app admin-create <username>   # prompts for the password
 .venv/bin/flask --app app admin-reset-password      # prompts for a new one
+.venv/bin/flask --app app login-unlock              # clears every login lockout
 ```
 
-Both commands open the database file directly through the app factory, so
-they work whether or not the server is running. Sign in at `/yllapito`
+All three commands open the database file directly through the app factory,
+so they work whether or not the server is running. Sign in at `/yllapito`
 (the Ylläpito link in the page footer).
+
+Failed sign-ins are limited (see Contact messages below for the client key).
+A successful sign-in clears the counter only while you are still under the
+limit; once the limit is reached, attempts are refused before the password is
+looked at, so a correct password will not let you in — wait for the window to
+pass, or run `flask --app app login-unlock` on the server.
 
 ## Contact messages
 
@@ -51,7 +58,7 @@ never loses it.
 | `SMTP_USER`, `SMTP_PASSWORD` | Optional; a login is attempted only when both are set. |
 | `MAIL_TO` | Recipient. Unset means no notifications. |
 | `MAIL_FROM` | Sender, defaults to `MAIL_TO`. |
-| `TRUSTED_PROXY` | See below. |
+| `TRUSTED_PROXY` | See below. Governs both rate limiters. |
 
 Posting is rate limited to 5 messages per hour per client. The limiter
 assumes the app is reached directly (as `flask --app app run` above serves
@@ -60,6 +67,15 @@ restart clears them. Behind a reverse proxy, set `TRUSTED_PROXY` to any
 non-empty value and the key becomes the rightmost `X-Forwarded-For` entry —
 the one the proxy itself appended. Left unset, the header is ignored
 entirely, so a forged `X-Forwarded-For` cannot win a fresh window.
+
+`TRUSTED_PROXY` decides the same key for the admin login, where failed
+sign-ins are limited to 5 per 15 minutes per client. Unlike the contact
+form's, that counter lives in the database, so it survives a restart and is
+shared by every worker or thread. A throttled attempt is answered exactly
+like a wrong password, on purpose: the response never says whether it was
+refused, and never says whether the username exists. Set `TRUSTED_PROXY`
+when you run behind a proxy — with it unset behind one, every request keys
+on the proxy's own address and the whole internet shares one window.
 
 ## Uploaded images
 

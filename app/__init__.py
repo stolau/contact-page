@@ -130,37 +130,67 @@ def create_app(instance_path=None):
         remember = bool(request.form.get("pysy"))
         conn = database.connect(app.config["DATABASE"])
         try:
-            auth.throttle_failures(conn)
-            user = conn.execute(
-                "SELECT * FROM admin_user WHERE username = ?", (username,)
-            ).fetchone()
-            # Hash-check even for an unknown username (against _DUMMY_HASH)
-            # so both failure paths take the same time; see _DUMMY_HASH.
-            stored = user["password_hash"] if user is not None else _DUMMY_HASH
-            ok = check_password_hash(stored, password) and user is not None
-            if ok:
-                auth.audit(conn, f"login ok username={username}")
-                token = auth.mint_session(conn, remember)
-                response = redirect(login_target(conn))
-                # Secure is omitted deliberately: the site is served over
-                # plain HTTP, and a Secure cookie would never come back.
-                response.set_cookie(
-                    auth.SESSION_COOKIE,
-                    token,
-                    httponly=True,
-                    samesite="Lax",
-                    max_age=auth.REMEMBER_LIFETIME if remember else None,
+            key = auth.bucket_key(auth.client_key())
+            # The gate is taken BEFORE the username is looked up and before
+            # any hash is computed. Three things follow, all deliberate:
+            #   - nothing on the refused path depends on the username, so a
+            #     throttled attempt cannot answer "does this user exist?";
+            #   - a flood costs one indexed read and no write lock instead of
+            #     a full scrypt;
+            #   - the count is read and the row written as one atomic step,
+            #     so concurrent requests cannot all pass the gate on the same
+            #     count (see auth.admit_login_attempt).
+            # The price of that ordering is that a correct password cannot end
+            # a lockout either — see LOGIN_FAILURE_WINDOW in app/auth.py and
+            # the login-unlock command below.
+            # The single shared return at the end is what makes the throttled
+            # and failed responses identical.
+            admitted, crossed = auth.admit_login_attempt(conn, key)
+            if admitted:
+                user = conn.execute(
+                    "SELECT * FROM admin_user WHERE username = ?", (username,)
+                ).fetchone()
+                # Hash-check even for an unknown username (against
+                # _DUMMY_HASH) so both failure paths take the same time; see
+                # _DUMMY_HASH.
+                stored = (
+                    user["password_hash"] if user is not None else _DUMMY_HASH
                 )
-                return response
-            # The two audit rows differ; the two responses must not.
-            if user is None:
-                auth.audit(
-                    conn, f"login failed (unknown username) username={username}"
-                )
-            else:
-                auth.audit(
-                    conn, f"login failed (wrong password) username={username}"
-                )
+                ok = check_password_hash(stored, password) and user is not None
+                if ok:
+                    auth.audit(conn, f"login ok username={username}")
+                    # Deletes this attempt's own row too: a success leaves the
+                    # client with a clean counter. `crossed` is ignored here —
+                    # an attempt that crossed and then succeeded is not a
+                    # lockout.
+                    auth.clear_login_attempts(conn, key)
+                    token = auth.mint_session(conn, remember)
+                    response = redirect(login_target(conn))
+                    # Secure is omitted deliberately: the site is served over
+                    # plain HTTP, and a Secure cookie would never come back.
+                    response.set_cookie(
+                        auth.SESSION_COOKIE,
+                        token,
+                        httponly=True,
+                        samesite="Lax",
+                        max_age=auth.REMEMBER_LIFETIME if remember else None,
+                    )
+                    return response
+                # The two audit rows differ; the two responses must not.
+                if user is None:
+                    auth.audit(
+                        conn,
+                        f"login failed (unknown username) username={username}",
+                    )
+                else:
+                    auth.audit(
+                        conn,
+                        f"login failed (wrong password) username={username}",
+                    )
+                if crossed:
+                    # Once per lockout, not once per refused request — see
+                    # app/auth.py on why the refused path writes nothing.
+                    auth.audit(conn, f"login throttled client_key={key}")
         finally:
             conn.close()
         return render_page(
@@ -232,5 +262,23 @@ def create_app(instance_path=None):
         finally:
             conn.close()
         click.echo("admin password reset")
+
+    @app.cli.command("login-unlock")
+    def login_unlock():
+        """Clear every login rate-limit lockout (server not needed).
+
+        The refusal in kirjaudu() is decided before the password is checked,
+        so a correct password cannot end a lockout — this command is the
+        owner's escape when they have locked themselves out and do not want
+        to wait out LOGIN_FAILURE_WINDOW. It is reachable only from the
+        server's command line, so it is not an oracle and not something an
+        attacker on the network can reach.
+        """
+        conn = database.connect(app.config["DATABASE"])
+        try:
+            removed = auth.clear_all_login_attempts(conn)
+        finally:
+            conn.close()
+        click.echo(f"cleared {removed} recorded login attempt(s)")
 
     return app

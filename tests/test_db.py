@@ -3,6 +3,7 @@
 import copy
 import json
 import re
+import sqlite3
 
 from app import db as database
 from app.fields import FIELDS
@@ -1140,13 +1141,78 @@ def test_migration_9_backfills_previous_published(tmp_path):
     c.close()
 
 
-def test_the_migration_head_is_nine(tmp_path):
+# --- migration 10: the login_attempts table (LLM-COP-37) --------------------
+
+
+def test_migration_10_creates_the_login_attempts_table(tmp_path):
+    """The table that earns the migration.
+
+    The throttle this replaces counted audit_log rows, and audit_log is
+    (id, at, event) and nothing else — there is no client column to key on,
+    so per-client counting was impossible against the schema as it stood.
+    That is the whole justification for a new table, and this is where its
+    shape is pinned.
+
+    client_key NOT NULL is asserted rather than assumed, because it is what
+    makes auth.bucket_key's fail-closed normalisation load-bearing: a request
+    with no remote_addr must land in one shared bucket, and the column is
+    what refuses the alternative.
+    """
+    c = database.connect(str(tmp_path / "login.sqlite3"))
+    database.migrate(c)
+
+    info = {row["name"]: row for row in c.execute(
+        "PRAGMA table_info(login_attempts)"
+    )}
+    assert set(info) == {"id", "client_key", "at"}
+    assert info["client_key"]["notnull"] == 1
+    assert info["at"]["notnull"] == 1
+
+    (index_sql,) = c.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?",
+        ("login_attempts_key_at",),
+    ).fetchone()
+    # The limiter's only query is WHERE client_key = ? AND at > ?, so the
+    # index has to carry both columns in that order or every refused request
+    # scans the table.
+    assert re.search(
+        r"ON\s+login_attempts\s*\(\s*client_key\s*,\s*at\s*\)", index_sql
+    ), index_sql
+
+    c.execute(
+        "INSERT INTO login_attempts (client_key, at) VALUES (?, ?)",
+        ("203.0.113.7", 1_700_000_000),
+    )
+    try:
+        c.execute(
+            "INSERT INTO login_attempts (client_key, at) VALUES (?, ?)",
+            (None, 1_700_000_000),
+        )
+    except sqlite3.IntegrityError:
+        pass
+    else:
+        raise AssertionError("client_key accepted NULL")
+    c.commit()
+
+    # IF NOT EXISTS is what makes the RENUMBER safe rather than merely tidy,
+    # for the reason _migration_6 gives: this was written as 10 while another
+    # migration was being written as 11, and a store already stamped at 10
+    # would run it again under the other number. Called directly, twice, on a
+    # database that already has the table.
+    database._migration_10(c)
+    database._migration_10(c)
+    (rows,) = c.execute("SELECT COUNT(*) FROM login_attempts").fetchone()
+    assert rows == 1  # and re-running kept the data rather than recreating it
+    c.close()
+
+
+def test_the_migration_head_is_ten(tmp_path):
     """The head, named exactly once in the suite.
 
     Every other version assertion in this file is written as
     `len(database.MIGRATIONS)` on purpose, so migrations added later do not
     break tests that are not about them. This one is deliberately literal: it
-    is the single place a person adding migration 10 is told, by a red test,
+    is the single place a person adding migration 11 is told, by a red test,
     that a stamped store now upgrades one step further — and it pins that
     MIGRATIONS ends where the list says rather than where a stale PRAGMA does.
 
@@ -1154,11 +1220,11 @@ def test_the_migration_head_is_nine(tmp_path):
     rather than silencing it. Rename it with the number, so the test's name
     keeps stating the head instead of a head it used to have.
     """
-    assert len(database.MIGRATIONS) == 9
-    assert database.MIGRATIONS[8] is database._migration_9
+    assert len(database.MIGRATIONS) == 10
+    assert database.MIGRATIONS[9] is database._migration_10
 
     c = database.connect(str(tmp_path / "head.sqlite3"))
     database.migrate(c)
     (version,) = c.execute("PRAGMA user_version").fetchone()
-    assert version == 9
+    assert version == 10
     c.close()

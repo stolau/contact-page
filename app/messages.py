@@ -12,9 +12,8 @@ Rate limiting assumes the app is reached directly (README runs
 store is an in-process dict, so a restart clears every window; that is
 acceptable for a single-process site and keeps the limiter dependency-free.
 Behind a reverse proxy, set TRUSTED_PROXY to key on the rightmost
-X-Forwarded-For entry (the one the trusted proxy itself appended). With
-TRUSTED_PROXY unset the header is ignored entirely, so a spoofed
-X-Forwarded-For cannot mint a fresh window.
+X-Forwarded-For entry — auth.client_key() is where that mechanism lives, and
+it is shared with the admin login's limiter.
 """
 
 import os
@@ -49,8 +48,7 @@ MESSAGE_MAX = 5000
 
 TIME_FORMAT = "%d.%m.%Y %H.%M"
 
-# Injection point so tests can drive the rate-limit window without waiting
-# (mirrors auth._sleep).
+# Injection point so tests can drive the rate-limit window without waiting.
 _now = time.time
 
 # client key -> (window_start, count). Process-local; see the module docstring.
@@ -66,30 +64,13 @@ def _connect():
     return database.connect(current_app.config["DATABASE"])
 
 
-def _client_key():
-    """The identity a rate-limit window belongs to.
-
-    TRUSTED_PROXY is read here, per request, so the deployment can be
-    changed without a restart and so a test can set it around one call.
-    """
-    if os.environ.get("TRUSTED_PROXY"):
-        forwarded = request.headers.get("X-Forwarded-For", "")
-        entries = [part.strip() for part in forwarded.split(",")]
-        entries = [entry for entry in entries if entry]
-        if entries:
-            # The rightmost entry is the one our own trusted proxy appended;
-            # everything left of it is client-supplied and forgeable.
-            return entries[-1]
-    return request.remote_addr
-
-
 def _rate_limited():
     """Consume one slot for this client and answer whether it is over.
 
     Every arrival that reaches this check consumes a slot, including ones
     later rejected as malformed — garbage buys no free retries.
     """
-    key = _client_key()
+    key = auth.client_key()
     now = _now()
     start, count = _rate_windows.get(key, (now, 0))
     if now - start >= RATE_WINDOW:
