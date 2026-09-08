@@ -1,0 +1,83 @@
+{# GDPR dialog (LLM-COP-32), shaped on contact_dialog.html and included
+   unconditionally by both public skins, AFTER it.
+
+   THE TEXT BELOW IS A PLACEHOLDER AND SAYS SO ON THE PAGE. No sentence in
+   here is legal wording: the site owner writes the real privacy statement
+   and replaces this. Headings only, each one empty on purpose — an invented
+   paragraph that reads as if a lawyer had approved it is worse than a blank,
+   because somebody would ship it.
+
+   Unlike contact_dialog.html this dialog does real focus management —
+   remember what was focused, move focus to the close button, restore it on
+   close, and close on Escape. That is not copied from the contact dialog:
+   the contact dialog has none of it. The asymmetry is reported in the PR,
+   not fixed here.
+
+   Stacking: this dialog can be opened FROM the contact dialog, over it.
+   Both stylesheets give this backdrop a higher z-index, the Escape handler
+   returns early when this dialog is already hidden so the topmost one
+   closes, and closing it leaves the contact dialog exactly as it was. #}
+<div class="gdpr-dialog" hidden>
+  <div class="dialog-backdrop gdpr-backdrop">
+    <div class="gdpr-panel" role="dialog" aria-modal="true" aria-labelledby="gdpr-title">
+      <div class="gdpr-head">
+        <h2 class="gdpr-title" id="gdpr-title">Tietosuojaseloste</h2>
+        <button type="button" id="gdpr-close" class="gdpr-close" aria-label="Sulje">&times;</button>
+      </div>
+      <p class="gdpr-placeholder">Huomio: tämä on paikanvaraajateksti, joka korvataan sivuston omistajan omalla tietosuojaselosteella. Alla olevaa sisältöä ei ole tarkastettu, eikä se ole oikeudellisesti sitova.</p>
+      <h3 class="gdpr-heading">Rekisterinpitäjä</h3>
+      <p class="gdpr-body">Sisältö kirjoitetaan myöhemmin.</p>
+      <h3 class="gdpr-heading">Käsiteltävät tiedot</h3>
+      <p class="gdpr-body">Sisältö kirjoitetaan myöhemmin.</p>
+      <h3 class="gdpr-heading">Säilytysaika</h3>
+      <p class="gdpr-body">Sisältö kirjoitetaan myöhemmin.</p>
+      <h3 class="gdpr-heading">Oikeutesi</h3>
+      <p class="gdpr-body">Sisältö kirjoitetaan myöhemmin.</p>
+    </div>
+  </div>
+</div>
+<script id="gdpr-dialog-script">
+  // Plain DOM, no library — the same shape as the contact dialog's script.
+  // This one names no endpoint at all: it opens, closes and moves focus,
+  // nothing else, so the submission path's URL still occurs exactly once in
+  // the served document, inside contact_dialog.html's script.
+  (function () {
+    var dialog = document.querySelector(".gdpr-dialog");
+    var closer = document.getElementById("gdpr-close");
+    var openers = document.querySelectorAll(".gdpr-open");
+    var restore = null;
+
+    function close() {
+      if (dialog.hidden) return;
+      dialog.hidden = true;
+      // Back where the visitor was — which, when the link was the one
+      // inside the contact dialog's consent row, is that link, with the
+      // contact dialog still open behind it and untouched.
+      if (restore && restore.focus) restore.focus();
+      restore = null;
+    }
+
+    Array.prototype.forEach.call(openers, function (link) {
+      link.addEventListener("click", function (event) {
+        // preventDefault because these are real anchors with href="#" and
+        // would otherwise jump the page to the top; stopPropagation so a
+        // click inside the contact dialog's consent <label> cannot reach
+        // anything that would act on it.
+        event.preventDefault();
+        event.stopPropagation();
+        restore = document.activeElement;
+        dialog.hidden = false;
+        closer.focus();
+      });
+    });
+    closer.addEventListener("click", close);
+
+    document.addEventListener("keydown", function (event) {
+      // Only the topmost dialog answers Escape: when this one is shut the
+      // handler does nothing at all and the event carries on.
+      if (event.key !== "Escape" || dialog.hidden) return;
+      event.stopPropagation();
+      close();
+    });
+  })();
+</script>

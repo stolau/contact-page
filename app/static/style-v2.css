@@ -455,6 +455,19 @@ h1, h2 { font-family: var(--v2-serif); color: var(--v2-ink); font-weight: 400; }
   background: rgba(255, 255, 255, 0.07);
   color: #eaf2f8;
 }
+/* The consent row, the privacy link and the two outcome lines the card's
+   form grew when it started sending (LLM-COP-32). The consent row is a
+   <label> laid out sideways, so it overrides the stacked field label above,
+   and every colour is the card's own — this band is dark navy. */
+.v2-contact-form label.contact-consent {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+.v2-contact-form .gdpr-open { align-self: flex-start; font-size: 0.85rem; color: #c3d5e3; }
+.v2-contact-form .contact-result { margin: 0; color: #eaf2f8; font-size: 0.95rem; }
+.v2-contact-form .contact-error { margin: 0; color: #ffb4a2; font-size: 0.9rem; }
 .v2-contact-actions { display: flex; flex-direction: column; gap: 0.8rem; }
 .v2-contact-primary { width: 100%; padding: 0.85rem 1.5rem; }
 .v2-contact-action-row {
@@ -679,3 +692,38 @@ h1, h2 { font-family: var(--v2-serif); color: var(--v2-ink); font-weight: 400; }
   padding: 0;
 }
 .cd-thanks { margin: 1rem 0 0; }
+.contact-panel .contact-error { margin: 1rem 0 0; color: #a03123; font-size: 0.9rem; }
+
+/* GDPR dialog (LLM-COP-32) — a third dialog for this file to dress, and the
+   only one that can be opened OVER another: .dialog-backdrop above already
+   sets z-index: 20 for every backdrop, so this one is lifted past it. */
+.gdpr-dialog .dialog-backdrop { z-index: 30; }
+.gdpr-panel {
+  background: var(--v2-card);
+  border-radius: 0.7rem;
+  padding: 1.7rem 1.9rem;
+  width: 100%;
+  max-width: 32rem;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 1rem 2.5rem rgba(12, 31, 46, 0.4);
+}
+.gdpr-head { display: flex; justify-content: space-between; align-items: flex-start; }
+.gdpr-title { margin: 0 0 0.6rem; font-family: var(--v2-serif); font-size: 1.45rem; }
+.gdpr-close {
+  background: none; border: none;
+  color: var(--v2-muted);
+  font: inherit; font-size: 1.35rem; line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+.gdpr-placeholder {
+  margin: 0 0 1.2rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px dashed var(--v2-line);
+  border-radius: 0.35rem;
+  color: var(--v2-muted);
+  font-size: 0.9rem;
+}
+.gdpr-heading { margin: 1.1rem 0 0.2rem; font-family: var(--v2-serif); font-size: 1.05rem; }
+.gdpr-body { margin: 0; color: var(--v2-muted); font-size: 0.9rem; }

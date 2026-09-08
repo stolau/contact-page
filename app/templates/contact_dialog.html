@@ -13,7 +13,7 @@
         </div>
         <button type="button" id="contact-close" class="cd-close" aria-label="Sulje">&times;</button>
       </div>
-      <form class="contact-dialog-form">
+      <form class="contact-dialog-form" data-result="contact-thanks" data-error="contact-error">
         <label class="cd-name-label" for="cd-name">Nimi</label>
         <input type="text" id="cd-name" name="name" autocomplete="name">
         <div class="cd-message-head">
@@ -27,12 +27,19 @@
           <input type="text" name="email" autocomplete="email" aria-label="Sähköposti">
           <input type="text" name="phone" autocomplete="tel" placeholder="Puhelin (valinnainen)" aria-label="Puhelin">
         </div>
-        <label class="cd-consent"><input type="checkbox" name="consent" value="1"> Hyväksyn, että viestini käsitellään tietosuojaselosteen mukaisesti. En lähetä arkaluonteisia terveystietoja.</label>
+        {# The one word the sentence already promises is now the link that
+           keeps the promise (LLM-COP-32). Wrapping it changes no text node:
+           the criterion tests read the label's concatenated text, so both
+           cp-contact-dialog.consent-row strings survive byte for byte. The
+           anchor is nested here — unlike the page forms, where the link sits
+           beside the label — because the sentence itself names it. #}
+        <label class="cd-consent"><input type="checkbox" name="consent" value="1"> Hyväksyn, että viestini käsitellään <a class="gdpr-open" href="#">tietosuojaselosteen</a> mukaisesti. En lähetä arkaluonteisia terveystietoja.</label>
         <div class="cd-actions">
           <button type="button" id="contact-cancel" class="cd-cancel">Peruuta</button>
           <button type="submit" class="button primary cd-submit">Lähetä viesti</button>
         </div>
       </form>
+      <p id="contact-error" class="contact-error" role="alert" hidden></p>
       <p id="contact-thanks" class="cd-thanks" hidden>Kiitos viestistäsi! Otan yhteyttä lähipäivinä.</p>
     </div>
   </div>
@@ -40,35 +47,91 @@
 <script id="contact-dialog-script">
   // Open, close, and send. Plain DOM and fetch, no library — the same
   // shape as the login dialog's inline script.
+  //
+  // ONE send path, not two (LLM-COP-32). This script now serves the dialog's
+  // own form AND the contact form rendered into the page by page.html /
+  // page_v2.html, so the consent rule, the pre-validation and the failure
+  // reporting cannot drift between them. It stays inline and stays here
+  // rather than moving to app/static/: the endpoint's path must appear
+  // exactly once in the served document, and this script is that once.
+  //
+  // The openers query below MUST remain the first querySelectorAll literal
+  // in this script — tests/test_messages.py reads the dialog's opener
+  // selector out of the source by taking the first one it finds.
   (function () {
     var dialog = document.querySelector(".contact-dialog");
-    var form = dialog.querySelector(".contact-dialog-form");
-    var thanks = document.getElementById("contact-thanks");
     var openers = document.querySelectorAll(".header-contact, .cta-contact");
+    var FAILED = "Viestin lähettäminen ei onnistunut. Yritä hetken kuluttua uudelleen.";
     function close() { dialog.hidden = true; }
     Array.prototype.forEach.call(openers, function (button) {
       button.addEventListener("click", function () { dialog.hidden = false; });
     });
     document.getElementById("contact-cancel").addEventListener("click", close);
     document.getElementById("contact-close").addEventListener("click", close);
-    form.addEventListener("submit", function (event) {
-      event.preventDefault();
+
+    // Each form names its own two slots by id, never by DOM adjacency:
+    // data-result for the owner's thank-you, data-error for the refusal.
+    function slot(form, attribute) {
+      var id = form.getAttribute(attribute);
+      return id ? document.getElementById(id) : null;
+    }
+    function report(form, reason) {
+      var error = slot(form, "data-error");
+      if (!error) return;
+      error.textContent = reason;
+      error.hidden = !reason;
+    }
+
+    // The browser's half of the server's PRESENCE rules (app/messages.py
+    // _validate). It is a rate-limit guard, not a second validator: every
+    // arrival at the endpoint consumes one of the client's slots, refused
+    // ones included, so an empty field or an unticked box must never cost
+    // one. The LENGTH caps stay the server's alone — copying those numbers
+    // into this template would be a duplicate with nothing to go red when
+    // the originals move, and nobody reaches them by accident.
+    function refusal(values) {
+      if (!values.name) return "Kirjoita nimesi.";
+      if (!values.message) return "Kirjoita viesti.";
+      if (!values.email) return "Kirjoita sähköpostiosoitteesi.";
+      if (!values.consent) return "Hyväksy tietojesi käsittely ennen lähettämistä.";
+      if (values.email.indexOf("@") < 0) return "Tarkista sähköpostiosoite.";
+      return "";
+    }
+
+    function send(form) {
       var data = new FormData(form);
+      var consent = form.querySelector("[name=consent]");
+      function field(name) { return (data.get(name) || "").trim(); }
+      var values = {
+        name: field("name"),
+        message: field("message"),
+        email: field("email"),
+        phone: field("phone"),
+        consent: !!(consent && consent.checked)
+      };
+      var reason = refusal(values);
+      if (reason) { report(form, reason); return; }
       fetch("/api/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: data.get("name") || "",
-          message: data.get("message") || "",
-          email: data.get("email") || "",
-          phone: data.get("phone") || "",
-          consent: form.querySelector("[name=consent]").checked
-        })
+        body: JSON.stringify(values)
       }).then(function (response) {
-        if (response.status === 201) {
-          form.hidden = true;
-          thanks.hidden = false;
-        }
+        // Anything but 201 leaves the form visible AND filled, so the
+        // visitor can correct one field and send again rather than retype
+        // everything into a page that swallowed the attempt.
+        if (response.status !== 201) { report(form, FAILED); return; }
+        report(form, "");
+        var result = slot(form, "data-result");
+        if (result) result.hidden = false;
+        form.hidden = true;
+      }, function () { report(form, FAILED); });
+    }
+
+    var forms = document.querySelectorAll("form.contact-dialog-form, form.contact-form");
+    Array.prototype.forEach.call(forms, function (form) {
+      form.addEventListener("submit", function (event) {
+        event.preventDefault();
+        send(form);
       });
     });
   })();

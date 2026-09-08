@@ -115,11 +115,29 @@
     <p class="contact-email" data-section="{{ sid }}" data-field="email">{{ p.email }}</p>
     <p class="contact-caveat" data-section="{{ sid }}" data-field="caveat">{{ p.caveat }}</p>
   </div>
-  <form class="contact-form">
+  {# The form SENDS (LLM-COP-32). It was deliberately inert under LLM-COP-3,
+     which had no licence to wire it; the author reported the silence as the
+     defect it is. No action and no method: the post is JSON, made by
+     contact_dialog.html's script, which binds every form.contact-form as
+     well as its own. The consent box is here because the server refuses a
+     submission without one (app/messages.py) — a second collection path
+     carries the same consent, never a relaxed one — and the link beside it
+     opens the GDPR dialog. It sits BESIDE the label, not inside it: a click
+     inside a <label> activates the labelled control, so a nested link would
+     toggle consent on its way to explaining consent.
+     data-result / data-error name the two outcome slots by id. thanks is
+     rendered as a bare text node, exactly as the three field labels above
+     are, so it stays the owner's string in the side panel (Kiitosviesti)
+     without adding a data-field pair to either skin. #}
+  <form class="contact-form" data-result="contact-result-{{ sid }}" data-error="contact-error-{{ sid }}">
     <label>{{ p.name_label }}<input type="text" name="name"></label>
     <label>{{ p.email_label }}<input type="text" name="email"></label>
     <label>{{ p.message_label }}<textarea name="message" rows="4"></textarea></label>
-    <button type="button" class="button primary" data-section="{{ sid }}" data-field="send_label">{{ p.send_label }}</button>
+    <button type="submit" class="button primary" data-section="{{ sid }}" data-field="send_label">{{ p.send_label }}</button>
+    <label class="contact-consent"><input type="checkbox" name="consent" value="1"> Hyväksyn, että viestini käsitellään tietosuojaselosteen mukaisesti. En lähetä arkaluonteisia terveystietoja.</label>
+    <a class="gdpr-open" href="#">Tietosuojaseloste</a>
+    <p class="contact-error" id="contact-error-{{ sid }}" role="alert" hidden></p>
+    <p class="contact-result" id="contact-result-{{ sid }}" hidden>{{ p.thanks }}</p>
   </form>
 </section>
 {%- endmacro %}
@@ -163,6 +181,9 @@
 
 {% if login_dialog %}{% include "login_dialog.html" %}{% endif %}
 {% include "contact_dialog.html" %}
+{# After the contact dialog, never before: two backdrops with the same
+   z-index paint in tree order, and this one has to land on top of it. #}
+{% include "gdpr_dialog.html" %}
 {% if preview %}<script src="{{ url_for('static', filename='preview.js') }}"></script>{% endif %}
 {% if direct_edit %}{% include "direct_edit_chrome.html" %}{% endif %}
 

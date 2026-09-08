@@ -21,7 +21,12 @@
       into the band that names it.
     - .portrait — direct-edit.js anchors the disabled "Vaihda kuva" pill
       as its next sibling.
-    - .header-contact / .cta-contact — contact_dialog.html's openers.
+    - .header-contact / .cta-contact — contact_dialog.html's openers. The
+      HERO's button carries .cta-contact; the contact card's Lähetä does
+      NOT, and has not since LLM-COP-32 made it submit the card's own form
+      instead of reopening the same three fields in a dialog.
+    - form.contact-form — the same script's send handler, shared with the
+      dialog's own form.
   And id="{{ anchors[kind] }}" is what preview.js highlights and what the
   nav links point at.
 
@@ -201,11 +206,18 @@
    v2-cp-phone-scroll-2.contact-card. Copy on the left, the actions stacked
    on the right at desktop; copy above the actions on the phone.
 
-   The primary action is the button the design draws — one that OPENS the
-   form rather than being the form. It carries .cta-contact, so
-   contact_dialog.html (LLM-COP-3) binds it as an opener with no new code,
-   and it carries yhteydenotto.send_label, so its label stays the owner's
-   and stays in-place editable.
+   The primary action is the button the design draws, and it SENDS the card's
+   own form (LLM-COP-32). The design puts it in the actions column, outside
+   the copy column that holds the form, so it is associated by form="…"
+   rather than by containment — that attribute is what makes an out-of-form
+   submitter work, and it makes this button the form's default button, so
+   Enter in a text field reaches the same handler. It deliberately does NOT
+   carry .cta-contact any more: with it, filling the card in and pressing
+   Lähetä threw the answers away and opened a dialog asking the same three
+   questions again. It still carries yhteydenotto.send_label, so its label
+   stays the owner's and stays in-place editable — and direct-edit.js's
+   capture-phase guard cancels the click on any [data-field], so editing the
+   label posts nothing.
 
    The three field labels keep their V1 job — labelling the three inputs.
    The card's body paragraph and caveat line are yhteydenotto.body and
@@ -222,15 +234,19 @@
     <div class="v2-contact-copy">
       <p class="section-kicker v2-contact-kicker" data-section="{{ sid }}" data-field="section_label">{{ p.section_label }}</p>
       <p class="v2-contact-body" data-section="{{ sid }}" data-field="body">{{ p.body }}</p>
-      <form class="contact-form v2-contact-form">
+      <form class="contact-form v2-contact-form" id="v2-contact-form-{{ sid }}" data-result="contact-result-{{ sid }}" data-error="contact-error-{{ sid }}">
         <label>{{ p.name_label }}<input type="text" name="name"></label>
         <label>{{ p.email_label }}<input type="text" name="email"></label>
         <label>{{ p.message_label }}<textarea name="message" rows="3"></textarea></label>
+        <label class="contact-consent"><input type="checkbox" name="consent" value="1"> Hyväksyn, että viestini käsitellään tietosuojaselosteen mukaisesti. En lähetä arkaluonteisia terveystietoja.</label>
+        <a class="gdpr-open" href="#">Tietosuojaseloste</a>
+        <p class="contact-error" id="contact-error-{{ sid }}" role="alert" hidden></p>
+        <p class="contact-result" id="contact-result-{{ sid }}" hidden>{{ p.thanks }}</p>
       </form>
       <p class="v2-contact-caveat" data-section="{{ sid }}" data-field="caveat">{{ p.caveat }}</p>
     </div>
     <div class="v2-contact-actions">
-      <button type="button" class="button primary cta-contact v2-contact-primary" data-section="{{ sid }}" data-field="send_label">{{ p.send_label }}</button>
+      <button type="submit" class="button primary v2-contact-primary" form="v2-contact-form-{{ sid }}" data-section="{{ sid }}" data-field="send_label">{{ p.send_label }}</button>
       <p class="v2-contact-action-row v2-contact-phone" data-section="{{ sid }}" data-field="phone">{{ p.phone }}</p>
       <p class="v2-contact-action-row v2-contact-email" data-section="{{ sid }}" data-field="email">{{ p.email }}</p>
     </div>
@@ -286,6 +302,9 @@
 
 {% if login_dialog %}{% include "login_dialog.html" %}{% endif %}
 {% include "contact_dialog.html" %}
+{# After the contact dialog, never before: two backdrops with the same
+   z-index paint in tree order, and this one has to land on top of it. #}
+{% include "gdpr_dialog.html" %}
 {% if preview %}<script src="{{ url_for('static', filename='preview.js') }}"></script>{% endif %}
 {% if direct_edit %}{% include "direct_edit_chrome.html" %}{% endif %}
 

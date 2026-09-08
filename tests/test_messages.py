@@ -938,10 +938,27 @@ def test_no_form_submits_to_the_api(page_html):
         assert "/api/messages" not in (attrs.get("action") or "")
 
 
-def test_the_seeded_contact_form_stays_inert(page_html):
-    """Cheap regression insurance on the seeded .contact-form: no action, no
-    method, and a non-submitting button. The real weight is carried by the
-    next test — this one only catches the form being wired up by accident."""
+def test_the_seeded_contact_form_is_wired_but_never_posts_a_browser_form(
+    page_html,
+):
+    """The seeded .contact-form SENDS now (LLM-COP-32), and this test is the
+    inversion of the one that used to stand here.
+
+    LLM-COP-3 left the on-page form deliberately inert — a type="button"
+    bound to nothing — because it had no spec licence to wire it, and
+    test_the_seeded_contact_form_stays_inert asserted exactly that. The
+    author reported the silence as a defect, so the invariant is reversed:
+    the button submits, and the form carries the consent control the server
+    demands plus the two outcome slots the shared send() writes into.
+
+    The other half of the old test SURVIVES the reversal and is carried
+    forward verbatim: still no action and still no method. Wiring the form
+    did not make it a browser form post — the submission is JSON from
+    contact_dialog.html's script, and an action attribute would navigate the
+    page away and lose that contract entirely. test_no_form_submits_to_the_api
+    is the weaker claim (it only forbids an action naming the endpoint); this
+    is the one that forbids an action at all.
+    """
     contact_forms = [
         attrs
         for attrs in forms(page_html)
@@ -951,13 +968,23 @@ def test_the_seeded_contact_form_stays_inert(page_html):
     attrs = contact_forms[0]
     assert attrs.get("action") is None
     assert attrs.get("method") is None
+
     match = re.search(
         r'<form[^>]*class="[^"]*contact-form[^"]*"[^>]*>(.*?)</form>',
         page_html,
         re.DOTALL,
     )
     assert match is not None
-    assert "<button type=\"button\"" in match.group(1)
+    body = match.group(1)
+    assert '<button type="submit"' in body
+    assert 'name="consent"' in body
+
+    # Both slots are addressed by id, never by DOM adjacency, so an id that
+    # names nothing is a send that reports neither success nor failure.
+    for attribute in ("data-result", "data-error"):
+        target = attrs.get(attribute)
+        assert target, attribute
+        assert f'id="{target}"' in page_html, target
 
 
 def test_the_endpoint_is_named_once_and_only_inside_the_dialog_script(
