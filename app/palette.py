@@ -278,9 +278,24 @@ V2_SURFACES = ("#f7fafc", "#ffffff", "#e6eef6")
 # without coming here. NOTHING FENCES THE SET. A future rule that puts
 # accent-coloured text on --v2-navy, or on a new dark band, would pass every
 # test in this change while rendering at roughly 1.5:1, because no test can
-# ask a stylesheet which of its backgrounds a colour is ever painted on.
-# The elimination lists above are how the next person re-checks the set by
-# hand; there is no way to make the machine do it.
+# ask a STYLESHEET which of its backgrounds a colour is ever painted on.
+#
+# A rendered DOM, though, can be asked, and the boundary is worth stating
+# precisely rather than despairing at. tests/browser/test_browser_colors.py
+# already carries the machine: its measurement helper walks an element's
+# ancestors for the effective background. A partial fence would plant a
+# sentinel accent, sweep EVERY element in the document rather than a named
+# list, keep the ones whose computed colour is the sentinel's derived
+# --v2-rust-fg, and assert each one's walked background is in V2_SURFACES.
+# That is not circular — the tuple is what is under test, the DOM is the
+# evidence — and it rots on no line number.
+#
+# It is not here because it is new test work, not because it is impossible.
+# Its own limit is coverage rather than principle: it sees only backgrounds
+# the fixture's pages actually render, so a rule that fires for absent
+# content, an unhovered state or another breakpoint still escapes it. That
+# is why the elimination lists above keep earning their place beside it —
+# they are how the next person re-checks the set by hand.
 
 # WHAT THIS MODULE DELIBERATELY DOES NOT CONSTRAIN: NON-TEXT CONTRAST. The
 # accent is also drawn as lines and edges, and every one of those sites keeps
