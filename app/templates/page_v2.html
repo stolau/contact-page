@@ -90,10 +90,11 @@
 {%- endmacro %}
 
 {# ---- hero: v2-cp-hero and v2-cp-phone-hero ----------------------------
-   A full-bleed photograph (hero-photo), a decorative forest silhouette
-   fading it into the page (hero-trees), and a card floating over it
-   (hero-card). The desktop mockup's card carries title and kicker; the
-   phone mockup's carries kicker, title, subtitle and the 2x2 fact grid.
+   A full-bleed photograph (hero-photo), a soft vertical fade blending it
+   into the page background at the foot of the band (hero-trees), and a
+   card floating over it (hero-card). The desktop mockup's card carries
+   title and kicker; the phone mockup's carries kicker, title, subtitle
+   and the 2x2 fact grid.
    One card carries the whole hero payload at both sizes and CSS `order`
    gives each viewport its own reading order — hiding the rest at desktop
    would take hero.subtitle, .facts, .contact_label, .services_label and
@@ -105,7 +106,7 @@
 <section id="{{ anchors['hero'] }}" class="v2-hero" data-section="{{ sid }}" data-kind="hero">
   <div class="v2-hero-photo{% if portrait_src %} has-image{% endif %}">
     {% if portrait_src %}<img class="v2-hero-image" src="{{ portrait_src }}" alt="{{ p.portrait_alt }}">{% endif %}
-    <div class="v2-trees" aria-hidden="true"></div>
+    <div class="v2-hero-fade" aria-hidden="true"></div>
   </div>
   <div class="v2-hero-card">
     <p class="v2-hero-kicker" data-section="{{ sid }}" data-field="kicker">{{ p.kicker }}</p>
