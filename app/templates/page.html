@@ -115,41 +115,18 @@
     <p class="contact-email" data-section="{{ sid }}" data-field="email">{{ p.email }}</p>
     <p class="contact-caveat" data-section="{{ sid }}" data-field="caveat">{{ p.caveat }}</p>
   </div>
-  {# The form SENDS (LLM-COP-32). It was deliberately inert under LLM-COP-3,
-     which had no licence to wire it; the author reported the silence as the
-     defect it is. No action and no method: the post is JSON, made by
-     contact_dialog.html's script, which binds every form.contact-form as
-     well as its own. The consent box is here because the server refuses a
-     submission without one (app/messages.py) — a second collection path
-     carries the same consent, never a relaxed one — and the link beside it
-     opens the GDPR dialog. It sits BESIDE the label, not inside it: a click
-     inside a <label> activates the labelled control, so a nested link would
-     toggle consent on its way to explaining consent.
-     ORDER IS LOAD-BEARING: the consent row and its link come BEFORE the
-     send button, in DOM order and so in reading and tab order. A consent
-     control placed after the control it gates is reached second by anyone
-     moving through the form linearly — the thing that explains what sending
-     consents to, after the thing that sends. V2 gets that ordering from its
-     own layout, where the button lives in the actions column below the form.
-     data-result / data-error name the two outcome slots by id. thanks is
-     rendered as a bare text node, exactly as the three field labels above
-     are, so it stays the owner's string in the side panel (Kiitosviesti)
-     without adding a data-field pair to either skin.
-     BOTH OUTCOME LINES SIT OUTSIDE THE FORM, exactly as the dialog's
-     #contact-error and #contact-thanks do. A successful send hides the
-     form; a result line inside it would be hidden with it and the visitor
-     would be thanked by a blank space. They are addressed by id, so where
-     they sit is a layout question and not a wiring one. #}
-  <form class="contact-form" data-result="contact-result-{{ sid }}" data-error="contact-error-{{ sid }}">
-    <label>{{ p.name_label }}<input type="text" name="name"></label>
-    <label>{{ p.email_label }}<input type="text" name="email"></label>
-    <label>{{ p.message_label }}<textarea name="message" rows="4"></textarea></label>
-    <label class="contact-consent"><input type="checkbox" name="consent" value="1"> Hyväksyn, että viestini käsitellään tietosuojaselosteen mukaisesti. En lähetä arkaluonteisia terveystietoja.</label>
-    <a class="gdpr-open" href="#">Tietosuojaseloste</a>
-    <button type="submit" class="button primary" data-section="{{ sid }}" data-field="send_label">{{ p.send_label }}</button>
-  </form>
-  <p class="contact-error" id="contact-error-{{ sid }}" role="alert" hidden></p>
-  <p class="contact-result" id="contact-result-{{ sid }}" hidden>{{ p.thanks }}</p>
+  {# The card's action OPENS THE DIALOG (USR-COP-1). The on-page form is
+     gone: the product collects a message in one place, the dialog, so there
+     is one form to keep consented, validated and reported. The button keeps
+     yhteydenotto.send_label, so its label stays the owner's and stays
+     in-place editable, and it regains .cta-contact — the class
+     contact_dialog.html's opener query binds, the same shape the hero CTA
+     has always had. type="button": there is no form left to submit, and an
+     opener that could submit is the defect this replaces.
+     data-section and data-field are ADJACENT AND IN THAT ORDER — the V1/V2
+     binding fence (tests/test_page_v2.py) reads them as one regex. #}
+  <button type="button" class="button primary cta-contact"
+          data-section="{{ sid }}" data-field="send_label">{{ p.send_label }}</button>
 </section>
 {%- endmacro %}
 
@@ -187,7 +164,18 @@
 
 <footer class="site-footer">
   <p class="copyright">{{ site_footer }}</p>
-  <a class="yllapito" href="{{ url_for('yllapito') }}">Ylläpito</a>
+  {# The privacy link and the admin link are ONE right-hand group, not two
+     more children of a space-between flex row — a third child of that row
+     lands dead centre, which is neither what the design draws nor what
+     v2-cp-section-contact.footer.footer-right describes ("Address, a privacy
+     link and the admin link"). The privacy link arrived here in USR-COP-1:
+     it used to live inside the on-page contact form, which that artifact
+     deleted, and without it a visitor who never opens the dialog has no way
+     to reach the privacy statement at all. #}
+  <span class="footer-links">
+    <a class="gdpr-open" href="#">Tietosuojaseloste</a>
+    <a class="yllapito" href="{{ url_for('yllapito') }}">Ylläpito</a>
+  </span>
 </footer>
 
 {% if login_dialog %}{% include "login_dialog.html" %}{% endif %}

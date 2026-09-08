@@ -2,7 +2,13 @@
 
 import json
 
-from app.sections import badge, initials, site_chrome, visible_sections
+from app.sections import (
+    badge,
+    contact_dialog_copy,
+    initials,
+    site_chrome,
+    visible_sections,
+)
 from app.seed import SEED_SECTIONS
 
 
@@ -124,6 +130,53 @@ def test_site_chrome_reads_the_draft_column_when_asked(conn):
     conn.commit()
     assert site_chrome(conn, "draft")["site_brand"] == "Luonnosnimi"
     assert site_chrome(conn)["site_brand"] != "Luonnosnimi"
+
+
+# --- the contact dialog's copy (USR-COP-1) ----------------------------------
+
+
+def test_contact_dialog_copy_reads_the_stored_yhteydenotto_payload(conn):
+    copy = contact_dialog_copy(_seeded(conn))
+    contact = dict(SEED_SECTIONS)["yhteydenotto"]
+    assert copy["dialog_name_label"] == contact["name_label"]
+    assert copy["dialog_email_label"] == contact["email_label"]
+    assert copy["dialog_message_label"] == contact["message_label"]
+    assert copy["dialog_thanks"] == contact["thanks"]
+
+
+def test_contact_dialog_copy_still_reads_a_hidden_yhteydenotto(conn):
+    """The dialog is included unconditionally and is opened from the header
+    button and both hero CTAs, so hiding the Yhteydenotto section must not
+    strip the dialog's labels. Read by kind, never through visible_sections —
+    which is why this is the test the whole reader exists for."""
+    _seeded(conn)
+    conn.execute(
+        "UPDATE sections SET state = 'hidden' WHERE kind = 'yhteydenotto'"
+    )
+    conn.commit()
+    contact = dict(SEED_SECTIONS)["yhteydenotto"]
+    assert contact["name_label"]
+    assert (
+        contact_dialog_copy(conn)["dialog_name_label"] == contact["name_label"]
+    )
+
+
+def test_contact_dialog_copy_with_no_yhteydenotto_row_is_empty_not_an_error(
+    conn,
+):
+    _seeded(conn)
+    conn.execute("DELETE FROM sections WHERE kind = 'yhteydenotto'")
+    conn.commit()
+    # A DICT EQUALITY for the same reason site_chrome's is one: it names the
+    # WHOLE return value, so a fifth key has to be added here deliberately.
+    # A pre-migration or blank row must give "" rather than raise — the
+    # template reads all four unconditionally.
+    assert contact_dialog_copy(conn) == {
+        "dialog_name_label": "",
+        "dialog_email_label": "",
+        "dialog_message_label": "",
+        "dialog_thanks": "",
+    }
 
 
 # --- the site-wide style (LLM-COP-22) ---------------------------------------

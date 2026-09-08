@@ -1,4 +1,4 @@
-"""LLM-COP-32 — the on-page contact form SENDS, in a real browser.
+"""USR-COP-1 — the contact dialog is the ONE send path, in a real browser.
 
 Nothing here is stubbed. Real Chrome, the real Flask app on a real
 loopback port, the app's own POST /api/messages, and the app's own SQLite
@@ -8,13 +8,20 @@ counted is the request the server actually answered. A stubbed fetch would
 have made every assertion in this file a statement about the stub.
 
 WHY THIS FILE EXISTS AT ALL. The unit layer can read the served markup and
-say the button is type="submit" and that a consent box is present. It
-cannot say whether pressing that button stores a message, whether a dialog
-the visitor never asked for opens over the page, whether an unticked box
-costs one of five hourly rate-limit slots, or whether the GDPR panel is
-reachable when it opens on top of the contact dialog's backdrop. All of
-those are browser questions, and all of them are what the artifact was
-filed about.
+say the card's button carries .cta-contact and that the dialog's form has a
+consent box. It cannot say whether pressing that button opens the dialog,
+whether the dialog then stores a message, whether an unticked box costs one
+of five hourly rate-limit slots, or whether the GDPR panel is reachable when
+it opens on top of the contact dialog's backdrop. All of those are browser
+questions.
+
+WHAT CHANGED UNDER THIS FILE. LLM-COP-32 wired a SECOND send path — a form
+drawn into the page beside the dialog's — and most of this file was written
+to prove that second path carried the same consent, the same validation and
+the same reporting as the first. USR-COP-1 deletes the second path instead:
+one form, in the dialog, so nothing can drift. The tests that compared the
+two are gone; the tests that are about the product's one real send path are
+re-aimed at it and are stronger for covering the only path there is.
 
 THE RATE BUDGET. app.messages counts arrivals per client key and every
 arrival costs a slot, refusals included — five per hour, and this whole
@@ -60,10 +67,10 @@ PAYLOAD = "<script>window.__pwned=1</script>"
 
 @pytest.fixture(params=["v1", "v2"], ids=["v1", "v2"])
 def skin(request):
-    """Both skins, every test. The artifact asks for both and the two
-    templates render the contact card differently enough to matter: V1's
-    send button is inside the form, V2's is outside it in the actions
-    column and associated by form="…"."""
+    """Both skins, every test. The two templates render the contact card
+    differently enough to matter: V1's button sits directly in the section,
+    V2's in the card's actions column beside the phone and email rows. Both
+    must open the same one dialog."""
     return request.param
 
 
@@ -170,48 +177,16 @@ def stored_messages(app):
         conn.close()
 
 
-def inline_form(page):
-    return page.locator("form.contact-form")
+def card_button(page):
+    """The contact card's button, scoped to its own section.
 
-
-def outcome(page, attribute):
-    """The on-page form's success or failure slot, resolved the way the
-    product resolves it: read the id out of the form's own data-result /
-    data-error and look it up.
-
-    Never `.contact-error` as a bare class selector — the DIALOG's failure
-    line carries that class too, and a locator matching both would report
-    whichever it liked. Going through the attribute is also the stronger
-    claim: it fails if the form names an id nothing answers to, which is a
-    send that reports neither outcome and raises nothing.
+    ONE locator for both skins, because data-kind="yhteydenotto" is on the
+    section in both. Never a bare `.cta-contact`: the hero carries that class
+    too, page.click() is non-strict, and a bare selector would resolve to the
+    hero by document order — passing happily against a build where the card's
+    button was never given the class at all.
     """
-    slot_id = inline_form(page).get_attribute(attribute)
-    assert slot_id, attribute
-    return page.locator(f"#{slot_id}")
-
-
-def send_button(page, skin):
-    """The card's Lähetä.
-
-    Two selectors because the two skins really do put it in two places:
-    inside the form on V1, in the actions column beside it on V2, where it
-    reaches the form through form="…". That attribute is the thing under
-    test on the V2 leg, so the locator has to be the button the design
-    draws rather than any submit button that happens to be in the form.
-    """
-    if skin == "v2":
-        return page.locator(".v2-contact-primary")
-    return page.locator("form.contact-form button[type=submit]")
-
-
-def fill_inline(page, values=VISITOR, consent=True):
-    """Type a visitor's message into the on-page form."""
-    form = inline_form(page)
-    form.locator("input[name=name]").fill(values["name"])
-    form.locator("input[name=email]").fill(values["email"])
-    form.locator("textarea[name=message]").fill(values["message"])
-    if consent:
-        form.locator("input[name=consent]").check()
+    return page.locator('section[data-kind="yhteydenotto"] .cta-contact')
 
 
 def fill_dialog(page, values, consent=True):
@@ -224,31 +199,45 @@ def fill_dialog(page, values, consent=True):
         form.locator("input[name=consent]").check()
 
 
-# --- 1. it sends, and no dialog opens ---------------------------------------
+# --- 1. the card's button opens the dialog, and that path sends -------------
 
 
-def test_the_on_page_form_stores_a_message_and_opens_no_dialog(
+def test_the_card_button_opens_the_dialog_and_that_path_sends(
     public, expect, live_app, skin, shots
 ):
     """The artifact's first sentence, executable.
 
-    Before LLM-COP-32 this press threw the answers away and reopened the
-    same three questions in a dialog (V2), or did nothing whatsoever (V1).
-    Now it stores a row, and the proof is the row — read out of the app's
-    own SQLite file, not out of a response body the page happened to show.
+    The card's button used to submit a form of its own (LLM-COP-32) and,
+    before that, to open a dialog over the answers the visitor had already
+    typed into that form (LLM-COP-6's collision). There is one form now and
+    the button opens it; the proof that the path works end to end is the ROW
+    — read out of the app's own SQLite file, not out of a response body the
+    page happened to show.
 
-    BOTH dialog assertions, not one. expect(.contact-panel).to_be_hidden()
-    auto-retries until it succeeds, so on its own it would pass against a
-    dialog that opened and was closed a frame later; the hidden ATTRIBUTE
-    on .contact-dialog is the state that says it was never opened at all.
-    That pair is the shape tests/browser/test_browser_v2_direct_edit.py:496
-    already uses.
+    The locator is SCOPED to the yhteydenotto section and the located element
+    is asserted to be the one carrying data-field="send_label". A bare
+    `.cta-contact` resolves to the hero and would pass against a build where
+    the card's button never got the class, which is exactly the regression
+    this test is here to catch.
     """
     posts = count_posts(public)
-    fill_inline(public)
 
+    button = card_button(public)
+    expect(button).to_have_count(1)
+    assert button.get_attribute("data-field") == "send_label", (
+        "the located element is not the card's own button"
+    )
+
+    button.click()
+    expect(public.locator(".contact-panel")).to_be_visible()
+
+    fill_dialog(public, VISITOR)
+    public.screenshot(
+        path=os.path.join(shots, f"usr-cop1-{skin}-kortista-avattu.png"),
+        full_page=True,
+    )
     with public.expect_response("**/api/messages") as answer:
-        send_button(public, skin).click()
+        public.click(".cd-submit")
     assert answer.value.status == 201, answer.value.text()
 
     rows = stored_messages(live_app)
@@ -258,26 +247,10 @@ def test_the_on_page_form_stores_a_message_and_opens_no_dialog(
     assert rows[0]["email"] == VISITOR["email"]
     # Consent is recorded, not merely demanded: the row carries the stamp.
     assert rows[0]["consented_at"], rows[0]
-
-    expect(outcome(public, "data-result")).to_be_visible()
-    # And the form GOES AWAY. send() sets form.hidden on 201, and that has
-    # to be true on the screen and not merely in the attribute: a form that
-    # stays visible with every field still filled tells the visitor nothing
-    # landed, and the obvious response to that is to press Lähetä again and
-    # send the same message twice. This assertion was RED when it was first
-    # written — see the PR notes on `.contact-form { display: flex }`.
-    expect(inline_form(public)).to_be_hidden()
-    expect(public.locator(".contact-panel")).to_be_hidden()
-    expect(public.locator(".contact-dialog")).to_have_attribute("hidden", "")
-
     assert len(posts) == 1, posts
-    public.screenshot(
-        path=os.path.join(shots, f"cop32-{skin}-lomake-lahetetty.png"),
-        full_page=True,
-    )
 
 
-# --- 2. the top bar still opens the dialog, and that path still sends -------
+# --- 2. the top bar opens the dialog too, and that path sends ---------------
 
 
 def test_the_top_bar_still_opens_the_dialog_and_that_path_still_sends(
@@ -285,28 +258,18 @@ def test_the_top_bar_still_opens_the_dialog_and_that_path_still_sends(
 ):
     """The half of the ask that was already true and had to stay true.
 
-    Both paths in one session and one store: the inline form sends first,
-    then the header's Ota yhteyttä opens the dialog and sends again, and
-    the database holds TWO distinct rows. One shared send() serving two
-    forms is the change this proves did not collapse into one form serving
-    itself twice.
+    The header's Ota yhteyttä is the opener that predates every contact
+    button on the page, and deleting the on-page form must not have disturbed
+    it. Narrowed to that one path since USR-COP-1: the inline lead-in this
+    test used to open with sent through a form that no longer exists, so the
+    store now holds one row rather than two.
     """
-    fill_inline(public)
-    with public.expect_response("**/api/messages"):
-        send_button(public, skin).click()
-    assert len(stored_messages(live_app)) == 1
-
     public.click(".header-contact")
     expect(public.locator(".contact-panel")).to_be_visible()
 
-    second = {
-        "name": "Petri Salo",
-        "email": "petri@esimerkki.fi",
-        "message": "Voisiko ajan varata iltapäivälle?",
-    }
-    fill_dialog(public, second)
+    fill_dialog(public, VISITOR)
     public.screenshot(
-        path=os.path.join(shots, f"cop32-{skin}-dialogi-taytetty.png"),
+        path=os.path.join(shots, f"usr-cop1-{skin}-dialogi-taytetty.png"),
         full_page=True,
     )
     with public.expect_response("**/api/messages") as answer:
@@ -314,75 +277,47 @@ def test_the_top_bar_still_opens_the_dialog_and_that_path_still_sends(
     assert answer.value.status == 201, answer.value.text()
 
     # The dialog's success slot is #contact-thanks (class cd-thanks) — the
-    # seeded copy LLM-COP-3 shipped, addressed by data-result rather than
-    # replaced by the page forms' .contact-result.
+    # owner's thanks copy, addressed by data-result.
     expect(public.locator("#contact-thanks")).to_be_visible()
-    # The same disappearance, on the dialog's own form. It never actually
-    # happened before this artifact either — send() has always set
-    # form.hidden here and .contact-dialog-form { display: flex } has always
-    # outranked the UA's [hidden] rule — so the thank-you used to appear
-    # UNDER a dialog still showing the message that had just been sent.
+    # And the form GOES AWAY. send() sets form.hidden on 201, and that has to
+    # be true on the SCREEN and not merely in the attribute: a form that stays
+    # visible with every field still filled tells the visitor nothing landed,
+    # and the obvious response to that is to press Lähetä again and send the
+    # same message twice. It was red when it was first written —
+    # .contact-dialog-form { display: flex } outranked the UA's [hidden] rule
+    # — and it is now one of only two surviving proofs of that fix.
     expect(public.locator("form.contact-dialog-form")).to_be_hidden()
 
     rows = stored_messages(live_app)
-    assert len(rows) == 2, rows
-    assert [row["name"] for row in rows] == [VISITOR["name"], second["name"]]
+    assert len(rows) == 1, rows
+    assert rows[0]["name"] == VISITOR["name"]
 
 
 # --- 3. consent, refused on both paths --------------------------------------
 
 
-def test_an_unticked_consent_box_is_refused_in_place_and_costs_no_slot(
-    public, expect, live_app, skin, shots
-):
-    """The rate-limit hazard the artifact named, proved rather than described.
-
-    app/messages.py charges a slot BEFORE it parses anything, so a
-    submission that reaches the server without consent burns one of the
-    visitor's five. The browser therefore refuses it first — and the
-    assertion that matters is not that an error appeared, it is that the
-    request counter is at ZERO. Nothing was sent, so nothing was spent.
-
-    The form must also survive the refusal: still visible, still holding
-    every character the visitor typed. A page that swallowed the attempt
-    and cleared the fields would be a worse bug than the one being fixed.
-    """
-    posts = count_posts(public)
-    fill_inline(public, consent=False)
-    send_button(public, skin).click()
-
-    error = outcome(public, "data-error")
-    expect(error).to_be_visible()
-    assert (error.text_content() or "").strip(), "the refusal says nothing"
-
-    form = inline_form(public)
-    expect(form).to_be_visible()
-    assert form.locator("input[name=name]").input_value() == VISITOR["name"]
-    assert form.locator("input[name=email]").input_value() == VISITOR["email"]
-    assert (
-        form.locator("textarea[name=message]").input_value()
-        == VISITOR["message"]
-    )
-    expect(outcome(public, "data-result")).to_be_hidden()
-
-    settle(public)
-    assert posts == [], posts
-    assert stored_messages(live_app) == []
-
-    public.screenshot(
-        path=os.path.join(shots, f"cop32-{skin}-suostumus-puuttuu.png"),
-        full_page=True,
-    )
-
-
-def test_the_dialog_refuses_an_unticked_box_in_place_too(
+def test_the_dialog_refuses_an_unticked_box_in_place(
     public, expect, live_app, skin
 ):
-    """The same guard on the other form, because it is the same function.
+    """The rate-limit hazard the product has to respect, on the one form.
 
-    The dialog had no failure reporting at all before this change: a
-    refused send left the form sitting there with no explanation. It now
-    reports into #contact-error and, like the inline form, sends nothing.
+    app/messages.py charges a slot BEFORE it parses anything, so a submission
+    that reaches the server without consent burns one of the visitor's five.
+    The browser therefore refuses it first — and the assertion that matters is
+    not that an error appeared, it is that the request counter is at ZERO.
+    Nothing was sent, so nothing was spent.
+
+    The refusal reports into #contact-error. Before LLM-COP-32 the dialog had
+    no failure reporting at all and a refused send left the form sitting there
+    with no explanation.
+
+    AND THE FORM SURVIVES THE REFUSAL: still on screen, still holding every
+    character the visitor typed. A page that swallowed the attempt and cleared
+    the fields would be a worse bug than the one being refused — the visitor
+    would have to retype the whole message to tick one box. That claim used to
+    be made of the deleted on-page form and of nothing else; USR-COP-1 leaves
+    this the only collection path there is, so it is made here rather than lost
+    with the path it was written against.
     """
     posts = count_posts(public)
     public.click(".header-contact")
@@ -391,7 +326,20 @@ def test_the_dialog_refuses_an_unticked_box_in_place_too(
     public.click(".cd-submit")
 
     expect(public.locator("#contact-error")).to_be_visible()
+    assert (
+        public.locator("#contact-error").text_content() or ""
+    ).strip(), "the refusal says nothing"
     expect(public.locator("#contact-thanks")).to_be_hidden()
+
+    form = public.locator("form.contact-dialog-form")
+    expect(form).to_be_visible()
+    assert form.locator("input[name=name]").input_value() == VISITOR["name"]
+    assert form.locator("input[name=email]").input_value() == VISITOR["email"]
+    assert (
+        form.locator("textarea[name=message]").input_value()
+        == VISITOR["message"]
+    )
+
     settle(public)
     assert posts == [], posts
     assert stored_messages(live_app) == []
@@ -432,7 +380,13 @@ def test_the_server_refuses_a_consentless_post_from_any_client(
 def test_the_privacy_link_on_the_page_opens_closes_and_returns_focus(
     public, expect, skin, shots
 ):
-    """The new dialog, opened from the link beside the consent box.
+    """The GDPR dialog, opened from the page rather than from inside another
+    dialog — the case where it is the only thing on the screen.
+
+    The opener is the FOOTER's link since USR-COP-1. It used to be the on-page
+    form's, and that form is gone; the footer link is what keeps the privacy
+    statement reachable for a visitor who never opens the contact dialog at
+    all, so it is also the address this test now guards.
 
     page.click("#gdpr-close") rather than a visibility assertion for the
     close: to_be_visible() does not hit-test, so it would pass over a panel
@@ -440,7 +394,7 @@ def test_the_privacy_link_on_the_page_opens_closes_and_returns_focus(
     checks, which do hit-test — if the stacking were wrong this line fails
     and nothing else has to know why.
     """
-    opener = inline_form(public).locator(".gdpr-open")
+    opener = public.locator("footer .gdpr-open")
     opener.click()
     expect(public.locator(".gdpr-panel")).to_be_visible()
     # The text is a placeholder and says so on the page — the artifact
@@ -455,7 +409,7 @@ def test_the_privacy_link_on_the_page_opens_closes_and_returns_focus(
     expect(public.locator(".gdpr-dialog")).to_have_attribute("hidden", "")
     assert public.evaluate(
         "() => document.activeElement"
-        " === document.querySelector('form.contact-form .gdpr-open')"
+        " === document.querySelector('footer .gdpr-open')"
     ), "focus was not returned to the link that opened the dialog"
 
     # Escape is the second close path, asserted separately so a broken
@@ -464,8 +418,9 @@ def test_the_privacy_link_on_the_page_opens_closes_and_returns_focus(
     expect(public.locator(".gdpr-panel")).to_be_visible()
     public.keyboard.press("Escape")
     expect(public.locator(".gdpr-dialog")).to_have_attribute("hidden", "")
-    # The page's own form is untouched by any of it.
-    expect(inline_form(public)).to_be_visible()
+    # No other dialog was ever underneath: this is the one-dialog case, and
+    # the contact dialog is still shut after all of it.
+    expect(public.locator(".contact-dialog")).to_have_attribute("hidden", "")
 
 
 def test_the_privacy_link_inside_the_dialog_stacks_without_disturbing_it(
@@ -516,33 +471,37 @@ def test_the_privacy_link_inside_the_dialog_stacks_without_disturbing_it(
     assert consent.is_checked() is False
 
 
-# --- 5. a script payload through the INLINE path ----------------------------
+# --- 5. a script payload through the product's one send path ----------------
 
 
-def test_a_script_payload_sent_inline_renders_inert_in_the_inbox(
+def test_a_script_payload_sent_through_the_dialog_renders_inert_in_the_inbox(
     public, page, expect, live_app, skin, shots
 ):
-    """LLM-COP-3 proved this for the dialog. It is proved again HERE for the
-    inline path rather than assumed to be inherited.
+    """A <script> typed into the product's real send path renders inert in the
+    real inbox.
 
-    The two paths share a send() function but not a template, and the
-    escaping that matters happens in a third file entirely
-    (app/templates/inbox.html). Nothing about "the dialog's payload was
-    safe" tells an admin that the inline form's is.
+    This is the only BROWSER-level proof that window.__pwned is undefined:
+    tests/test_messages.py's inbox check is a unit-level statement about the
+    template's escaping, which is a different claim from "no script executed
+    in a real Chrome rendering the real page". It used to be aimed at the
+    inline form; USR-COP-1 deleted that path, so it is re-aimed at the one
+    that remains rather than dropped.
 
-    Both halves are asserted. window.__pwned being undefined says the
-    script never executed; the text content being the literal payload says
-    the admin can actually READ what was sent, which a blunt strip would
-    have destroyed while passing the first half.
+    Both halves are asserted. window.__pwned being undefined says the script
+    never executed; the text content being the literal payload says the admin
+    can actually READ what was sent, which a blunt strip would have destroyed
+    while passing the first half.
     """
     marked = {
         "name": PAYLOAD,
         "email": f"{PAYLOAD}@esimerkki.fi",
         "message": f"Terveisin {PAYLOAD}",
     }
-    fill_inline(public, marked)
+    public.click(".header-contact")
+    expect(public.locator(".contact-panel")).to_be_visible()
+    fill_dialog(public, marked)
     with public.expect_response("**/api/messages") as answer:
-        send_button(public, skin).click()
+        public.click(".cd-submit")
     assert answer.value.status == 201, answer.value.text()
     assert len(stored_messages(live_app)) == 1
 
@@ -553,89 +512,62 @@ def test_a_script_payload_sent_inline_renders_inert_in_the_inbox(
     assert page.locator(".inbox-body").text_content() == marked["message"]
     assert page.locator(".inbox-email").text_content() == marked["email"]
     page.screenshot(
-        path=os.path.join(shots, f"cop32-{skin}-postilaatikko.png"),
+        path=os.path.join(shots, f"usr-cop1-{skin}-postilaatikko.png"),
         full_page=True,
     )
 
 
-# --- 6. direct edit mode: the send button edits, and posts nothing -----------
+# --- 6. direct edit mode: the card's button edits, and opens no dialog -------
 
 
-@pytest.mark.parametrize("trigger", ["pointer", "enter"])
-def test_the_send_button_edits_its_label_and_posts_nothing_in_direct_edit_mode(
-    edit_page, expect, live_app, skin, trigger, shots
+def test_the_send_button_edits_its_label_and_opens_no_dialog_in_direct_edit_mode(
+    edit_page, expect, live_app, skin, shots
 ):
     """The riskiest thing this artifact creates, and its guard.
 
-    The card's Lähetä is now BOTH a type="submit" control and a
-    data-field="send_label" editable — so while an owner is renaming it, a
-    press must mean "edit me" and must not also send whatever happens to
-    be typed into the form underneath. direct-edit.js:346-355 is one
-    capture-phase click listener on the document that preventDefault()s any
-    click landing inside a [data-field], and preventDefault on a submit
-    button's click IS the cancelled submission.
+    The card's Lähetä is now BOTH a .cta-contact dialog opener and a
+    data-field="send_label" editable — the exact collision LLM-COP-6 shipped
+    once on the hero. While an owner is renaming it, a press must mean "edit
+    me" and must not also open the dialog: the dialog's backdrop swallows
+    pointer events and editing stops dead with no error anywhere.
 
-    THE FORM IS FILLED FIRST, and that is what stops this test being
-    vacuous. Against an empty form the browser's own pre-validation would
-    refuse before fetching and the counter would read zero for entirely the
-    wrong reason. With every field filled and consent ticked, this is a
-    submission that WOULD post — test 1 above sends exactly this payload
-    for real through the same button on the public page — so zero here is a
-    fact about the guard.
+    direct-edit.js:346-355 is the guard — one capture-phase click listener on
+    the document that preventDefault()s and stopPropagation()s any click
+    landing inside a [data-field]. Capture on an ancestor is what makes it beat
+    contact_dialog.html's own listener, which is registered first because the
+    dialog is included before this script.
 
-    TWO TRIGGERS. The pointer leg is the obvious one. The keyboard leg is
-    implicit submission: Enter in a text field dispatches a synthetic click
-    at the form's DEFAULT button, which on V2 is this button only because
-    form="…" makes it the form's first submit control in tree order. That
-    relationship is exactly what a later refactor could break in silence,
-    so it is pinned rather than inherited.
+    THE LOAD-BEARING ASSERTIONS are the last two. .contact-dialog has no
+    layout rule of its own and can report itself hidden with the dialog wide
+    open, so .contact-panel carries the visibility assertion and
+    .contact-dialog's hidden ATTRIBUTE is the state that says it was never
+    opened at all. tests/browser/test_browser_v2_direct_edit.py states the
+    same pairing, and the two must not drift apart.
 
-    The keyboard leg does NOT assert .direct-field-tag. The tag is unhidden
-    by activate() (direct-edit.js:152-160), which is bound to the FOCUS
-    event (:315-317); implicit submission dispatches its click without
-    focusing anything, and the form's text inputs carry no data-field, so
-    the tag legitimately stays hidden. Asserting it here would be an
-    assertion about the harness, and making it true would mean changing the
-    product to satisfy a test.
+    ONE TRIGGER, not two. The keyboard leg this test used to carry was
+    implicit submission — Enter in a text field reaching the form's default
+    button — and there is no form on the card any more, so it would assert
+    nothing.
+
+    NOTHING HERE COUNTS POSTS, deliberately. Until USR-COP-1 this test filled
+    the card's form first and asserted zero posts, because the button was a
+    SUBMITTER and a failed guard would have sent what was typed. The button is
+    an OPENER now and the card has no form, so "nothing was posted" is true of
+    every build including a broken one — it would be a vacuous assertion, and
+    the dialog-stays-shut assertions above are what carry the guard instead.
     """
-    posts = count_posts(edit_page)
-    before = len(stored_messages(live_app))
-
-    # focus() + keyboard, not fill(): direct edit mode's two fixed bars and
-    # the floating toolbar intercept synthetic clicks at whatever scrolls
-    # under them, which is a fact about the chrome rather than about the
-    # product (tests/browser/test_browser_v2_direct_edit.py's `activate`
-    # says the same thing for the same reason).
-    form = inline_form(edit_page)
-    for selector, value in (
-        ("input[name=name]", VISITOR["name"]),
-        ("input[name=email]", VISITOR["email"]),
-        ("textarea[name=message]", VISITOR["message"]),
-    ):
-        field = form.locator(selector)
-        field.focus()
-        edit_page.keyboard.type(value)
-    consent = form.locator("input[name=consent]")
-    consent.focus()
-    edit_page.keyboard.press("Space")
-    assert consent.is_checked(), "the form under test is not actually sendable"
-
-    button = send_button(edit_page, skin)
+    button = card_button(edit_page)
+    expect(button).to_have_count(1)
+    assert button.get_attribute("data-field") == "send_label"
     button.scroll_into_view_if_needed()
-    if trigger == "pointer":
-        button.click()
-        # The click still means "edit me": the field tag names the label.
-        expect(edit_page.locator(".direct-field-tag")).to_be_visible()
-        edit_page.screenshot(
-            path=os.path.join(shots, f"cop32-{skin}-muokkaustila.png"),
-            full_page=True,
-        )
-    else:
-        form.locator("input[name=name]").focus()
-        edit_page.keyboard.press("Enter")
+    button.click()
 
-    settle(edit_page)
-    assert posts == [], posts
-    assert len(stored_messages(live_app)) == before
+    # The click still means "edit me": the field tag names the label.
+    expect(edit_page.locator(".direct-field-tag")).to_be_visible()
+    edit_page.screenshot(
+        path=os.path.join(shots, f"usr-cop1-{skin}-muokkaustila.png"),
+        full_page=True,
+    )
+
+    expect(edit_page.locator(".contact-panel")).to_be_hidden()
     expect(edit_page.locator(".contact-dialog")).to_have_attribute("hidden", "")
-    expect(outcome(edit_page, "data-result")).to_be_hidden()

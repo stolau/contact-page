@@ -17,7 +17,7 @@ from .images import image_url
 from .messages import bp as messages_bp
 from .sanitize import sanitize_rich
 from .sectionlist import bp as sectionlist_bp
-from .sections import site_chrome, visible_sections
+from .sections import contact_dialog_copy, site_chrome, visible_sections
 from .seed import seed_if_empty
 from .styles import template_for
 from .wizard import bp as wizard_bp
@@ -92,6 +92,7 @@ def create_app(instance_path=None):
         try:
             sections = visible_sections(conn)
             chrome = site_chrome(conn)
+            dialog_copy = contact_dialog_copy(conn)
         finally:
             conn.close()
         # The PUBLISHED style picks the template (LLM-COP-22). Selection is a
@@ -103,6 +104,7 @@ def create_app(instance_path=None):
             nav_labels=NAV_LABELS,
             anchors=ANCHORS,
             **chrome,
+            **dialog_copy,
             **dialog,
         )
 

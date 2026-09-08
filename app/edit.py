@@ -18,7 +18,13 @@ from . import db as database
 from .fields import ANCHORS, FIELD_LABELS, FIELDS, NAV_LABELS, SECTION_NAMES
 from .images import collect_unreferenced
 from .sanitize import validate_payload
-from .sections import badge, draft_sections, publish_dirty, site_chrome
+from .sections import (
+    badge,
+    contact_dialog_copy,
+    draft_sections,
+    publish_dirty,
+    site_chrome,
+)
 from .styles import STYLE_CHOICES, template_for
 
 bp = Blueprint("edit", __name__)
@@ -69,6 +75,7 @@ def esikatselu():
     try:
         sections = draft_sections(conn)
         chrome = site_chrome(conn, "draft")
+        dialog_copy = contact_dialog_copy(conn, "draft")
     finally:
         conn.close()
     return render_template(
@@ -80,6 +87,7 @@ def esikatselu():
         anchors=ANCHORS,
         preview=True,
         **chrome,
+        **dialog_copy,
     )
 
 

@@ -22,18 +22,16 @@
     - .portrait — direct-edit.js anchors the disabled "Vaihda kuva" pill
       as its next sibling.
     - .header-contact / .cta-contact — contact_dialog.html's openers. The
-      HERO's button carries .cta-contact; the contact card's Lähetä does
-      NOT, and has not since LLM-COP-32 made it submit the card's own form
-      instead of reopening the same three fields in a dialog.
-    - form.contact-form — the same script's send handler, shared with the
-      dialog's own form.
+      HERO's button and the contact card's Lähetä both carry .cta-contact
+      (USR-COP-1): the dialog is the one place the product collects a
+      message, so every contact action opens it.
   And id="{{ anchors[kind] }}" is what preview.js highlights and what the
   nav links point at.
 
   Every word rendered below comes from the store. No sample copy from the
   mockups is written into this file: since LLM-COP-25 made the section
-  labels owner data on both skins, the only string this template owns is
-  "Ylläpito".
+  labels owner data on both skins, the only strings this template owns are
+  the footer's two link labels, "Tietosuojaseloste" and "Ylläpito".
 #}<!doctype html>
 <html lang="fi">
 <head>
@@ -206,20 +204,16 @@
    v2-cp-phone-scroll-2.contact-card. Copy on the left, the actions stacked
    on the right at desktop; copy above the actions on the phone.
 
-   The primary action is the button the design draws, and it SENDS the card's
-   own form (LLM-COP-32). The design puts it in the actions column, outside
-   the copy column that holds the form, so it is associated by form="…"
-   rather than by containment — that attribute is what makes an out-of-form
-   submitter work, and it makes this button the form's default button, so
-   Enter in a text field reaches the same handler. It deliberately does NOT
-   carry .cta-contact any more: with it, filling the card in and pressing
-   Lähetä threw the answers away and opened a dialog asking the same three
-   questions again. It still carries yhteydenotto.send_label, so its label
-   stays the owner's and stays in-place editable — and direct-edit.js's
-   capture-phase guard cancels the click on any [data-field], so editing the
-   label posts nothing.
+   The primary action is the button the design draws, and it OPENS THE
+   CONTACT DIALOG (USR-COP-1). The card no longer carries a form: the product
+   collects a message in one place, so there is one form to keep consented,
+   validated and reported, and the button carries .cta-contact — the class
+   contact_dialog.html's opener query binds — with type="button" and no
+   form="…", because there is nothing left on the card to submit. It still
+   carries yhteydenotto.send_label, so its label stays the owner's and stays
+   in-place editable — and direct-edit.js's capture-phase guard cancels the
+   click on any [data-field], so editing the label opens no dialog.
 
-   The three field labels keep their V1 job — labelling the three inputs.
    The card's body paragraph and caveat line are yhteydenotto.body and
    .caveat, and the two action rows beside the primary button are .phone
    and .email: LLM-COP-25 declared all four, so the addresses
@@ -234,22 +228,10 @@
     <div class="v2-contact-copy">
       <p class="section-kicker v2-contact-kicker" data-section="{{ sid }}" data-field="section_label">{{ p.section_label }}</p>
       <p class="v2-contact-body" data-section="{{ sid }}" data-field="body">{{ p.body }}</p>
-      <form class="contact-form v2-contact-form" id="v2-contact-form-{{ sid }}" data-result="contact-result-{{ sid }}" data-error="contact-error-{{ sid }}">
-        <label>{{ p.name_label }}<input type="text" name="name"></label>
-        <label>{{ p.email_label }}<input type="text" name="email"></label>
-        <label>{{ p.message_label }}<textarea name="message" rows="3"></textarea></label>
-        <label class="contact-consent"><input type="checkbox" name="consent" value="1"> Hyväksyn, että viestini käsitellään tietosuojaselosteen mukaisesti. En lähetä arkaluonteisia terveystietoja.</label>
-        <a class="gdpr-open" href="#">Tietosuojaseloste</a>
-      </form>
-      {# Outside the form, as in page.html and as in the dialog: a
-         successful send hides the form, and a result line inside it would
-         be hidden along with it. Both are addressed by id. #}
-      <p class="contact-error" id="contact-error-{{ sid }}" role="alert" hidden></p>
-      <p class="contact-result" id="contact-result-{{ sid }}" hidden>{{ p.thanks }}</p>
       <p class="v2-contact-caveat" data-section="{{ sid }}" data-field="caveat">{{ p.caveat }}</p>
     </div>
     <div class="v2-contact-actions">
-      <button type="submit" class="button primary v2-contact-primary" form="v2-contact-form-{{ sid }}" data-section="{{ sid }}" data-field="send_label">{{ p.send_label }}</button>
+      <button type="button" class="button primary v2-contact-primary cta-contact" data-section="{{ sid }}" data-field="send_label">{{ p.send_label }}</button>
       <p class="v2-contact-action-row v2-contact-phone" data-section="{{ sid }}" data-field="phone">{{ p.phone }}</p>
       <p class="v2-contact-action-row v2-contact-email" data-section="{{ sid }}" data-field="email">{{ p.email }}</p>
     </div>
@@ -300,7 +282,13 @@
 
 <footer class="site-footer v2-footer">
   <p class="copyright">{{ site_footer }}</p>
-  <a class="yllapito" href="{{ url_for('yllapito') }}">Ylläpito</a>
+  {# One right-hand group, as page.html's footer explains and as
+     v2-cp-section-contact.footer.footer-right describes. The address half of
+     that address, and the dot separators it names, are still unmet. #}
+  <span class="footer-links">
+    <a class="gdpr-open" href="#">Tietosuojaseloste</a>
+    <a class="yllapito" href="{{ url_for('yllapito') }}">Ylläpito</a>
+  </span>
 </footer>
 
 {% if login_dialog %}{% include "login_dialog.html" %}{% endif %}

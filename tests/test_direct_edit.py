@@ -20,6 +20,7 @@ top bar reads the account row rather than page copy.
 
 import copy
 import json
+import re
 from urllib.parse import urlparse
 
 import pytest
@@ -358,13 +359,35 @@ def test_direct_ingress_mobile_is_rendered_and_bound(direct_html):
 #
 # "Ota yhteyttä" is hard-coded in the header at page.html, so a
 # whole-document contains-text for it cannot fail. element_text matches a
-# class *token*, so cls="cta-contact" resolves to the hero CTA and skips
-# the header button, whose classes are "button primary header-contact
-# desktop-only".
+# class *token*, so cls="cta-contact" skips the header button, whose classes
+# are "button primary header-contact desktop-only".
+#
+# It does NOT scope to the hero on its own, though. Since USR-COP-1 the
+# contact card's button carries .cta-contact too, so there are TWO of them and
+# element_text returns the FIRST — the hero's, by document order alone. That
+# dependence is asserted below rather than relied on silently: the count pins
+# how many exist and the text pins which one was matched, so a reordering of
+# the two sections goes red here instead of quietly measuring the wrong
+# button.
+
+
+def cta_contact_count(html):
+    """How many class attributes in `html` carry the cta-contact token.
+
+    Local on purpose: tests/test_messages.py has a class_count of its own and
+    this module imports nothing from it — one test module reaching into
+    another for a helper is a dependency neither file declares.
+    """
+    return len(re.findall(r'class="[^"]*\bcta-contact\b[^"]*"', html))
 
 
 def test_direct_cta_contact_is_the_hero_button_and_is_bound(direct_html):
     # cp-main-direct-edit.direct-canvas.direct-cta-contact
+    assert cta_contact_count(direct_html) == 2, (
+        "expected exactly two .cta-contact buttons — the hero's and the"
+        " contact card's; element_text's first-match below is only the hero's"
+        " while that is true"
+    )
     cta = element_text(direct_html, "button", cls="cta-contact")
     assert cta is not None, "no button.cta-contact in the hero"
     assert "Ota yhteyttä" in cta
@@ -417,24 +440,26 @@ EXCLUDED_SCALARS = {
         " no FIELD_LABELS entry either, so it is not a form field anywhere."
     ),
     ("yhteydenotto", "name_label"): (
-        "a bare text node directly inside <label> in page.html; binding it"
-        " means wrapping it in a span, i.e. restructuring the public"
-        " template. Still editable in the side panel (Nimikentän otsikko)."
+        "rendered since USR-COP-1 inside div.contact-dialog, which ships"
+        " hidden: there is no element on the page an owner could click to"
+        " edit it. Still editable in the side panel (Nimikentän otsikko)."
     ),
     ("yhteydenotto", "email_label"): (
-        "same bare-text-node-inside-<label> shape. Still editable in the"
-        " side panel (Sähköpostikentän otsikko)."
+        "same inside-the-hidden-dialog shape, and doubly unbindable: it is"
+        " rendered as the email input's placeholder and aria-label, not a"
+        " text node, so there is nothing for direct-edit.js to make"
+        " contenteditable — verbatim the reason hero.portrait_alt carries"
+        " below. Still editable in the side panel (Sähköpostikentän otsikko)."
     ),
     ("yhteydenotto", "message_label"): (
-        "same bare-text-node-inside-<label> shape. Still editable in the"
-        " side panel (Viestikentän otsikko)."
+        "same inside-the-hidden-dialog shape. Still editable in the side"
+        " panel (Viestikentän otsikko)."
     ),
     ("yhteydenotto", "thanks"): (
-        "rendered since LLM-COP-32 wired the contact form to send — but into"
-        " the form's HIDDEN result line, which only appears once a message"
-        " has actually been stored. There is no element on the page an owner"
-        " could click to edit it, so it stays unbound. Still editable in the"
-        " side panel (Kiitosviesti)."
+        "rendered into p.cd-thanks inside the same closed dialog, and hidden"
+        " within it until a message has actually been stored. There is no"
+        " element on the page an owner could click to edit it, so it stays"
+        " unbound. Still editable in the side panel (Kiitosviesti)."
     ),
     # The three site-chrome fields (LLM-COP-10). All three render OUTSIDE any
     # section block, so none of them carries a data-section id; binding them
@@ -489,10 +514,13 @@ EXCLUDED_SCALARS = {
 }
 
 # 35 scalars across the six kinds since LLM-COP-30 added two more to
-# LLM-COP-25's ten. Neither new field is bound: both are excluded above, so
-# BOUND_SCALAR_COUNT does not move and neither public template gains a
-# data-field — which is how "V1's served bytes are unchanged" stays true by
-# construction rather than by inspection.
+# LLM-COP-25's ten. USR-COP-1 moved four of them out of the deleted on-page
+# form and into contact_dialog.html, and V1's served bytes DID change there —
+# but neither count moves, because all four were already excluded above, the
+# six bound yhteydenotto pairs survive intact, and no data-field is added
+# anywhere. In particular contact_dialog.html carries none: the whole
+# /muokkaa/sivu document is searched, dialog included, so a data-field in that
+# file would push BOUND_SCALAR_COUNT up by three without binding anything.
 BOUND_SCALAR_COUNT = 23
 EXCLUDED_SCALAR_COUNT = 12
 

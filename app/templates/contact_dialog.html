@@ -14,17 +14,17 @@
         <button type="button" id="contact-close" class="cd-close" aria-label="Sulje">&times;</button>
       </div>
       <form class="contact-dialog-form" data-result="contact-thanks" data-error="contact-error">
-        <label class="cd-name-label" for="cd-name">Nimi</label>
+        <label class="cd-name-label" for="cd-name">{{ dialog_name_label }}</label>
         <input type="text" id="cd-name" name="name" autocomplete="name">
         <div class="cd-message-head">
-          <label class="cd-message-label" for="cd-message">Mitä etsit?</label>
+          <label class="cd-message-label" for="cd-message">{{ dialog_message_label }}</label>
           <span class="cd-message-hint">Vapaa kuvaus</span>
         </div>
         <textarea id="cd-message" name="message" rows="5"></textarea>
         <p class="cd-message-helper">Kerro kenelle terapiaa haetaan ja mikä huolettaa.</p>
         <p class="cd-contact-label">Yhteystiedot</p>
         <div class="cd-contact-row">
-          <input type="text" name="email" autocomplete="email" aria-label="Sähköposti">
+          <input type="text" name="email" autocomplete="email" placeholder="{{ dialog_email_label }}" aria-label="{{ dialog_email_label }}">
           <input type="text" name="phone" autocomplete="tel" placeholder="Puhelin (valinnainen)" aria-label="Puhelin">
         </div>
         {# The one word the sentence already promises is now the link that
@@ -40,7 +40,7 @@
         </div>
       </form>
       <p id="contact-error" class="contact-error" role="alert" hidden></p>
-      <p id="contact-thanks" class="cd-thanks" hidden>Kiitos viestistäsi! Otan yhteyttä lähipäivinä.</p>
+      <p id="contact-thanks" class="cd-thanks" hidden>{{ dialog_thanks }}</p>
     </div>
   </div>
 </div>

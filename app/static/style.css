@@ -250,6 +250,15 @@ main section { padding: 3.5rem 3rem; max-width: 1100px; margin: 0 auto; }
   color: var(--muted);
 }
 
+/* The footer's two links are one right-hand group (USR-COP-1). Without this
+   the privacy link becomes a third child of a space-between row and lands in
+   the middle of the footer, between the copyright and Ylläpito. */
+.site-footer .footer-links {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
 /* Admin login dialog — overlaid on the dimmed public page */
 .dialog-backdrop {
   position: fixed;

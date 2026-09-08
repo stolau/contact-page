@@ -402,6 +402,15 @@ def test_cta_labels_are_data_the_owner_can_change(app, client):
     field the spec says it does not, while test_header_contact_button stays
     green because it runs on the seeded page where the field still holds the
     same words. This assertion is the only one that catches that ALONE.
+
+    A premise that has to be stated since USR-COP-1: there are now TWO
+    buttons carrying .cta-contact — the hero's and the contact card's — and
+    element_text returns the FIRST, which is the hero's by document order
+    alone. So the count is asserted here and the hero's stored string is what
+    the matched element must carry. Flip the two sections and this goes red
+    instead of quietly measuring the card's button. (It would have gone red
+    anyway, the card's button saying "Lähetä" — but accidental safety is not
+    safety.)
     """
     def rewrite(payload):
         payload["contact_label"] = "Soita minulle heti"
@@ -409,6 +418,8 @@ def test_cta_labels_are_data_the_owner_can_change(app, client):
 
     edit_published_payload(app, "hero", rewrite)
     after = client.get("/").get_data(as_text=True)
+
+    assert len(re.findall(r'class="[^"]*\bcta-contact\b[^"]*"', after)) == 2
 
     contact = element_text(after, "button", cls="cta-contact")
     assert contact is not None, "no button.cta-contact in the served page"
@@ -555,36 +566,68 @@ def test_fact_card_count_follows_the_data(app, client):
             assert line in after
 
 
-# --- LLM-COP-32: two buttons, two jobs --------------------------------------
+# --- USR-COP-1: two buttons, one job ----------------------------------------
 
 
-def test_the_hero_button_opens_the_dialog_and_the_forms_button_sends(page_html):
-    """V1's two contact buttons stopped being the same kind of thing.
+def test_both_v1_contact_buttons_open_the_dialog(page_html):
+    """V1's two contact buttons are the same kind of thing again.
 
-    No V1 spec addresses the on-page form — cp-main's screenshot ends
-    inside the about section and cp-main-phone has no yhteydenotto region
-    at all — so this is not a criterion test. It is the fence under the
-    behaviour change: the hero's Ota yhteyttä is a dialog OPENER and must
-    keep .cta-contact, while the form's Lähetä is a SUBMITTER and must
-    never acquire it. Give the second one that class and V1 reproduces
-    exactly the defect the artifact was filed about on V2 — press Lähetä,
-    lose what you typed, and be asked for it again in a dialog.
+    No V1 spec addresses the deleted on-page form — cp-main's screenshot ends
+    inside the about section and cp-main-phone has no yhteydenotto region at
+    all — so this is not a criterion test. It is the fence under the behaviour
+    change: the page collects a message in ONE place, the dialog, so the
+    hero's Ota yhteyttä and the contact card's Lähetä both carry .cta-contact
+    and both open it. Neither may submit anything: there is no form on the
+    page any more, and a type="submit" outside a form is a button that looks
+    like it does something and does not.
 
-    Asserted on the two tags rather than on the document, because
-    "cta-contact is somewhere in the page" stays true with the class on the
-    wrong control, which is precisely the state being forbidden.
+    Asserted on the button tags rather than on the document, because
+    "cta-contact is somewhere in the page" stays true with the class on one
+    control and missing from the other, which is exactly the state being
+    forbidden. WHICH two is pinned by data-field, so the count cannot be
+    satisfied by the class landing on the wrong pair.
     """
     buttons = re.findall(r"<button\b[^>]*>", page_html)
 
     openers = [tag for tag in buttons if "cta-contact" in tag]
-    assert len(openers) == 1, openers
-    assert 'data-field="contact_label"' in openers[0], openers[0]
-
-    senders = [tag for tag in buttons if 'data-field="send_label"' in tag]
-    assert len(senders) == 1, senders
-    assert "cta-contact" not in senders[0], (
-        "the contact form's Lähetä opens the dialog again instead of sending"
+    assert len(openers) == 2, openers
+    fields = sorted(
+        re.search(r'data-field="([^"]+)"', tag).group(1)
+        for tag in openers
+        if re.search(r'data-field="([^"]+)"', tag)
     )
-    assert 'type="submit"' in senders[0], senders[0]
-    # It was type="button" and bound to nothing until this artifact — the
-    # silence the author reported. Both attributes are the change.
+    assert fields == ["contact_label", "send_label"], openers
+
+    for tag in openers:
+        assert 'type="button"' in tag, tag
+
+    # No button on the PAGE submits anything, and no form is left for one to
+    # submit. The dialog's own Lähetä viesti is the one submitter in the
+    # document and stays one — its form is the send path — so it is named
+    # here rather than excluded by a scope that would also hide a regression.
+    submitters = [tag for tag in buttons if 'type="submit"' in tag]
+    assert len(submitters) == 1, submitters
+    assert "cd-submit" in submitters[0], submitters[0]
+    assert 'class="contact-form"' not in page_html
+
+
+def test_the_footer_carries_the_privacy_link(page_html):
+    """v2-cp-section-contact.footer.footer-right describes a privacy link in
+    the footer, and it was unsatisfied on both skins: the footer rendered the
+    owner's copyright line and the Ylläpito link and nothing else.
+
+    It is asserted here because the on-page form's own Tietosuojaseloste link
+    is gone with the form, and a visitor who never opens the contact dialog
+    would otherwise have no way to reach the privacy statement at all. Scoped
+    to the <footer>: the dialog's consent row carries a .gdpr-open of its own,
+    so a document-wide check would be satisfied by that one.
+    """
+    footer = re.search(r"<footer\b.*?</footer>", page_html, re.DOTALL)
+    assert footer is not None, "no <footer> in the served page"
+    link = re.search(
+        r'<a[^>]*class="[^"]*\bgdpr-open\b[^"]*"[^>]*>(.*?)</a>',
+        footer.group(0),
+        re.DOTALL,
+    )
+    assert link is not None, "no a.gdpr-open in the footer"
+    assert link.group(1).strip() == "Tietosuojaseloste"

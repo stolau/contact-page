@@ -33,7 +33,7 @@ from flask import render_template
 
 from app import db as database
 from app.fields import ANCHORS, FIELDS, NAV_LABELS
-from app.sections import site_chrome, visible_sections
+from app.sections import contact_dialog_copy, site_chrome, visible_sections
 from tests.conftest import (
     PERSONA_PATTERN,
     assert_absent_from_app,
@@ -45,7 +45,7 @@ from tests.conftest import (
 # server_cap_literals would be the very duplication it exists to forbid.
 # The precedent for importing another test module is tests/test_page.py,
 # which takes DAYS/DURATION/HOURS out of tests/test_seed.py.
-from tests.test_messages import cd_text, class_attrs, server_cap_literals
+from tests.test_messages import class_attrs, server_cap_literals
 
 V2_TEMPLATE = "page_v2.html"
 V1_TEMPLATE = "page.html"
@@ -67,9 +67,10 @@ KIND = re.compile(r'data-kind="([^"]+)"')
 def render_public(app, template):
     """One public document, rendered with render_page's own context.
 
-    Built from the same three calls app/__init__.py makes — visible_sections,
-    NAV_LABELS/ANCHORS and site_chrome — so a V2 document here is the
-    document the public route would serve if it named this template.
+    Built from the same calls app/__init__.py makes — visible_sections,
+    NAV_LABELS/ANCHORS, site_chrome and contact_dialog_copy — so a V2 document
+    here is the document the public route would serve if it named this
+    template.
     """
     with app.test_request_context("/"):
         conn = database.connect(app.config["DATABASE"])
@@ -79,6 +80,7 @@ def render_public(app, template):
                 nav_labels=NAV_LABELS,
                 anchors=ANCHORS,
                 **site_chrome(conn),
+                **contact_dialog_copy(conn),
             )
         finally:
             conn.close()
@@ -488,20 +490,19 @@ def tags(html, name):
     return re.findall(rf"<{name}\b[^>]*>", html)
 
 
-def test_v2s_send_button_submits_the_card_and_no_longer_opens_the_dialog(
-    v2_html,
-):
-    """The defect, executable, and the fix's own two halves.
+def test_v2s_card_button_opens_the_dialog_and_submits_nothing(v2_html):
+    """The card's Lähetä is an OPENER again, and this time there is nothing
+    left on the card for it to submit.
 
-    .cta-contact ABSENT is half of it: contact_dialog.html binds that class
-    as a dialog opener, and while the button carried it no amount of
-    submitting would have helped — the dialog opened over the answers.
+    LLM-COP-32 made it a submitter because the class had it reopening a
+    dialog over the answers the visitor had already typed into the card.
+    USR-COP-1 removes the other half of that collision instead: the card's
+    form is gone, the product collects a message in one place, so the button
+    carries .cta-contact and opens the dialog.
 
-    form= PRESENT and naming a real form is the other half, and it is not
-    cosmetic: the design puts this button in the actions column, OUTSIDE
-    the copy column that holds the form, so containment cannot associate
-    them. That attribute is also what makes this the form's DEFAULT button,
-    which is why Enter in a text field submits the card at all.
+    form= ABSENT is asserted, not merely unchecked. An out-of-form submitter
+    is associated by that attribute alone, so one left pointing at a form
+    that no longer exists is a button that looks wired and is not.
 
     data-section and data-field stay ADJACENT and in that order, because
     BINDING at the top of this file reads them as one pattern and the
@@ -511,22 +512,27 @@ def test_v2s_send_button_submits_the_card_and_no_longer_opens_the_dialog(
     assert len(send) == 1, send
     tag = send[0]
 
-    assert "cta-contact" not in tag, (
-        "the card's Lähetä is a dialog opener again — pressing it discards "
-        "what the visitor typed and asks for it a second time"
+    assert "cta-contact" in tag, (
+        "the card's Lähetä opens nothing — the card has no form left to send,"
+        " so a button without the opener class does nothing at all"
     )
-    assert 'type="submit"' in tag, tag
-    assert 'data-field="send_label"' in tag, tag
+    assert 'type="button"' in tag, tag
+    assert 'form=' not in tag, (
+        "the button still names a form; the card's form is gone, so this "
+        "points at nothing"
+    )
     assert re.search(r'data-section="\d+"\s+data-field="send_label"', tag), (
         "data-section and data-field must stay adjacent and in that order"
     )
-
-    named = re.search(r'form="([^"]+)"', tag)
-    assert named is not None, "the button is outside the form and names none"
-    assert f'id="{named.group(1)}"' in v2_html, (
-        f"form={named.group(1)!r} names no form in the document, so the "
-        "button submits nothing and Enter submits nothing"
-    )
+    # Both halves are falsifiable, and the exact strings matter. V2's form
+    # carried class="contact-form v2-contact-form", so 'class="contact-form"'
+    # WITH the closing quote never appeared in this document even at head —
+    # asserting its absence would have passed against every build. The open
+    # prefix is what actually catches it. A bare "contact-form" would be
+    # wrong in the other direction: contact_dialog.html:130's querySelectorAll
+    # names form.contact-form in the script that ships with every page.
+    assert "v2-contact-form" not in v2_html
+    assert 'class="contact-form' not in v2_html
 
 
 def test_v2s_hero_button_is_still_the_dialogs_opener(v2_html):
@@ -535,59 +541,48 @@ def test_v2s_hero_button_is_still_the_dialogs_opener(v2_html):
     test_v2_carries_the_class_hooks_other_files_bind_to only asks whether
     the string "cta-contact" is anywhere in the document, which stays true
     while the class sits on entirely the wrong control. This says WHICH
-    button carries it: exactly one, and it is the hero's contact_label.
+    buttons carry it: exactly two since USR-COP-1 — the hero's contact_label
+    and the card's send_label — and they are named by field, so "two openers"
+    cannot be satisfied by the class landing on some other pair of controls.
     """
     openers = [tag for tag in tags(v2_html, "button") if "cta-contact" in tag]
-    assert len(openers) == 1, openers
-    assert 'data-field="contact_label"' in openers[0], openers[0]
+    assert len(openers) == 2, openers
+    fields = sorted(
+        re.search(r'data-field="([^"]+)"', tag).group(1)
+        for tag in openers
+        if re.search(r'data-field="([^"]+)"', tag)
+    )
+    assert fields == ["contact_label", "send_label"], openers
     # And the top bar, which the artifact says must keep working, is still
     # the other opener contact_dialog.html binds.
     assert "header-contact" in v2_html
 
 
-def test_v2s_contact_form_carries_consent_a_link_and_two_named_slots(v2_html):
-    """The same four claims tests/test_messages.py makes of V1's form.
+def test_v2s_footer_carries_the_privacy_link(v2_html):
+    """v2-cp-section-contact.footer.footer-right — "Address, a privacy link
+    and the admin link, separated by dots" — was unsatisfied: the footer
+    rendered the owner's copyright line and the Ylläpito link and nothing
+    else.
 
-    Asked again here rather than inherited, because a second template is a
-    second place each of them can go missing and nothing raises when one
-    does: the form simply stops being able to send, or sends without the
-    consent the server demands and is refused every time.
+    Half of that address is now met. It is asserted here because the card's
+    own Tietosuojaseloste link went with the deleted form, and a visitor who
+    never opens the contact dialog would otherwise have no way to reach the
+    privacy statement at all. Scoped to the <footer>: the dialog's consent row
+    carries a .gdpr-open of its own, so a document-wide check would be
+    satisfied by that one.
+
+    Still unmet and reported rather than faked: the street address, and the
+    dot separators.
     """
-    match = re.search(
-        r'<form[^>]*class="[^"]*contact-form[^"]*"[^>]*>(.*?)</form>',
-        v2_html,
+    footer = re.search(r"<footer\b.*?</footer>", v2_html, re.DOTALL)
+    assert footer is not None, "no <footer> in the V2 document"
+    link = re.search(
+        r'<a[^>]*class="[^"]*\bgdpr-open\b[^"]*"[^>]*>(.*?)</a>',
+        footer.group(0),
         re.DOTALL,
     )
-    assert match is not None, "no .contact-form in the V2 document"
-    opening, body = match.group(0)[: match.group(0).index(">") + 1], match.group(1)
-
-    # No browser form post: the submission is JSON from the dialog's script,
-    # and an action would navigate the page away and lose that contract.
-    assert "action=" not in opening, opening
-    assert "method=" not in opening, opening
-
-    consent = re.search(r'<input[^>]*name="consent"[^>]*>', body)
-    assert consent is not None, "V2's inline form collects no consent"
-    assert 'type="checkbox"' in consent.group(0), consent.group(0)
-    assert 'class="gdpr-open"' in body, "V2's form opens no privacy statement"
-
-    for attribute in ("data-result", "data-error"):
-        named = re.search(rf'{attribute}="([^"]+)"', opening)
-        assert named is not None, attribute
-        assert f'id="{named.group(1)}"' in v2_html, (
-            f"{attribute} names an id nothing in the document answers to, so "
-            "a send reports neither success nor failure"
-        )
-
-
-def test_v2s_consent_sentence_is_the_dialogs_consent_sentence(v2_html):
-    """One promise, one string, on this skin too — and the same string the
-    V1 document carries, since both include the same dialog."""
-    inline = cd_text(v2_html, "contact-consent")
-    dialog = cd_text(v2_html, "cd-consent")
-    assert inline is not None, "no .contact-consent in the V2 document"
-    assert dialog is not None, "no .cd-consent in the V2 document"
-    assert inline.strip() == dialog.strip(), (inline, dialog)
+    assert link is not None, "no a.gdpr-open in the V2 footer"
+    assert link.group(1).strip() == "Tietosuojaseloste"
 
 
 def test_v2_serves_the_gdpr_dialog_hidden_and_names_the_endpoint_once(v2_html):

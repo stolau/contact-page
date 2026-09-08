@@ -39,7 +39,13 @@ from flask import render_template, template_rendered
 
 from app import db as database
 from app.fields import ANCHORS, FIELD_LABELS, FIELDS, NAV_LABELS, SECTION_NAMES
-from app.sections import badge, draft_sections, site_chrome, visible_sections
+from app.sections import (
+    badge,
+    contact_dialog_copy,
+    draft_sections,
+    site_chrome,
+    visible_sections,
+)
 from app.styles import (
     DEFAULT_STYLE,
     STYLE_CHOICES,
@@ -347,7 +353,7 @@ def test_the_section_row_module_names_the_v1_template(app, logged_in_admin):
 def direct_edit_context(app):
     """The context app/direct_edit.py hands its template, built the same way.
 
-    A copy of the route's own three loader calls, not a hand-written dict: a
+    A copy of the route's own loader calls, not a hand-written dict: a
     context invented here would let a template pass this test and still raise
     UndefinedError on the real route.
     """
@@ -355,6 +361,7 @@ def direct_edit_context(app):
     try:
         sections = draft_sections(conn)
         chrome = site_chrome(conn, "draft")
+        dialog_copy = contact_dialog_copy(conn, "draft")
     finally:
         conn.close()
     bootstrap = {
@@ -372,6 +379,7 @@ def direct_edit_context(app):
         section_names=SECTION_NAMES,
         bootstrap=bootstrap,
         **chrome,
+        **dialog_copy,
     )
 
 
@@ -461,7 +469,7 @@ def test_the_v1_public_template_names_no_style():
 def public_context(app):
     """The context app/__init__.py:render_page hands the public template.
 
-    A copy of the route's own two loader calls, for the same reason
+    A copy of the route's own loader calls, for the same reason
     direct_edit_context above is one: a context invented here would let a
     template pass this test and still raise UndefinedError on the real route.
     """
@@ -472,6 +480,7 @@ def public_context(app):
             nav_labels=NAV_LABELS,
             anchors=ANCHORS,
             **site_chrome(conn),
+            **contact_dialog_copy(conn),
         )
     finally:
         conn.close()
