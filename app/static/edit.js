@@ -23,11 +23,10 @@
   var form = document.querySelector(".section-form");
   var sectionName = document.querySelector(".section-name");
   var sectionPosition = document.querySelector(".section-position");
-  var muotokuvaRow = document.querySelector(".muotokuva-row");
-  var vaihdaButton = document.querySelector(".vaihda-button");
-  var vaihdaInput = document.querySelector(".vaihda-input");
-  var poistaButton = document.querySelector(".poista-button");
-  var muotokuvaError = document.querySelector(".muotokuva-error");
+  // The picture rows are NOT queried here: there are two of them now
+  // (LLM-COP-30) and every control inside one is reached through the row it
+  // belongs to. See createImageRow below.
+  var kuvaRows = document.querySelectorAll(".kuva-row");
   var muutOsiotList = document.querySelector(".muut-osiot-list");
   var savedNote = document.querySelector(".draft-saved-note");
   var savedTime = document.querySelector(".saved-time");
@@ -224,8 +223,7 @@
     sectionName.textContent = NAMES[section.kind];
     sectionPosition.textContent =
       "Osio " + (index + 1) + " / " + sections.length;
-    muotokuvaRow.hidden = section.kind !== "hero";
-    refreshMuotokuva();
+    refreshImageRows(section.kind !== "hero");
     // The style mark's SOURCE changes with the open section — `draft` when
     // the hero is open, hero.payload otherwise — so switching sections owes
     // it a refresh even though the stored value did not move.
@@ -236,84 +234,111 @@
     highlightPreview();
   }
 
-  /* ---- muotokuva (LLM-COP-21) ---- */
+  /* ---- the picture rows (LLM-COP-21, two of them since LLM-COP-30) ---- */
 
-  // hero.portrait is in no form: it is a plain field deliberately absent
-  // from FIELD_LABELS, so the schema-driven builder never draws it. These
-  // two buttons are its only writers — Vaihda sets a reference, Poista
-  // clears it — and both then go through the ordinary save().
+  // hero.portrait and hero.background are in no form: both are plain fields
+  // deliberately absent from FIELD_LABELS, so the schema-driven builder
+  // never draws them. Each row's two buttons are its field's only writers —
+  // Vaihda sets a reference, Poista clears it — and both then go through the
+  // ordinary save().
   //
   // Errors do NOT go through showErrors: that maps every key through
-  // labelFor, and LABELS.hero.portrait is undefined by design, so the owner
-  // would read a raw "portrait: ..." key in an otherwise Finnish panel. The
-  // server's message is already Finnish and already actionable, so it goes
-  // verbatim into the row's own error element.
+  // labelFor, and LABELS.hero.portrait / .background are undefined by
+  // design, so the owner would read a raw "portrait: ..." key in an
+  // otherwise Finnish panel. The server's message is already Finnish and
+  // already actionable, so it goes verbatim into the row's own error
+  // element.
+  //
+  // ONE factory per row, and every control is queried WITHIN the row: the
+  // three control classes appear twice in the document now, so a
+  // document-wide query would silently take whichever came first in the DOM.
+  // Which field a row writes is the row's own data-field, so the order the
+  // two rows are written in edit.html is not load-bearing.
 
-  function refreshMuotokuva() {
-    var gone = !(draft && draft.portrait);
-    // Poista only exists for a section that actually has a picture. The
-    // attribute alone is enough: `.button[hidden] { display: none }` in
-    // edit.css gives it back its meaning against .button's own
-    // display: inline-block, the way sections.css and wizard.css do.
-    poistaButton.hidden = gone;
-    muotokuvaError.hidden = true;
-    muotokuvaError.textContent = "";
-  }
+  function createImageRow(row) {
+    var field = row.dataset.field;
+    var vaihdaButton = row.querySelector(".vaihda-button");
+    var vaihdaInput = row.querySelector(".vaihda-input");
+    var poistaButton = row.querySelector(".poista-button");
+    var error = row.querySelector(".kuva-error");
 
-  function showMuotokuvaError(message) {
-    muotokuvaError.textContent = message;
-    muotokuvaError.hidden = false;
-  }
+    function refresh() {
+      var gone = !(draft && draft[field]);
+      // Poista only exists for a section that actually has a picture. The
+      // attribute alone is enough: `.button[hidden] { display: none }` in
+      // edit.css gives it back its meaning against .button's own
+      // display: inline-block, the way sections.css and wizard.css do.
+      poistaButton.hidden = gone;
+      error.hidden = true;
+      error.textContent = "";
+    }
 
-  function setPortrait(ref) {
-    draft.portrait = ref;
-    return save().then(refreshMuotokuva);
-  }
+    function showError(message) {
+      error.textContent = message;
+      error.hidden = false;
+    }
 
-  vaihdaButton.addEventListener("click", function () {
-    vaihdaInput.click();
-  });
+    function setRef(ref) {
+      draft[field] = ref;
+      return save().then(refresh);
+    }
 
-  vaihdaInput.addEventListener("change", function () {
-    var file = vaihdaInput.files && vaihdaInput.files[0];
-    // Clearing the value lets the same file be chosen again after a
-    // refusal; without it the second pick fires no change event.
-    vaihdaInput.value = "";
-    if (!file) return;
-    refreshMuotokuva();
-    var body = new FormData();
-    body.append("kuva", file);
-    // Accept must be explicit. auth.require_admin compares the quality of
-    // application/json against text/html, and a bare fetch sends */*, so an
-    // expired session would answer a 302 to /yllapito rather than a 401 —
-    // fetch follows it and response.json() then throws on an HTML body.
-    // Content-Type is deliberately NOT set: the browser has to write the
-    // multipart boundary itself.
-    fetch("/api/kuvat", {
-      method: "POST",
-      headers: { "Accept": "application/json" },
-      body: body
-    }).then(function (response) {
-      if (response.status === 401) {
-        window.location = "/yllapito";
-        return;
-      }
-      return response.json().then(function (data) {
-        if (!response.ok) {
-          showMuotokuvaError(data.error || "Kuvan lähetys epäonnistui.");
+    vaihdaButton.addEventListener("click", function () {
+      vaihdaInput.click();
+    });
+
+    vaihdaInput.addEventListener("change", function () {
+      var file = vaihdaInput.files && vaihdaInput.files[0];
+      // Clearing the value lets the same file be chosen again after a
+      // refusal; without it the second pick fires no change event.
+      vaihdaInput.value = "";
+      if (!file) return;
+      refresh();
+      var body = new FormData();
+      body.append("kuva", file);
+      // Accept must be explicit. auth.require_admin compares the quality of
+      // application/json against text/html, and a bare fetch sends */*, so
+      // an expired session would answer a 302 to /yllapito rather than a 401
+      // — fetch follows it and response.json() then throws on an HTML body.
+      // Content-Type is deliberately NOT set: the browser has to write the
+      // multipart boundary itself.
+      fetch("/api/kuvat", {
+        method: "POST",
+        headers: { "Accept": "application/json" },
+        body: body
+      }).then(function (response) {
+        if (response.status === 401) {
+          window.location = "/yllapito";
           return;
         }
-        return setPortrait(data.ref);
+        return response.json().then(function (data) {
+          if (!response.ok) {
+            showError(data.error || "Kuvan lähetys epäonnistui.");
+            return;
+          }
+          return setRef(data.ref);
+        });
       });
     });
-  });
 
-  poistaButton.addEventListener("click", function () {
-    // This takes the picture off the page. The file follows on the save,
-    // through the count: it goes only when no section names the digest any
-    // more and the retention floor has passed (LLM-COP-27).
-    setPortrait("");
-  });
+    poistaButton.addEventListener("click", function () {
+      // This takes the picture off the page. The file follows on the save,
+      // through the count: it goes only when no section names the digest any
+      // more and the retention floor has passed (LLM-COP-27).
+      setRef("");
+    });
+
+    return { element: row, refresh: refresh };
+  }
+
+  var imageRows = Array.prototype.map.call(kuvaRows, createImageRow);
+
+  function refreshImageRows(hidden) {
+    imageRows.forEach(function (imageRow) {
+      if (hidden !== undefined) imageRow.element.hidden = hidden;
+      imageRow.refresh();
+    });
+  }
 
   /* ---- ulkoasu: the site-wide style (LLM-COP-22) ---- */
 
@@ -429,12 +454,13 @@
       draft = deepCopy(lastSaved);
       clearErrors();
       buildForm();
-      // Peruuta is the third writer of draft.portrait, after Vaihda and
-      // Poista, so it owes the same refresh. Without it: Poista, then a
+      // Peruuta is the third writer of each picture field, after Vaihda and
+      // Poista, so it owes them the same refresh. Without it: Poista, then a
       // failed save on some other field, then Peruuta — the picture is
       // back on the page but its Poista button is not, and the only way
-      // back is to leave the section and return.
-      refreshMuotokuva();
+      // back is to leave the section and return. No visibility argument:
+      // Peruuta cannot change which section is open.
+      refreshImageRows();
       // Same debt for the style: Peruuta is a writer of draft.style too,
       // through the hero-open branch of setStyle, so an optimistic mark left
       // by a failed style write has to go back with the rest of the draft.

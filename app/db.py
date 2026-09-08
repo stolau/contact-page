@@ -403,6 +403,70 @@ def _migration_8(conn):
             )
 
 
+def _migration_9(conn):
+    # hero.background / hero.background_alt (LLM-COP-30): the V2 skin's
+    # full-bleed hero photograph gets its own reference, so the hero band and
+    # the portrait circle are two pictures the owner sets independently.
+    #
+    # THE DEFAULT IS NOT A CONSTANT, and that is the point. _migration_8's
+    # rule above: every default is the value that reproduces the page the
+    # install rendered a moment before the upgrade. A V2 install rendered its
+    # full-bleed photograph FROM hero.portrait, so the value that reproduces
+    # that page is the row's own portrait — not "". Backfilling "" would
+    # blank the hero photograph of every deployed V2 site on deploy, which is
+    # the same class of harm as "" would have been for _migration_8's five
+    # section labels.
+    #
+    # It is copied on V1 rows too, which never render it. Not an oversight:
+    # hero.style is a value the owner can change from the panel's Ulkoasu tab
+    # at any time, so an owner who switches V1 -> V2 tomorrow must find their
+    # photograph already there. A style-conditional copy would hand them an
+    # empty hero band on the day they switch. The panel's Taustakuva row
+    # shows the reference on every hero whatever the style, so the owner can
+    # always clear it.
+    #
+    # Still a pure function of the stored text, and no app.fields or app.seed
+    # is imported — _migration_4's reason. Still injective on the set of
+    # stored texts: the output is the input plus two appended keys whose
+    # values are copies of keys already in it, so the input is recoverable by
+    # dropping the last two; no two distinct inputs collapse, and badge()
+    # cannot flip a Luonnos row to Julkaistu. setdefault APPENDS and does not
+    # overwrite, so key order still equals FIELDS["hero"] declaration order
+    # and a background the owner chose survives a re-run.
+    #
+    # All three columns in ONE pass by ONE pure function, so draft ==
+    # published before implies it after. previous_published is backfilled too
+    # — restore copies it verbatim into draft (app/sectionlist.py), and a
+    # short payload there would 400 the next save.
+    columns = ("draft", "published", "previous_published")
+    rows = conn.execute(
+        "SELECT id, draft, published, previous_published FROM sections"
+        " WHERE kind = 'hero'"
+    ).fetchall()
+    for row in rows:
+        # Indexed positionally: a migration must not depend on the caller
+        # having set sqlite3.Row (app/db.py:110-113).
+        section_id = row[0]
+        for offset, column in enumerate(columns, start=1):
+            text = row[offset]
+            if not text:
+                continue
+            payload = json.loads(text)
+            payload.setdefault("background", payload.get("portrait", ""))
+            payload.setdefault(
+                "background_alt", payload.get("portrait_alt", "")
+            )
+            new_text = json.dumps(payload, ensure_ascii=False)
+            # _migration_5's convention: a row already carrying the keys is
+            # byte-untouched by construction, not merely by luck.
+            if new_text == text:
+                continue
+            conn.execute(
+                f"UPDATE sections SET {column} = ? WHERE id = ?",
+                (new_text, section_id),
+            )
+
+
 MIGRATIONS = [
     _migration_1,
     _migration_2,
@@ -412,6 +476,7 @@ MIGRATIONS = [
     _migration_6,
     _migration_7,
     _migration_8,
+    _migration_9,
 ]
 
 

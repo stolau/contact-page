@@ -511,7 +511,7 @@ def test_the_owner_uploads_a_portrait_types_its_alt_text_and_both_go_public(
     is short-cut. The picture goes in through the real .vaihda-input, whose
     change handler (app/static/edit.js) performs the real POST /api/kuvat and
     then the real draft save. The alt text is TYPED into the panel row
-    labelled Kuvan tekstivastine — the row exists only because the key
+    labelled Muotokuvan tekstivastine — the row exists only because the key
     carries a FIELD_LABELS entry, and it is the only editor the value has,
     since an alt attribute is not a text node the in-place editor can reach.
     Julkaise is the real button and the real POST /api/publish. The public
@@ -548,15 +548,23 @@ def test_the_owner_uploads_a_portrait_types_its_alt_text_and_both_go_public(
     # PUT is what says the upload came back and was written — one wait for
     # both, and a failure to upload times out here rather than three
     # assertions later.
+    # BOTH selectors are scoped to .muotokuva-row since LLM-COP-30 put a
+    # second picture row in this panel. .vaihda-input now matches twice, and
+    # page-level selector methods are NOT strict in Playwright — set_input_files
+    # would silently take whichever row came first in the DOM and upload into
+    # the wrong field, failing as what reads like a product bug. The error
+    # element does not collide (the other row's is .taustakuva-error) but is
+    # scoped anyway, so this resolves to one element by the selector rather
+    # than by a naming convention stated nowhere in this file.
     with page.expect_response("**/api/sections/*/draft"):
-        page.set_input_files(".vaihda-input", str(picture))
-    expect(page.locator(".muotokuva-error")).to_be_hidden()
+        page.set_input_files(".muotokuva-row .vaihda-input", str(picture))
+    expect(page.locator(".muotokuva-row .muotokuva-error")).to_be_hidden()
 
     stored = hero_draft(live_app)["portrait"]
     assert len(stored) == 64, f"portrait is not a digest: {stored!r}"
 
     # The alt text, typed into the panel's own row.
-    panel_input(page, "Kuvan tekstivastine").fill(PORTRAIT_ALT)
+    panel_input(page, "Muotokuvan tekstivastine").fill(PORTRAIT_ALT)
     with page.expect_response("**/api/sections/*/draft"):
         page.clock.fast_forward("00:03")
     assert hero_draft(live_app)["portrait_alt"] == PORTRAIT_ALT
@@ -570,6 +578,187 @@ def test_the_owner_uploads_a_portrait_types_its_alt_text_and_both_go_public(
     expect(image).to_have_attribute("alt", PORTRAIT_ALT)
     assert portrait_is_loaded(public, "img.portrait-image")
     assert image.get_attribute("src") == f"/kuvat/{stored}"
+    public.close()
+
+
+# --- the hero's two pictures, on the owner's own path (LLM-COP-30) ---------
+
+# The second alt text. Ordinary Finnish prose describing a LANDSCAPE, so the
+# two strings could not be swapped without the swap reading as nonsense —
+# and asserted absent from app/ inside the test, so an attribute that matched
+# had to have come from what was typed.
+BACKGROUND_ALT = "Vastaanottohuone aamuvalossa, leveä näkymä ikkunasta"
+
+
+def test_the_owner_sets_two_different_hero_pictures_and_both_go_public(
+    page, expect, live_app, tmp_path
+):
+    """THE ARTIFACT'S OWN COMPLAINT, executable: the owner supplies TWO
+    pictures and the published V2 page shows two.
+
+    Before LLM-COP-30 the panel had one picture control and page_v2.html
+    painted that one reference twice — the full-bleed hero photograph and the
+    tietoa band's circle were the same image, and no owner could make them
+    differ. Every other test of this change asks part of that question of a
+    template, a payload or a column. This one asks the whole of it of a real
+    Chrome, on the path the owner actually walks, and the sentence it makes
+    executable is the last assertion: the two rendered srcs are not equal.
+
+    NOTHING IS SHORT-CUT. Both files go in through the real .vaihda-input,
+    whose change handler performs the real POST /api/kuvat and the real draft
+    save. Both alt texts are TYPED into the panel's own generated rows. The
+    skin is chosen with the real .tyyli-option, Julkaise is the real button
+    and the real POST /api/publish, and the public page is read in a SECOND
+    TAB so the panel is never reloaded and the publish is the only thing that
+    can have moved it.
+
+    THE TWO PICTURES ARE VISIBLY DIFFERENT — different sizes AND different
+    colours, so they are different bytes and therefore different digests.
+    /api/kuvat dedupes by content, so two identical PNGs would answer one ref
+    and this test could not tell the two bands apart at all; the colours are
+    what make the screenshots below legible as a fix rather than as a
+    coincidence.
+
+    EACH IMAGE IS ASSERTED AS A TRIPLE — src, alt and naturalWidth. src and
+    alt together are what make the two references distinguishable: a build
+    that fed the hero from portrait again puts the right alt beside the wrong
+    picture and fails a named line rather than an arithmetic one.
+    naturalWidth is the third, because an alt attribute on an image that
+    never loaded describes nothing (portrait_is_loaded, above).
+
+    The clock is frozen so the 2 s autosave debounce is a thing this test
+    advances deliberately rather than a race it runs against.
+    """
+    assert_absent_from_app(PORTRAIT_ALT)
+    assert_absent_from_app(BACKGROUND_ALT)
+    portrait_file = tmp_path / "muotokuva.png"
+    portrait_file.write_bytes(png_bytes(64, 64, (0x2E, 0x6F, 0x9E)))
+    background_file = tmp_path / "taustakuva.png"
+    background_file.write_bytes(png_bytes(96, 48, (0xC8, 0x78, 0x3C)))
+    assert portrait_file.read_bytes() != background_file.read_bytes()
+
+    page.goto(f"{live_app.base_url}/muokkaa")
+    freeze_clock(page)
+
+    # V2 first, through the real control: the hero band this whole artifact
+    # is about exists only on that skin, so nothing below would be about it
+    # otherwise. Choosing the style is a write, not a preference.
+    page.click('.panel-tab[data-tab="ulkoasu"]')
+    with page.expect_response("**/api/sections/*/draft"):
+        page.click('.tyyli-option[data-style="v2"]')
+    page.click('.panel-tab[data-tab="sisalto"]')
+
+    # Two picture rows, both visible on the hero. The background row's Poista
+    # is hidden while the field is empty — the same hidden-attribute rule the
+    # portrait row has always followed, asked of the new row so "it renders"
+    # is not mistaken for "it is wired".
+    portrait_row = page.locator('.kuva-row[data-field="portrait"]')
+    background_row = page.locator('.kuva-row[data-field="background"]')
+    expect(portrait_row).to_be_visible()
+    expect(background_row).to_be_visible()
+    expect(background_row.locator(".poista-button")).to_be_hidden()
+
+    # The rows belong to the hero and must leave with it. Asserted here
+    # because edit.js has always SET .hidden on the picture row while
+    # .muotokuva-row's author-origin `display: flex` beat the UA sheet's
+    # [hidden] { display: none } by origin, so the row was drawn on every
+    # section until LLM-COP-30 added .kuva-row[hidden]. Both rows are
+    # asserted still ATTACHED as well as not visible: to_be_hidden passes
+    # for an element that is not in the document at all, so the count is
+    # what makes "hidden" mean hidden rather than "never rendered".
+    open_a_section_that_is_not_the_hero(page, expect)
+    expect(page.locator(".kuva-row")).to_have_count(2)
+    expect(portrait_row).to_be_hidden()
+    expect(background_row).to_be_hidden()
+
+    # Muut osiot lists every section except the open one, in order, so with
+    # Tietoa open the hero is its FIRST row.
+    page.locator(".muut-osiot-list li").first.click()
+    expect(page.locator(".section-name")).to_have_text("Aloitusosio")
+    expect(portrait_row).to_be_visible()
+    expect(background_row).to_be_visible()
+
+    # --- the portrait: the person -----------------------------------------
+    #
+    # Scoped to its row. .vaihda-input matches TWICE in this document now,
+    # and page-level selector methods are not strict in Playwright, so an
+    # unscoped call would silently take whichever row came first in the DOM.
+    with page.expect_response("**/api/sections/*/draft"):
+        page.set_input_files(".muotokuva-row .vaihda-input", str(portrait_file))
+    expect(page.locator(".muotokuva-row .muotokuva-error")).to_be_hidden()
+
+    panel_input(page, "Muotokuvan tekstivastine").fill(PORTRAIT_ALT)
+    with page.expect_response("**/api/sections/*/draft"):
+        page.clock.fast_forward("00:03")
+
+    # --- the background: the photograph behind the hero card --------------
+    #
+    # Reached by data-field rather than by position, so a reordering of the
+    # two rows in edit.html cannot make this test upload into the other one.
+    with page.expect_response("**/api/sections/*/draft"):
+        page.set_input_files(
+            '.kuva-row[data-field="background"] .vaihda-input',
+            str(background_file),
+        )
+    expect(page.locator(".taustakuva-row .taustakuva-error")).to_be_hidden()
+    expect(background_row.locator(".poista-button")).to_be_visible()
+
+    panel_input(page, "Taustakuvan tekstivastine").fill(BACKGROUND_ALT)
+    with page.expect_response("**/api/sections/*/draft"):
+        page.clock.fast_forward("00:03")
+
+    # TWO REFERENCES, AND THEY DIFFER. This is the claim the panel had no way
+    # of making before this change: one control could only ever store one.
+    stored = hero_draft(live_app)
+    portrait_ref = stored["portrait"]
+    background_ref = stored["background"]
+    for name, ref in (("portrait", portrait_ref), ("background", background_ref)):
+        assert len(ref) == 64, f"{name} is not a digest: {ref!r}"
+        assert set(ref) <= set("0123456789abcdef"), f"{name}: {ref!r}"
+    assert portrait_ref != background_ref, (
+        "both rows stored the same digest, so the panel still has one picture"
+    )
+    assert stored["portrait_alt"] == PORTRAIT_ALT
+    assert stored["background_alt"] == BACKGROUND_ALT
+
+    # The panel with both rows populated, for a person who would rather look
+    # than read. tmp_path and nothing else: this test names no absolute path
+    # and nothing outside the repository, so it passes on any machine.
+    #
+    # Scrolled back to the picture rows first: fill() left the panel at its
+    # last text row, and a screenshot named "kaksi riviä" that does not show
+    # the two rows is a picture of nothing.
+    portrait_row.scroll_into_view_if_needed()
+    page.screenshot(
+        path=str(tmp_path / "cop30-paneeli-kaksi-riviä.png"), full_page=True
+    )
+
+    with page.expect_response("**/api/publish"):
+        page.click(".julkaise-button")
+
+    public = page.context.new_page()
+    public.goto(f"{live_app.base_url}/")
+    # The skin first, or nothing below is about V2.
+    expect(public.locator(V2_STYLESHEET)).to_have_count(1)
+
+    expected = {
+        "img.v2-hero-image": (background_ref, BACKGROUND_ALT),
+        ".v2-band-media img.portrait-image": (portrait_ref, PORTRAIT_ALT),
+    }
+    rendered = {}
+    for selector, (expected_ref, expected_alt) in expected.items():
+        image = public.locator(selector)
+        expect(image).to_have_attribute("alt", expected_alt)
+        assert portrait_is_loaded(public, selector), selector
+        rendered[selector] = image.get_attribute("src")
+        assert rendered[selector] == f"/kuvat/{expected_ref}", selector
+
+    # The author's sentence, executable: two pictures, not one drawn twice.
+    assert len(set(rendered.values())) == 2, rendered
+
+    public.screenshot(
+        path=str(tmp_path / "cop30-julkinen-v2.png"), full_page=True
+    )
     public.close()
 
 

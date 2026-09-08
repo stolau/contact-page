@@ -53,15 +53,25 @@ def test_style_carries_no_field_label():
     # The precedent, named so the shape is recognisable rather than a
     # one-off: portrait is the other declared-but-unlabelled hero field.
     assert FIELD_LABELS["hero"].get("portrait") is None
+    # And LLM-COP-30's hero.background takes the same shape for the same
+    # reason: it names an image slot, and the panel's Taustakuva row is its
+    # bespoke control. Labelling it would draw a text input the owner could
+    # type a digest into by hand.
+    assert FIELD_LABELS["hero"].get("background") is None
 
 
     # LLM-COP-25 appended a THIRD unlabelled-key candidate and deliberately
     # did not take it: hero.portrait_alt is declared AND labelled, because it
     # renders as an <img> alt attribute — no text node, so no in-place
     # editor — and the generated panel form is therefore its only editor.
-    # Asserted here so the two shapes stay distinguishable: portrait and
-    # style have bespoke controls, portrait_alt has none.
-    assert FIELD_LABELS["hero"]["portrait_alt"] == "Kuvan tekstivastine"
+    # LLM-COP-30's background_alt is the same shape again. Asserted here so
+    # the two shapes stay distinguishable: portrait, background and style
+    # have bespoke controls, the two alt texts have none.
+    #
+    # The label is "Muotokuvan", not "Kuvan": since LLM-COP-30 there are two
+    # pictures, and "the image's alt text" beside "Taustakuvan tekstivastine"
+    # would not say which image it meant.
+    assert FIELD_LABELS["hero"]["portrait_alt"] == "Muotokuvan tekstivastine"
 
 
 # The tail each kind's FIELDS entry must end with (LLM-COP-25). Named WHOLE
@@ -75,7 +85,18 @@ def test_style_carries_no_field_label():
 # owner's first save rewrite every stored payload of that kind and flip every
 # one of its badges to Luonnos. That is what this table pins.
 NEW_FIELD_TAILS = {
-    "hero": ["brand", "page_title", "footer", "style", "portrait_alt"],
+    "hero": [
+        "brand",
+        "page_title",
+        "footer",
+        "style",
+        "portrait_alt",
+        # LLM-COP-30, appended after portrait_alt for the same reason
+        # portrait_alt was appended after style: appending is the only
+        # position that does not rewrite every stored hero payload.
+        "background",
+        "background_alt",
+    ],
     "tietoa": ["nostolause", "leipäteksti", "facts", "section_label"],
     "palvelut": ["services", "more_label", "section_label"],
     "vastaanottoajat": ["days", "booking_note", "section_label"],
@@ -105,6 +126,10 @@ def test_the_new_keys_are_declared_last_in_their_kind(kind):
     "kind,name",
     [
         ("hero", "portrait_alt"),
+        # LLM-COP-30. Its sibling hero.background is deliberately NOT here:
+        # it names an image slot and carries no label, which is what
+        # test_the_style_field_is_declared_but_unlabelled asserts instead.
+        ("hero", "background_alt"),
         ("tietoa", "section_label"),
         ("palvelut", "section_label"),
         ("vastaanottoajat", "section_label"),
@@ -117,7 +142,7 @@ def test_the_new_keys_are_declared_last_in_their_kind(kind):
     ],
 )
 def test_every_new_key_is_a_labelled_plain_field(kind, name):
-    """All ten are plain fields WITH a label, and the label is what makes
+    """Every one is a plain field WITH a label, and the label is what makes
     them editable at all: section-form.js draws a field only if
     FIELD_LABELS names it, so a declared-but-unlabelled key is a key the
     owner has no way to set and a migration has to backfill anyway."""

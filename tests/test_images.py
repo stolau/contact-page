@@ -1167,39 +1167,81 @@ def test_an_uploaded_portrait_carries_its_alt_text_into_both_skins(
     both skins actually emit, which no browser test covers for V1 and V2 in
     one place.
 
-    THREE <img> SITES, and the count is the point. V1 draws the portrait
-    once; V2 draws the same stored reference twice — the full-bleed hero
-    photograph and the tietoa band's portrait circle, which is fed by the
-    namespace hack at the bottom of page_v2.html rather than by the section
-    that stores it. That second site is the one an alt-text change can
-    silently miss.
+    THREE <img> SITES, and the count is the point — but the count is no
+    longer of ONE reference. Until LLM-COP-30 V2 drew the same stored
+    portrait twice, and this test asserted `== 2` to say so. It now draws two
+    DIFFERENT pictures: hero.background is the full-bleed photograph, read
+    inside the hero macro, and hero.portrait is the person, hoisted out of
+    the hero row by the namespace pass at the bottom of page_v2.html for the
+    tietoa band's circle. So each pair appears exactly once on V2, and V1 —
+    which renders neither background key — still draws the portrait alone.
+
+    Each src is asserted NEXT TO its own alt, which is what makes the two
+    references distinguishable at all: a build that fed the hero from
+    portrait again would put the portrait's src beside the portrait's alt
+    twice and fail both `== 1`s below.
     """
     alt = "Hymyilevä henkilö ikkunan ääressä, mustavalkoinen valokuva"
+    background_alt = "Vastaanottohuone aamuvalossa, leveä maisemakuva"
     assert_absent_from_app(alt)
+    assert_absent_from_app(background_alt)
 
     picture = _png(48, 48)
     response = upload(logged_in_admin, picture, filename="muotokuva.png")
     assert response.status_code == 200, response.get_data(as_text=True)
     ref = response.get_json()["ref"]
 
-    save_draft(logged_in_admin, app, "hero", portrait=ref, portrait_alt=alt)
+    # A different size, so genuinely different bytes and a genuinely
+    # different digest — the upload route dedupes by content, so a second
+    # _png(48, 48) would answer the first one's ref and prove nothing.
+    background_picture = _png(52, 40)
+    response = upload(
+        logged_in_admin, background_picture, filename="taustakuva.png"
+    )
+    assert response.status_code == 200, response.get_data(as_text=True)
+    background_ref = response.get_json()["ref"]
+    assert background_ref != ref
+
+    save_draft(
+        logged_in_admin,
+        app,
+        "hero",
+        portrait=ref,
+        portrait_alt=alt,
+        background=background_ref,
+        background_alt=background_alt,
+    )
     publish_all(logged_in_admin)
 
     v1 = render_public(app, V1_TEMPLATE)
     v2 = render_public(app, V2_TEMPLATE)
     assert f'src="/kuvat/{ref}" alt="{alt}"' in v1
-    assert v2.count(f'src="/kuvat/{ref}" alt="{alt}"') == 2, v2.count(
+    # V1 renders neither background key, so the second picture must not
+    # appear on it at all — this is the "V1's served bytes do not move" claim
+    # asked of the rendered document rather than of the template's diff.
+    assert background_ref not in v1
+    assert background_alt not in v1
+
+    assert v2.count(f'src="/kuvat/{ref}" alt="{alt}"') == 1, v2.count(
         f'alt="{alt}"'
     )
-    # No empty alt is left behind on either skin: a second <img> still
-    # carrying alt="" would be the half-done edit this counts against.
+    assert v2.count(
+        f'src="/kuvat/{background_ref}" alt="{background_alt}"'
+    ) == 1, v2.count(f'alt="{background_alt}"')
+    # No empty alt is left behind on either skin: an <img> still carrying
+    # alt="" would be the half-done edit this counts against.
     assert 'alt=""' not in v1
     assert 'alt=""' not in v2
 
-    # The bytes behind that src are the bytes that were uploaded.
+    # The bytes behind each src are the bytes that were uploaded.
     served = fetch(app, ref)
     assert served.status_code == 200
     assert served.get_data() == picture
+    assert served.headers["Content-Type"] == "image/png"
+
+    served = fetch(app, background_ref)
+    assert served.status_code == 200
+    assert served.get_data() == background_picture
     assert served.headers["Content-Type"] == "image/png"
 
 
@@ -1535,6 +1577,102 @@ def test_publishing_past_a_previous_version_collects_only_what_nothing_names(
         assert surviving in digests_in_store(app)
         assert os.path.isfile(stored_path(app, surviving))
         assert fetch(app, surviving).status_code == 200
+
+
+def test_a_digest_named_only_by_the_hero_background_survives_collection(
+    app, logged_in_admin
+):
+    """LLM-COP-30's regression guard, and the one _digests_from_rows' own
+    docstring asks for in as many words: "a field-specific extractor would
+    under-count silently the day a second image field exists, and that
+    deletes a live picture."
+
+    That day has arrived. hero.background is a second image reference, and
+    NOTHING in app/images.py was changed to teach the count about it — the
+    extractor scans the raw stored text and knows nothing about FIELDS. This
+    test is what turns "no change was needed" from an argument into a fact,
+    and it is the only test in the suite that would go red against a
+    field-aware extractor that still listed only `portrait`.
+
+    The picture is named ONLY by hero.background — portrait is left "" — so
+    an extractor that looked at portrait alone finds nothing, collects the
+    row and the file, and the owner's hero photograph disappears from a page
+    that is still asking for it.
+
+    An aged orphan is collected in the same call, so "the picture survived"
+    cannot be true of a collector that did nothing at all. Both digests are
+    aged, per this section's convention, so the difference between them is
+    the COUNT and never the retention floor.
+    """
+    kept = upload(logged_in_admin, PICTURE_X).get_json()["ref"]
+    save_draft(logged_in_admin, app, "hero", background=kept)
+    orphan = upload(logged_in_admin, PICTURE_Y).get_json()["ref"]
+    age(app, kept)
+    age(app, orphan)
+
+    # The precondition, per column and per kind: the ONLY thing that names
+    # this digest anywhere in the store is hero.background.
+    hero = json.loads(section_row(app, "hero")["draft"])
+    assert hero["portrait"] == ""
+    assert hero["background"] == kept
+    for row in section_rows(app):
+        for column in ("draft", "published", "previous_published"):
+            here = kept in (row[column] or "")
+            expected = row["kind"] == "hero" and column == "draft"
+            assert here is expected, f"{row['kind']}.{column} names it: {here}"
+    assert kept in referenced_now(app)
+    assert orphan not in referenced_now(app)
+
+    assert collect(app) == [orphan]
+
+    # The row, the file and the served bytes — three separate ways for a
+    # collection to have happened, and the picture has to survive all three.
+    assert kept in digests_in_store(app)
+    assert os.path.isfile(stored_path(app, kept))
+    assert fetch(app, kept).status_code == 200
+    # ...and the collector really did run.
+    assert orphan not in digests_in_store(app)
+    assert not os.path.isfile(stored_path(app, orphan))
+
+
+def test_a_background_survives_publish_and_the_previous_version(
+    app, logged_in_admin
+):
+    """The second half of the same claim, across the two columns a draft
+    assertion cannot reach.
+
+    The shape portrait_pushed_into_previous_published already uses, driven on
+    hero.background instead: X goes in and is published, Y replaces it and is
+    published, so the hero ends at draft = published = Y with X surviving
+    only in previous_published. Palauta edellinen versio restores from that
+    column, so X is still reachable and must still be on disk — and every
+    route that saves or publishes sweeps the collector on its way out, so
+    each of those calls is a chance for a field-aware count to have destroyed
+    it silently.
+
+    Both digests are aged the moment they are uploaded, so every verdict here
+    is the count's doing and none of it is the retention floor's.
+    """
+    x = upload_aged(app, logged_in_admin, PICTURE_X)
+    save_draft(logged_in_admin, app, "hero", background=x)
+    publish_all(logged_in_admin)
+
+    y = upload_aged(app, logged_in_admin, PICTURE_Y)
+    save_draft(logged_in_admin, app, "hero", background=y)
+    publish_all(logged_in_admin)
+
+    hero = section_row(app, "hero")
+    assert x not in hero["draft"]
+    assert x not in hero["published"]
+    assert x in hero["previous_published"]
+    assert json.loads(hero["published"])["background"] == y
+
+    assert collect(app) == []
+    for surviving in (x, y):
+        assert surviving in referenced_now(app), surviving
+        assert surviving in digests_in_store(app), surviving
+        assert os.path.isfile(stored_path(app, surviving)), surviving
+        assert fetch(app, surviving).status_code == 200, surviving
 
 
 def test_two_sections_sharing_a_digest_survive_one_removing_it(

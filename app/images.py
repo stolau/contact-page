@@ -98,8 +98,9 @@ MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 
 # A digest POST /api/kuvat has just answered is never eligible for
 # collection for this long, whatever the count says. The write that names an
-# upload lands AFTER the upload has responded — the panel writes
-# draft.portrait in the response's .then — so without this floor an autosave
+# upload lands AFTER the upload has responded — the panel writes the picture
+# row's own field, draft.portrait or draft.background, in the response's
+# .then — so without this floor an autosave
 # that fires in that window collects the picture the owner is placing. The
 # upload route refreshes uploads.created_at on conflict so this holds for a
 # deduped re-upload too: the row records the last time the digest was handed
@@ -118,9 +119,10 @@ DIGEST_PATTERN = re.compile(r"[0-9a-f]{64}")
 SERVE_ALLOWLIST = {"image/png": "png", "image/jpeg": "jpg"}
 
 # Finnish, and actionable: each one tells the owner what to do next. They
-# are shown verbatim in the panel's .muotokuva-error element rather than
-# through showErrors, because hero.portrait has no FIELD_LABELS entry and
-# would surface there as a raw key (app/fields.py).
+# are shown verbatim in the failing picture row's own error element
+# (.muotokuva-error or .taustakuva-error) rather than through showErrors,
+# because neither hero.portrait nor hero.background has a FIELD_LABELS entry
+# and either would surface there as a raw key (app/fields.py).
 MESSAGES = {
     "too_large": "Kuva on liian suuri: enintään 5 Mt.",
     "empty": "Kuvaa ei vastaanotettu — lähetä tiedosto uudelleen.",

@@ -58,6 +58,11 @@ SEED_SECTIONS = [
             # nothing to describe. Alt text for a picture that does not exist
             # would be an invented description.
             "portrait_alt": "",
+            # The V2 hero photograph (LLM-COP-30), and the same reasoning
+            # twice over: the seed ships no picture here either, so both the
+            # reference and its description are "".
+            "background": "",
+            "background_alt": "",
         },
     ),
     (
