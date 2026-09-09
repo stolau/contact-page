@@ -17,10 +17,11 @@ False politely and raise nothing — MEASURED, not assumed. Dropping the
 isinstance from resolve_shape would therefore not change the answer for any
 plain JSON value a store can hold.
 
-    (app/shapes.py's own docstring currently repeats app/styles.py's
-    sentence verbatim, tuple and all. The claim is false of a tuple. The
-    guard is still right to be there — see below — but not for the reason
-    written beside it, and this file does not repeat the claim.)
+    (An earlier draft of app/shapes.py's docstring repeated app/styles.py's
+    sentence verbatim, tuple and all, and the claim is false of a tuple.
+    That docstring now says so itself and names the tuple-vs-dict
+    difference; this file measures it rather than restating it, so the two
+    cannot drift back apart.)
 
 So the guard is load-bearing for two things, and both are tested:
 
@@ -38,9 +39,11 @@ So the guard is load-bearing for two things, and both are tested:
 
 THE JINJA Undefined CASE IS NOT DECORATIVE either. page_v2.html hands this
 filter `p.image_shape` for whichever band it is drawing, and Jinja answers
-Undefined for a payload that has no such key — a pre-migration row, a
-hand-written one, or a kind that declares no picture at all. The default
-Undefined compares False and survives the scan; StrictUndefined does not.
+Undefined for a payload that has no such key — a pre-migration row or a
+hand-written one. NOT a kind that declares no picture: the filter lives
+inside portrait_slot, and only tietoa and the three prose bands call that
+macro, all of which declare the field. The default Undefined compares
+False and survives the scan; StrictUndefined does not.
 app/images.py's image_url carries the same guard for the same family of
 reasons (tests/test_images.py pins it there).
 
@@ -229,8 +232,10 @@ def test_a_jinja_undefined_resolves_to_the_circle_rather_than_raising():
     Undefined is not a str — so this is the exact value that would have
     raised. Every band in page_v2.html passes its own payload's key through
     this filter, and a store between the deploy and the migration has none of
-    them; so does blank_payload's preview of a kind, and so does any row a
-    person wrote by hand.
+    them; so does any row a person wrote by hand. NOT blank_payload, which
+    is the one caller that cannot produce an Undefined: it emits every
+    declared field at "" precisely so a preview card cannot raise
+    UndefinedError (app/summary.py).
 
     The default Undefined compares False rather than raising, so this one
     would pass without the guard; its stricter sibling would not, and that is

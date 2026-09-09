@@ -75,10 +75,19 @@ def resolve_shape(value):
         rather than a 500 on the public page.
       - it survives an operand whose __eq__ raises. A linear scan CALLS
         __eq__ on the stored value, and Jinja's StrictUndefined raises from
-        every operator it defines. This filter really does meet an
-        Undefined: a band whose kind declares no image_shape passes one
-        straight in, and page_v2.html hands section.payload.image to
-        image_url on hero and yhteydenotto for the same reason.
+        every operator it defines.
+
+        WHERE AN UNDEFINED ACTUALLY COMES FROM, stated precisely because
+        the plausible answer is the wrong one: NOT from a kind that
+        declares no image_shape. This filter is applied only inside
+        portrait_slot (app/templates/page_v2.html), and portrait_slot's
+        only callers are tietoa and prose_band from palvelut,
+        vastaanottoajat and sijainti — every one of them a kind that
+        declares the field. hero and yhteydenotto never call the macro, so
+        they never reach this filter at all (what they do reach is
+        image_url, which type-guards for its own reason). The reachable
+        source is a PAYLOAD SHORT THE KEY: a row written before
+        _migration_14, or one a hand-written client stored.
 
     Nothing the app itself writes reaches either case — validate_payload
     admits only str for a plain field — but the store is not the app's

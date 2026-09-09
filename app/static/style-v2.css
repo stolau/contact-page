@@ -430,7 +430,15 @@ h1, h2 { font-family: var(--v2-serif); color: var(--v2-ink); font-weight: 400; }
 /* The square crop (LLM-COP-28). The band's stored image_shape resolves to
    `circle` or `square` (app/shapes.py) and page_v2.html puts the answer in
    the class, so the circle above stays the default and needs no class of its
-   own — which is what keeps every existing document byte-identical.
+   own.
+
+   THAT DOES NOT KEEP THE DOCUMENT BYTE-IDENTICAL, and an earlier draft of
+   this comment claimed it did. portrait_slot now emits `class="portrait
+   circle …"` where it emitted `class="portrait …"`, so every V2 document's
+   bytes moved and tests/test_page_v2.py asserts the new string. What is
+   preserved is the RENDERING: no `.portrait.circle` rule exists, the radius
+   still lives on bare `.portrait`, so a stored "" or "circle" paints exactly
+   what it painted before.
 
    0, not a soft radius: the designs say "Square", and an invented corner
    radius would be an invented design. The dashed inner ring follows the

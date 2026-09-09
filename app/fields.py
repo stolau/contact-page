@@ -71,8 +71,19 @@ FIELDS = {
         "portrait_alt": {"type": "plain"},
         # The V2 skin's full-bleed hero photograph and its alt text
         # (LLM-COP-30). A SECOND image reference: hero.portrait stays the
-        # person — the circular portrait the tietoa band draws on both skins
-        # — and this one is the picture behind the hero card. The V1 template
+        # person and this one is the picture behind the hero card.
+        #
+        # WHICH SKIN DRAWS THE PERSON CHANGED IN LLM-COP-28, and this
+        # comment used to say the tietoa band drew hero.portrait "on both
+        # skins". It no longer does. V2's editorial bands each carry their
+        # own picture now, so that band draws tietoa.image and hero.portrait
+        # renders on V1's hero card alone — see the image/image_alt/
+        # image_shape block on tietoa below, and _migration_14, which copied
+        # the one into the other without clearing this one. The panel keeps
+        # showing BOTH hero picture rows on both skins, deliberately: a
+        # digest sitting in hero.portrait is a live reference either way
+        # (app/images.py counts raw text), and that row is the only control
+        # that can clear it. The V1 template
         # renders neither key, and _migration_9 backfills both from portrait
         # anyway, so an owner who switches skins finds their photograph
         # already there. background carries no FIELD_LABELS entry, the

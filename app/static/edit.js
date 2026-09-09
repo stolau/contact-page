@@ -23,9 +23,10 @@
   var form = document.querySelector(".section-form");
   var sectionName = document.querySelector(".section-name");
   var sectionPosition = document.querySelector(".section-position");
-  // The picture rows are NOT queried here: there are two of them now
-  // (LLM-COP-30) and every control inside one is reached through the row it
-  // belongs to. See createImageRow below.
+  // The picture rows are NOT queried here: there are THREE of them now —
+  // the hero's two (LLM-COP-30) and every editorial band's own
+  // (LLM-COP-28) — and every control inside one is reached through the row
+  // it belongs to. See createImageRow below.
   var kuvaRows = document.querySelectorAll(".kuva-row");
   var ilmoitusRow = document.querySelector(".ilmoitus-row");
   var ilmoitusToggle = document.querySelector(".ilmoitus-toggle");
