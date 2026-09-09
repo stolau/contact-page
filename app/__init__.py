@@ -58,6 +58,66 @@ def _looks_like_a_totp_code(code):
     )
 
 
+def _data_path(name, default):
+    """One data path: the environment if it names one, else the default.
+
+    A bare, unprefixed name read with os.environ.get — the shape
+    app/auth.py:80 (TRUSTED_PROXY) and app/messages.py's mail settings
+    already use, and the name an operator actually types. Flask's own
+    config.from_prefixed_env() is one line and idiomatic, and is rejected
+    because it binds FLASK_DATABASE rather than DATABASE, so the command
+    that found this gap would still be read by nobody; it also runs every
+    value through json.loads, so DATABASE=1234 would land in app.config as
+    an int and die later in a TypeError naming neither the variable nor
+    the path.
+
+    Empty is unset. An exported-but-empty DATABASE= is a shell accident,
+    and sqlite3.connect("") quietly opens a private on-disk temporary
+    database — the blank-site symptom this exists to remove.
+
+    abspath on the environment branch ONLY, so the default strings stay
+    byte-identical to what shipped. Each route opens its own connection,
+    so a relative path would otherwise be re-resolved against whatever the
+    process's working directory happens to be at that moment — and it is
+    also the path the startup line prints.
+
+    Returns (path, where it came from).
+    """
+    value = os.environ.get(name)
+    if value:
+        return os.path.abspath(value), "environment"
+    return default, "default"
+
+
+def _require_existing_parent(name, path):
+    """The environment may say where the data goes inside a directory that
+    already exists; it may not create the directory tree.
+
+    Deliberately not os.makedirs(os.path.dirname(path), exist_ok=True).
+    Under recursive creation a mistyped value (DATABASE=/srv/dta/...) or a
+    persistent volume that failed to mount both look like a successful
+    start: a new tree, a freshly seeded database, and a blank site served
+    onto ephemeral disk that is thrown away on the next restart. That is
+    the exact failure reading the environment exists to remove. Refusing
+    costs one mkdir -p, once, when a deployment path is genuinely new.
+
+    ValueError is the repo idiom for "the value you gave is wrong"
+    (app/sections.py:91, app/palette.py:202). flask.cli.find_best_app
+    catches only TypeError, so under `flask --app app run` this surfaces
+    as a traceback ending in this message rather than one clean line;
+    accepted, because the message is the last thing printed and the
+    in-process callers of create_app can assert on the exception.
+    """
+    parent = os.path.dirname(path)
+    if not os.path.isdir(parent):
+        raise ValueError(
+            f"{name}={path} names a directory that does not exist: "
+            f"{parent}. Create it, or point {name} somewhere that "
+            "exists — this app does not create data directories it was "
+            "not told to create."
+        )
+
+
 def create_app(instance_path=None):
     app = Flask(__name__, instance_path=instance_path)
     # Keep |tojson in declaration order: the edit panel draws a section's
@@ -72,17 +132,47 @@ def create_app(instance_path=None):
     # for every Jinja environment in the process, ours or not.
     app.jinja_env.policies["json.dumps_kwargs"] = {"sort_keys": False}
     os.makedirs(app.instance_path, exist_ok=True)
-    app.config.setdefault(
+    database_path, database_source = _data_path(
         "DATABASE", os.path.join(app.instance_path, "site.sqlite3")
     )
     # Uploaded images live beside the database, under the instance
-    # directory: gitignored, and lost on redeploy exactly as the database
-    # is (README.md says so out loud). No app-wide MAX_CONTENT_LENGTH —
-    # the upload cap is per-request in app/images.py, so no other route's
-    # behaviour changes.
-    app.config.setdefault(
+    # directory unless UPLOAD_DIR names somewhere else: gitignored, and
+    # lost on redeploy exactly as the database is (README.md says so out
+    # loud). No app-wide MAX_CONTENT_LENGTH — the upload cap is
+    # per-request in app/images.py, so no other route's behaviour changes.
+    upload_dir, upload_source = _data_path(
         "UPLOAD_DIR", os.path.join(app.instance_path, "uploads")
     )
+    # setdefault rather than assignment: nothing sets either key before
+    # this point, so the two are equivalent today and this is the smaller
+    # diff against a "defaults must not change" promise.
+    app.config.setdefault("DATABASE", database_path)
+    app.config.setdefault("UPLOAD_DIR", upload_dir)
+    # WARNING and not INFO, and that is measured rather than assumed: this
+    # logger is logging.getLogger("app") — Flask(__name__) above, and
+    # __name__ here is "app" — at level NOTSET, inheriting WARNING from
+    # root, so under `flask --app app run` an INFO startup line is a line
+    # nobody ever sees. Naming the SOURCE, not just the path, is the cure
+    # for the misspelling trap: an operator who typed DATBASE= reads
+    # "(default)" and a path inside the checkout and knows in one line
+    # that their variable did not take. Two paths and nothing else — no
+    # secret goes into app.config, so none can reach this line.
+    app.logger.warning(
+        "data paths: DATABASE=%s (%s), UPLOAD_DIR=%s (%s)",
+        app.config["DATABASE"],
+        database_source,
+        app.config["UPLOAD_DIR"],
+        upload_source,
+    )
+    # Only where the value came from the environment: the defaults sit
+    # under app.instance_path, which the recursive makedirs above has
+    # already created, so this cannot move them. Checked before the
+    # makedirs below, so the check and not that makedirs is what decides
+    # UPLOAD_DIR's missing-parent case.
+    if database_source == "environment":
+        _require_existing_parent("DATABASE", app.config["DATABASE"])
+    if upload_source == "environment":
+        _require_existing_parent("UPLOAD_DIR", app.config["UPLOAD_DIR"])
     os.makedirs(app.config["UPLOAD_DIR"], exist_ok=True)
 
     conn = database.connect(app.config["DATABASE"])

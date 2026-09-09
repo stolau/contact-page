@@ -17,7 +17,39 @@ python3 -m venv .venv
 ```
 
 Open http://127.0.0.1:5000/. The database is created at `instance/site.sqlite3`
-on the first start.
+on the first start, unless `DATABASE` names another file.
+
+## Configuration
+
+Two environment variables say where this site's data lives. With neither set,
+a checkout behaves exactly as it always has — the defaults below are what
+`flask --app app run` has always used, so nothing needs to be set to run
+locally.
+
+| Variable | Meaning |
+| --- | --- |
+| `DATABASE` | The SQLite file to open. Default `instance/site.sqlite3` inside the checkout. |
+| `UPLOAD_DIR` | Where uploaded images are written. Default `instance/uploads/`. |
+
+Both are read once, when the app is built, and a relative value is resolved
+against the working directory at that moment. The resolved pair is logged as
+a warning at startup, each path followed by `(environment)` or `(default)`,
+so a misspelled variable name shows up in the log as a path inside the
+checkout instead of failing silently.
+
+**The directory a configured path sits in must already exist; the app will
+not create it for you.** `DATABASE=/srv/data/site.sqlite3` needs `/srv/data`
+to be there, and the app refuses to start — naming the variable, the path and
+the missing directory — if it is not. `UPLOAD_DIR=/srv/data/uploads` likewise
+needs `/srv/data`, and creates the `uploads` leaf itself. That is deliberate:
+creating the tree instead would make a mistyped path, or a persistent volume
+that failed to mount, look like a successful start serving a freshly seeded
+empty site.
+
+This is how the data survives a redeploy: point both at a persistent volume
+outside the checkout. The mail and proxy settings (`SMTP_*`, `MAIL_*`,
+`TRUSTED_PROXY`) are read per request rather than here, and are documented
+under Contact messages below.
 
 ## Admin account
 
@@ -114,9 +146,12 @@ payload carries only that digest, so drafts and publishes stay small.
 Four things about that storage are worth knowing before you rely on it:
 
 - **`instance/` is gitignored and is not backed up, so uploads are lost on
-  redeploy** — exactly as the database already is. Deletion below is
-  therefore irreversible, and everything about it is built to fail towards
-  keeping a file rather than losing one.
+  redeploy** — exactly as the database already is. That is true of the
+  default location only: set `UPLOAD_DIR` (and `DATABASE`) to a persistent
+  volume outside the checkout and both survive, which is what Configuration
+  above is for. Wherever they live, deletion below is therefore
+  irreversible, and everything about it is built to fail towards keeping a
+  file rather than losing one.
 - **A picture leaves when nothing names it any more.** Every digest is
   counted across the `draft`, `published` *and* `previous_published`
   payloads of every section, and the row and the file go together the moment

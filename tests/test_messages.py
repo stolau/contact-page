@@ -535,6 +535,10 @@ def assert_warning_captured(caplog):
     warn, caplog must actually be seeing the app's logger. Without this, a
     caplog that captured nothing at all would satisfy every assertion in
     assert_no_sentinel_logged."""
+    # create_app now warns at startup, but it runs in the `app` fixture's SETUP
+    # phase and caplog.records holds only the call phase — so that record does
+    # not reach here. A test that builds an app inside the call phase would get
+    # a free WARNING and satisfy this vacuously.
     assert any(
         record.levelno >= logging.WARNING for record in caplog.records
     ), "no warning was captured — the never-log assertions would prove nothing"
