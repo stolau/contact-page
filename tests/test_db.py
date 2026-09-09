@@ -10,7 +10,7 @@ from app.fields import FIELDS
 from app.sanitize import validate_payload
 from app.sections import badge
 from app.seed import SEED_SECTIONS
-from tests.conftest import PERSONA_PATTERN
+from tests.conftest import PERSONA_PATTERN, assert_absent_from_app
 
 
 def _schema_dump(c):
@@ -1398,6 +1398,358 @@ def test_migration_11_is_idempotent_byte_for_byte(tmp_path):
     database._migration_11(c)
 
     assert tuple(_hero_row(c)) == first
+    c.close()
+
+
+# --- migration 12: the button's name, and the availability notice ----------
+#     (USR-COP-4)
+#
+# The same fixture shape one era later, on a DIFFERENT KIND. Everything
+# migration 9's block above says about WHY these are frozen literals rather
+# than reads of FIELDS holds verbatim; only the era and the kind move.
+#
+# THE STANDING JOB, restated because migration 12 needs it more than any of
+# its predecessors did: every previous_published in
+# tests/test_prechange_upgrade.py's captured artifact is NULL, so nothing
+# there can reach the third column at all — and that artifact's send_label is
+# the OLD DEFAULT, so nothing there can reach the rename's guarded branch
+# either. Two branches, neither reachable from the capture, both live in
+# production the day this ships.
+
+
+# The words an owner is imagined to have typed on the button themselves.
+# Not any default this migration has, and asserted to appear nowhere under
+# app/ in the test that uses it — so "the migration left it alone" is a claim
+# about a value nothing in the product could have written.
+_CHOSEN_SEND_LABEL = "Varaa aika soittamalla"
+
+# The line an owner is imagined to have written, and the flag switched on.
+# Neither is a value migration 12 has a default for — both its defaults are
+# "" — so "setdefault, not assignment" is asserted against text no default
+# could produce.
+_CHOSEN_NOTICE = "Seuraavat ajat 03.2026 alussa"
+_NOTICE_ON = "on"
+
+
+def _v11_yhteydenotto_payload():
+    """A yhteydenotto payload as a user_version-11 store actually held one:
+    the five keys of the v7 era plus LLM-COP-25's five, and neither notice
+    key.
+
+    A FROZEN LITERAL by construction, for the reason _v3_hero_payload states
+    — it extends _V7_NON_HERO_PAYLOADS["yhteydenotto"], which is itself
+    frozen, with the five keys migration 8 appends to this kind, WRITTEN OUT
+    here rather than read from FIELDS. Reading them from the live schema
+    would hand migration 12 a row that already carried whatever the schema
+    grows next, and every assertion below would then pass against a migration
+    that did nothing — which is the defect _V7_NON_HERO_PAYLOADS' own comment
+    records having already been paid for once.
+
+    The five values are migration 8's own, not the seed's: "YHTEYDENOTTO" is
+    the kicker that migration turned from a template literal into stored
+    data, and the contact four were "" because they rendered nothing before
+    that upgrade.
+
+    Migrations 9, 10 and 11 appended nothing to this kind — 9 and 11 are
+    WHERE kind = 'hero' and 10 writes no payload at all — so a v8 payload and
+    a v11 payload of this kind are the same ten keys, and the name says the
+    era this fixture is USED at rather than the era it last grew in.
+    """
+    payload = copy.deepcopy(_V7_NON_HERO_PAYLOADS["yhteydenotto"])
+    payload["section_label"] = "YHTEYDENOTTO"
+    payload["phone"] = ""
+    payload["email"] = ""
+    payload["body"] = ""
+    payload["caveat"] = ""
+    return payload
+
+
+def _v11_database(path, previous=None, state="published", payload=None):
+    """A database at exactly version 11, with one yhteydenotto row —
+    migration 12's.
+
+    THE SLICE AND THE PRAGMA ARE EXPLICIT LITERALS, for the reason
+    _v10_database's docstring now spells out at length: a fixture written
+    relative to the head (MIGRATIONS[:-1], len(MIGRATIONS) - 1) stops
+    describing the version it names the moment another migration is
+    appended, and the failure mode is not always a red test — it can be a
+    green and vacuous one. A fixture that pins a version pins it as a
+    LITERAL. A thirteenth migration must leave these two numbers alone and
+    write its own _v12_database beside this one.
+    """
+    c = database.connect(str(path))
+    for migration in database.MIGRATIONS[:11]:
+        migration(c)
+    c.execute("PRAGMA user_version = 11")
+    text = json.dumps(payload or _v11_yhteydenotto_payload(), ensure_ascii=False)
+    c.execute(
+        "INSERT INTO sections (kind, position, state, draft, published,"
+        " previous_published) VALUES ('yhteydenotto', 1, ?, ?, ?, ?)",
+        (state, text, text, previous),
+    )
+    c.commit()
+    return c
+
+
+def _yhteydenotto_row(c):
+    return c.execute(
+        "SELECT state, draft, published, previous_published FROM sections"
+        " WHERE kind = 'yhteydenotto'"
+    ).fetchone()
+
+
+def test_migration_12_backfills_previous_published(tmp_path):
+    """The branch the captured install cannot reach, said of migration 12.
+
+    Palauta edellinen versio copies previous_published VERBATIM into draft
+    (app/sectionlist.py), so a payload short of a declared key there is not a
+    cosmetic gap: the owner restores a version and the very next save 400s,
+    with nothing on screen to explain why. The failure this pins is a
+    _migration_12 whose column tuple names only draft and published — which
+    would leave EVERY assertion in tests/test_prechange_upgrade.py green,
+    because every previous_published in that captured artifact is NULL and
+    badge() (app/sections.py) never reads that column at all. This is the
+    only place in the suite where that mutation is detectable, and it is
+    written down here so nobody moves the falsifier somewhere it cannot fail.
+
+    The older version carries the owner's own earlier thanks text, so the
+    third column is asked two things at once: that it gained the keys at all,
+    and that it gained them without losing what was already in it.
+    """
+    older = _v11_yhteydenotto_payload()
+    older[_OWNER_MARKER["yhteydenotto"]] = _RESTORABLE_MARKER
+    c = _v11_database(
+        tmp_path / "prev12.sqlite3",
+        previous=json.dumps(older, ensure_ascii=False),
+    )
+    before = _yhteydenotto_row(c)
+    assert badge(before["state"], before["draft"], before["published"]) == (
+        "Julkaistu"
+    )
+    # The premise: nothing here carries the new keys yet, so every assertion
+    # below is migration 12's doing and not the fixture's.
+    assert "notice_text" not in json.loads(before["previous_published"])
+    assert "notice_text" not in json.loads(before["draft"])
+
+    database.migrate(c)
+
+    row = _yhteydenotto_row(c)
+    previous = json.loads(row["previous_published"])
+    # The owner's own stored content is untouched...
+    assert previous[_OWNER_MARKER["yhteydenotto"]] == _RESTORABLE_MARKER
+    # ...but every declared key is there, in declaration order, so a restore
+    # followed by a save cannot 400.
+    assert list(previous) == list(FIELDS["yhteydenotto"])
+    assert validate_payload("yhteydenotto", previous)[1] == {}
+    # And restoring it really would store those exact bytes back: a payload
+    # that validates but re-serialises differently would flip the badge on
+    # the save after the restore.
+    clean, _errors = validate_payload("yhteydenotto", previous)
+    assert json.dumps(clean, ensure_ascii=False) == row["previous_published"]
+
+    # All THREE columns gained BOTH keys, in declaration order, and both are
+    # "" — which is what makes app/notice.py render nothing at all, so the
+    # upgraded install serves the page it served before.
+    for column in ("draft", "published", "previous_published"):
+        payload = json.loads(row[column])
+        assert payload["notice_text"] == "", column
+        assert payload["notice_on"] == "", column
+        assert list(payload)[-2:] == ["notice_text", "notice_on"], column
+        # ...and the rename reached all three too. previous_published is the
+        # column that matters here: a restore copies it into draft verbatim,
+        # so a third column still reading "Lähetä" would put the old word
+        # back on the owner's button the moment they restored a version.
+        assert payload["send_label"] == "Ota yhteyttä", column
+
+    # The other two columns moved together, so no badge moved with them.
+    assert row["draft"] == row["published"]
+    assert badge(row["state"], row["draft"], row["published"]) == "Julkaistu"
+    c.close()
+
+
+def test_migration_12_leaves_a_custom_send_label_alone(tmp_path):
+    """A store whose button ALREADY says the owner's own words is left saying
+    them, in all three columns.
+
+    THE SAFE-RENAME RULE at row level, and the branch an unguarded rewrite
+    would silently break: `payload["send_label"] = "Ota yhteyttä"` writes the
+    same bytes as the guarded rename on every row of the captured artifact —
+    where the stored value IS the old default — and takes this owner's words
+    off their live published page on the day the upgrade ships. The captured
+    install cannot ask the question at all, which is why it is asked here.
+
+    assert_absent_from_app is what makes the claim falsifiable rather than
+    decorative: if these words appeared anywhere under app/ the migration
+    might have a default that produced them, and "left alone" would be
+    indistinguishable from "written".
+
+    The row is NOT byte-untouched, and that is the difference between this
+    and test_migration_11_leaves_a_colour_the_owner_already_chose: migration
+    12 does two things, and only the rename is skipped here. The backfill
+    still runs, and it must, or this owner's next save would 400 on the two
+    missing keys. So the assertion is on the VALUE that survived and on the
+    keys that arrived, not on the bytes.
+    """
+    assert_absent_from_app(_CHOSEN_SEND_LABEL)
+    chosen = dict(_v11_yhteydenotto_payload(), send_label=_CHOSEN_SEND_LABEL)
+    older = dict(
+        chosen, **{_OWNER_MARKER["yhteydenotto"]: _RESTORABLE_MARKER}
+    )
+    c = _v11_database(
+        tmp_path / "chosen12.sqlite3",
+        previous=json.dumps(older, ensure_ascii=False),
+        payload=chosen,
+    )
+    before = _yhteydenotto_row(c)
+    before_badge = badge(
+        before["state"], before["draft"], before["published"]
+    )
+    assert before_badge == "Julkaistu"
+
+    database.migrate(c)
+
+    row = _yhteydenotto_row(c)
+    for column in ("draft", "published", "previous_published"):
+        payload = json.loads(row[column])
+        assert payload["send_label"] == _CHOSEN_SEND_LABEL, column
+        # The other half of the migration DID run on this very row: "left
+        # alone" must mean the rename was skipped, not that the row was.
+        assert payload["notice_text"] == "", column
+        assert payload["notice_on"] == "", column
+        assert list(payload) == list(FIELDS["yhteydenotto"]), column
+    # And the badge did not move, because both columns were rewritten by the
+    # same pure function of their own text.
+    assert row["draft"] == row["published"]
+    assert badge(row["state"], row["draft"], row["published"]) == before_badge
+    c.close()
+
+
+def test_migration_12_collapses_a_draft_that_already_says_the_new_default(
+    tmp_path,
+):
+    """MIGRATION 12 IS NOT INJECTIVE, and this is where that is PINNED rather
+    than discovered later by whoever the badge surprises.
+
+    _migration_5, _migration_8 and _migration_11 each earn an injectivity
+    claim the same way: the input is recoverable from the output, so two
+    distinct stored texts cannot collapse into one and badge() cannot turn a
+    Luonnos row into a Julkaistu one. Migration 12 CANNOT make that claim.
+    The rename maps "Lähetä" to "Ota yhteyttä" and leaves "Ota yhteyttä"
+    alone, so a row whose DRAFT already said the new words while its
+    PUBLISHED still said the old ones becomes equal in both columns, and its
+    badge moves Luonnos -> Julkaistu.
+
+    THIS IS ACCEPTED, NOT OVERLOOKED. It is not a lie the badge tells: after
+    the migration the two columns really ARE identical and the public page
+    really does show what the draft said, because the published column was
+    rewritten too — asserted below, because that is the whole difference
+    between a documented collapse and a silent one. The owner's unpublished
+    label edit is effectively adopted, but only where their edit was
+    byte-identical to the new default, and only to the same string every
+    other install gets anyway.
+
+    BOTH ALTERNATIVES ARE WORSE, which is the reason this one is taken:
+      - Rewriting draft alone keeps the row injective and flips EVERY site
+        in the world to Luonnos, inviting a publish nobody asked for. That
+        is the headline hazard the whole frozen-install suite exists for.
+      - A row-atomic rule — rename only if every non-NULL column holds the
+        old default — avoids the collapse and leaves a LIVE PUBLISHED PAGE
+        reading "Lähetä" on any row with a dirty draft. A button that lies
+        about what it does, on the public page, forever, is a different and
+        worse lie than a badge that became accurate early.
+
+    A future reader who thinks this test is describing a bug should read the
+    two bullets above before changing anything: this behaviour was reviewed
+    twice and kept deliberately. If it is ever changed, it is changed by
+    choosing one of those two, with their costs, and not by patching around
+    the collapse.
+    """
+    draft = dict(_v11_yhteydenotto_payload(), send_label="Ota yhteyttä")
+    published = _v11_yhteydenotto_payload()
+    assert published["send_label"] == "Lähetä"  # the frozen v7 value
+    draft_text = json.dumps(draft, ensure_ascii=False)
+    published_text = json.dumps(published, ensure_ascii=False)
+    # The two texts differ ONLY in that one field — so the collapse below is
+    # the rename's doing and not a fixture that was equal all along.
+    assert draft_text != published_text
+    assert draft_text.replace("Ota yhteyttä", "Lähetä") == published_text
+
+    c = _v11_database(tmp_path / "collapse12.sqlite3")
+    c.execute(
+        "UPDATE sections SET draft = ?, published = ?"
+        " WHERE kind = 'yhteydenotto'",
+        (draft_text, published_text),
+    )
+    c.commit()
+    before = _yhteydenotto_row(c)
+    assert badge(before["state"], before["draft"], before["published"]) == (
+        "Luonnos"
+    )
+
+    database.migrate(c)
+
+    row = _yhteydenotto_row(c)
+    # The collapse itself.
+    assert row["draft"] == row["published"]
+    assert badge(row["state"], row["draft"], row["published"]) == "Julkaistu"
+    # And the badge is TELLING THE TRUTH: the published column genuinely
+    # reads the new words now, so the public page shows what the badge
+    # claims is published. This is the assertion that separates an accepted
+    # collapse from a lie, and it is the one that would fail against an
+    # implementation that moved the badge without moving the page.
+    assert json.loads(row["published"])["send_label"] == "Ota yhteyttä"
+    assert json.loads(row["draft"])["send_label"] == "Ota yhteyttä"
+    # The backfill still ran on both columns, so the owner's next save works.
+    for column in ("draft", "published"):
+        payload = json.loads(row[column])
+        assert list(payload) == list(FIELDS["yhteydenotto"]), column
+        assert validate_payload("yhteydenotto", payload)[1] == {}, column
+    c.close()
+
+
+def test_migration_12_keeps_a_notice_the_owner_already_wrote(tmp_path):
+    """setdefault, not assignment, asked of the newest two keys.
+
+    The branch that matters when a store is migrated on a newer build's
+    data, and the one an ASSIGNMENT would silently break: `payload
+    ["notice_text"] = ""` writes the same bytes as setdefault on every row
+    that has no notice — which is every row in existence the day this ships —
+    and blanks this owner's line, and switches their notice off, on the next
+    upgrade. That is precisely the loss "switched off WITHOUT LOSING ITS
+    TEXT" exists to prevent, reinstated by the migration meant to deliver it.
+
+    Byte-equality of all three columns is what makes "the migration wrote
+    nothing" a claim about the stored text rather than about the parsed
+    payload — test_migration_11_leaves_a_colour_the_owner_already_chose's
+    form, and it holds here because this row needs neither half of the
+    migration: its send_label is already the new default and its notice keys
+    are already present.
+    """
+    assert_absent_from_app(_CHOSEN_NOTICE)
+    written = dict(
+        _v11_yhteydenotto_payload(),
+        send_label="Ota yhteyttä",
+        notice_text=_CHOSEN_NOTICE,
+        notice_on=_NOTICE_ON,
+    )
+    older = dict(
+        written, **{_OWNER_MARKER["yhteydenotto"]: _RESTORABLE_MARKER}
+    )
+    c = _v11_database(
+        tmp_path / "notice12.sqlite3",
+        previous=json.dumps(older, ensure_ascii=False),
+        payload=written,
+    )
+    before = tuple(_yhteydenotto_row(c))
+
+    database.migrate(c)
+
+    assert tuple(_yhteydenotto_row(c)) == before
+    row = _yhteydenotto_row(c)
+    for column in ("draft", "published", "previous_published"):
+        payload = json.loads(row[column])
+        assert payload["notice_text"] == _CHOSEN_NOTICE, column
+        assert payload["notice_on"] == _NOTICE_ON, column
     c.close()
 
 
