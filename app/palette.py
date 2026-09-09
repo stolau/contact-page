@@ -259,14 +259,14 @@ V1_SURFACES = ("#faf7f2", "#ffffff")
 #                            deliberately leaves unconstrained (below)
 #   :403 .portrait           #eceff1; its placeholder text is --v2-muted
 #   :426 .portrait.has-image `background: none` — the photograph itself
-#   :476 .v2-contact-card    --v2-navy; its one <a>, .gdpr-open, is
+#   :479 .v2-contact-card    --v2-navy; its one <a>, .gdpr-open, is
 #                            overridden to #c3d5e3 at :546, and its result
 #                            and error lines to #eaf2f8 / #ffb4a2
-#   :527 .v2-contact-form input/textarea  rgba(255,255,255,0.07); the field
+#   :533 .v2-contact-form input/textarea  rgba(255,255,255,0.07); the field
 #                            text is #eaf2f8
-#   :577 .v2-footer          --v2-navy-deep; its link is #b8cbdb at :597
+#   :583 .v2-footer          --v2-navy-deep; its link is #b8cbdb at :597
 #   :670 .v2-contact-band    `background: none` inside the phone breakpoint
-#   :688 .dialog-backdrop    the scrim — no text
+#   :691 .dialog-backdrop    the scrim — no text
 #
 # So the rust colour renders as text on --v2-page, --v2-card and --v2-tint,
 # and on nothing else.
