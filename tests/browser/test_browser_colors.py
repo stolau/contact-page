@@ -1283,16 +1283,25 @@ def test_the_v2_direct_edit_page_draws_no_author_outline_at_all(
     --accent-edge, which style-v2.css does not declare (it declares
     --v2-rust-edge; the same was true of --accent before this change). An
     undeclared custom property makes the `outline` shorthand invalid at
-    computed-value time, so outline-style computes to `none` and
-    outline-width to 0px — v2's direct-edit page has NO author focus ring,
-    and had none before this change either. Measured at 78d5d8e and again
-    here.
+    computed-value time, so outline-style computes to `none` — v2's
+    direct-edit page has NO author focus ring, and had none before this
+    change either. Measured at 78d5d8e and again here.
 
-    So the assertion is what is TRUE, not what ought to be: style `none`,
-    width `0px`. It is written to go RED the day somebody gives v2 a ring,
-    which is the only honest way to hold a defect open — and the ratio
-    assertion that would replace it is one line away. The screenshot is the
-    picture of the gap.
+    So the assertion is what is TRUE, not what ought to be. It is written to
+    go RED the day somebody gives v2 a ring, which is the only honest way to
+    hold a defect open — and the ratio assertion that would replace it is one
+    line away. The screenshot is the picture of the gap.
+
+    IT ASSERTS NOT-PAINTED, NOT A WIDTH LITERAL, and that distinction cost a
+    red CI run. `outline-width` is a UA-supplied value when the outline is
+    off: Chrome 142 collapses it to `0px`, Chrome 152 reports the UA default
+    `3px` and lets `outline-style: none` be the thing that suppresses the
+    ring. Both draw nothing. So `outlineWidth == "0px"` was a claim about a
+    browser VERSION rather than about whether a ring is painted, and it went
+    red on a Chrome upgrade with the product unchanged. The predicate here is
+    the exact negation of assert_painted's — style not none/hidden AND a
+    non-zero width — so it still fires the day v2 gains a real ring, which is
+    the whole point of the tripwire.
     """
     plant(live_app, "v2", accent="#ffe9a8")
     page.goto(f"{live_app.base_url}/muokkaa/sivu")
@@ -1300,9 +1309,14 @@ def test_the_v2_direct_edit_page_draws_no_author_outline_at_all(
     page.focus(DIRECT_FIELD)
     row = measure_edges(page, (DIRECT_ROW,))[DIRECT_FIELD]
     assert row["found"] and row["rendered"]
-    assert row["outlineStyle"] == "none" and row["outlineWidth"] == "0px", (
-        "v2's direct-edit page now draws an author focus ring. That is the "
-        "fix this test was written to notice: replace it with the 3:1 "
+    ring_is_painted = (
+        row["outlineStyle"] not in ("none", "hidden")
+        and float(row["outlineWidth"].rstrip("px")) > 0
+    )
+    assert not ring_is_painted, (
+        "v2's direct-edit page now draws an author focus ring "
+        f"({row['outlineWidth']} {row['outlineStyle']} {row['value']}). That "
+        "is the fix this test was written to notice: replace it with the 3:1 "
         "assertion test_the_direct_edit_focus_ring_reaches_three_to_one makes"
     )
     # And the chrome's own secondary buttons DO take the edge token on v2,
