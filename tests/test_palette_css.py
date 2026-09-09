@@ -1,6 +1,6 @@
-"""Source-text fences over the two stylesheets' half of USR-COP-2.
+"""Source-text fences over the stylesheets' half of USR-COP-2 and LLM-COP-40.
 
-app/palette.py writes eight `:root` declarations into a `<style>` block. That
+app/palette.py writes nine `:root` declarations into a `<style>` block. That
 block is worth nothing unless two things are true of the stylesheets, and
 neither is visible from Python's side of the change:
 
@@ -19,11 +19,17 @@ to, and which RULES read them. `--header-bg` declared `var(--card)` while
 `.site-header` still said `background: var(--card)` would pass every
 assertion in test_palette.py and ship a header the owner cannot colour.
 
+SINCE LLM-COP-40 A THIRD STYLESHEET IS READ. direct-edit.css declares none
+of these tokens and never could — it is loaded only by /muokkaa/sivu, after
+style.css, in the same document — but it READS one, at the editable
+affordance and the focus ring, so the "every rule that owns a visible colour
+references the token" half of the claim now reaches it.
+
 The walkers are imported from tests/test_direct_edit_css.py rather than
 copied. `_rules` and `_declarations` take any source; only `_css()` there is
 bound to direct-edit.css. That file's own docstring states the walker's
 limits — no nested CSS, no selector carrying a comma inside parentheses —
-and neither stylesheet read here uses either.
+and none of the three stylesheets read here uses either.
 
 WHAT THIS FILE CANNOT DO, said once: pytest paints nothing. Every assertion
 below is about the bytes that ship, never about a resolved pixel. The pixels
@@ -38,7 +44,7 @@ import pytest
 
 from tests.test_direct_edit_css import STATIC, _declarations, _rules
 
-# --- the eleven new tokens -------------------------------------------------
+# --- the thirteen new tokens -----------------------------------------------
 #
 # (stylesheet, token, the declared default, the literal it resolves to).
 #
@@ -72,6 +78,17 @@ NEW_TOKENS = (
     ("style-v2.css", "--v2-rust-ink", "#ffffff", "#ffffff"),
     ("style-v2.css", "--v2-rust-dark-ink", "#ffffff", "#ffffff"),
     ("style-v2.css", "--v2-rust-fg", "var(--v2-rust)", "#a8431c"),
+    # LLM-COP-40's two, and their fourth column has a DIFFERENT PROVENANCE
+    # from the eleven above. Those eleven replaced a declaration that already
+    # existed, so their frozen literal is the value that declaration carried.
+    # There was no --accent-edge or --v2-rust-edge before this change at all;
+    # what is frozen instead is the colour the RETARGETED SITES rendered at
+    # 78d5d8e — `git show 78d5d8e:app/static/style.css` --accent #1f6f5c and
+    # style-v2.css --v2-rust #a8431c, the raw values .button.secondary's
+    # border, the two card rules, the ::after bar and the direct-edit
+    # outlines all named directly before they were pointed at a token.
+    ("style.css", "--accent-edge", "var(--accent)", "#1f6f5c"),
+    ("style-v2.css", "--v2-rust-edge", "var(--v2-rust)", "#a8431c"),
 )
 
 # --- the retargeted rules --------------------------------------------------
@@ -127,6 +144,73 @@ RETARGETED = (
     ("style-v2.css", ".v2-hero-kicker", "color", "var(--v2-rust-fg)"),
     ("style-v2.css", ".v2-band-link", "color", "var(--v2-rust-fg)"),
     ("style-v2.css", ".password-show", "color", "var(--v2-rust-fg)"),
+    # LLM-COP-40 — the accent as an EDGE. Six rules, three stylesheets, and
+    # the selector of each is the NARROW one: `.button.secondary`, never the
+    # bare `.button` those two rules sit beside. NOT_RETARGETED below is the
+    # other half of that boundary.
+    ("style.css", ".button.secondary", "border-color", "var(--accent-edge)"),
+    ("style.css", ".fact-card", "border-top", "3px solid var(--accent-edge)"),
+    (
+        "style.css",
+        ".service-card",
+        "border-top",
+        "3px solid var(--accent-edge)",
+    ),
+    (
+        "style-v2.css",
+        ".button.secondary",
+        "border-color",
+        "var(--v2-rust-edge)",
+    ),
+    (
+        "style-v2.css",
+        ".v2-band-media-left .v2-section-label::after",
+        "background",
+        "var(--v2-rust-edge)",
+    ),
+    # direct-edit.css, which style.css loads before in the same document —
+    # so it reads --accent-edge and declares nothing. The idle affordance
+    # and the focus ring are separate rows because they are separate rules
+    # and only one of them is the STATE indicator SC 1.4.11 is really about.
+    (
+        "direct-edit.css",
+        "body.direct-edit [data-field]",
+        "outline",
+        "1px dashed var(--accent-edge)",
+    ),
+    (
+        "direct-edit.css",
+        "body.direct-edit [data-field]:focus",
+        "outline",
+        "2px solid var(--accent-edge)",
+    ),
+)
+
+# The border rules that KEEP the owner's raw colour, and must. Asserted as
+# the WHOLE list of values the property takes, so a second declaration added
+# later fails here rather than winning silently in the cascade.
+#
+# THIS IS A REGRESSION GUARD WITH A MEASURED PRICE ATTACHED. app/palette.py's
+# own site list used to call style.css:69 and style-v2.css:97
+# `.button.secondary`; they are the BARE `.button`, which the primary variant
+# inherits too. Retargeting them would have put the edge token on every
+# primary button's border. The v2 primary button's grounds are --v2-navy
+# #14324a on the contact card and --v2-header #d9e8f2 in the header, neither
+# of which is in V2_SURFACES; v1's sits on --paper, which IS in V1_SURFACES,
+# so the ground argument is v2's alone and the reason that covers both skins
+# is that the border equals its own fill. Measured: the navy card falls from
+# 11.0249:1 to 3.7287:1 for a pale pick and 4.8397:1 to 3.7691:1 for a mid
+# one, and the header reaches only 2.8386:1 — still short of the 3:1 the
+# retarget was for.
+NOT_RETARGETED = (
+    ("style.css", ".button", "border", ["1px solid var(--accent)"]),
+    ("style-v2.css", ".button", "border", ["1px solid var(--v2-rust)"]),
+    (
+        "style-v2.css",
+        ".button.primary:hover",
+        "border-color",
+        ["var(--v2-rust-dark)"],
+    ),
 )
 
 # The selectors whose ground the OWNER'S accent actually becomes, and which
@@ -195,7 +279,7 @@ def _values_for(filename, selector, prop):
     return found
 
 
-# --- the eleven new tokens -------------------------------------------------
+# --- the thirteen new tokens -----------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -228,19 +312,20 @@ def test_each_new_token_defaults_to_what_it_replaced(
     assert _resolve(root, declared) == literal
 
 
-def test_the_eleven_tokens_are_all_of_them():
-    """A count, so a twelfth token added without a row here is noticed.
+def test_the_thirteen_tokens_are_all_of_them():
+    """A count, so a fourteenth token added without a row here is noticed.
 
     Cheap and worth it: the failure this file exists to catch is a token
     nobody wired up, and a token nobody listed is the same mistake one step
-    earlier. The two numbers are 6 and 5 because V1 needed the --header-bg
-    split and V2 did not.
+    earlier. The two numbers are 7 and 6 — USR-COP-2's 6 and 5, where V1
+    needed the --header-bg split and V2 did not, plus one edge token each
+    from LLM-COP-40.
     """
     per_file = {}
     for filename, token, _, _ in NEW_TOKENS:
         per_file.setdefault(filename, []).append(token)
-    assert len(per_file["style.css"]) == 6
-    assert len(per_file["style-v2.css"]) == 5
+    assert len(per_file["style.css"]) == 7
+    assert len(per_file["style-v2.css"]) == 6
     for filename, tokens in per_file.items():
         declared = _root(filename)
         assert len(set(tokens)) == len(tokens)
@@ -304,6 +389,7 @@ def test_every_token_the_override_writes_is_read_by_some_rule(skin):
         "accent_ink",
         "accent_hover_ink",
         "accent_fg",
+        "accent_edge",
     ):
         token = ROLE_TOKENS[skin][role]
         assert f"var({token})" in rules_only, (skin, role, token)
@@ -355,3 +441,73 @@ def test_the_two_untouched_white_labels_are_still_there():
     assert _values_for("style-v2.css", ".v2-contact-kicker", "color") == [
         "#fff"
     ]
+
+
+# --- LLM-COP-40's boundary: the edges that must NOT move -------------------
+
+
+@pytest.mark.parametrize(
+    "filename,selector,prop,expected",
+    NOT_RETARGETED,
+    ids=[f"{f.split('.')[0]}-{s}-{p}" for f, s, p, _ in NOT_RETARGETED],
+)
+def test_the_button_borders_that_must_stay_the_owners_own_still_do(
+    filename, selector, prop, expected
+):
+    """THE REGRESSION GUARD FOR THE MISTAKE THIS CHANGE NEARLY MADE.
+
+    app/palette.py's enumeration of the unconstrained non-text sites named
+    style.css:69 and style-v2.css:97 as `.button.secondary`. They are the
+    BARE `.button` rule, which the primary variant inherits. A retarget aimed
+    at the site list as written would therefore have repainted every primary
+    button's border with the edge token — and the edge token is derived
+    against --paper/--card and --v2-page/--v2-card/--v2-tint, of which
+    neither of the v2 primary button's grounds is among them.
+
+    THE GROUND ARGUMENT IS V2'S ALONE, said precisely because the loose form
+    is false: V1's hero primary button sits on --paper #faf7f2, which IS in
+    V1_SURFACES. What excludes all three rules in both skins is the other
+    reason, and it holds everywhere — the border is byte-identical to the
+    fill, so it is no boundary, and contrast(x, x) is 1.0 for every colour
+    there is.
+
+    The measured cost of getting that wrong, which is why this test carries
+    numbers rather than an opinion: on --v2-navy #14324a the contact card's
+    button border falls from 11.0249:1 to 3.7287:1 for #ffe9a8 and from
+    4.8397:1 to 3.7691:1 for #66aa88 — a real degradation — and on
+    --v2-header #d9e8f2 the widened token reaches only 2.8386:1, so the
+    retarget would not even have bought the 3:1 it was for.
+
+    Asserted as the FULL list rather than `values[-1]`, unlike the retarget
+    rows above: here the claim is that no rule declares the property at all
+    beyond the one that always did, and a second declaration appended later
+    is exactly the shape of the change this is meant to catch.
+    """
+    assert _values_for(filename, selector, prop) == expected, (
+        f"{filename} `{selector}` no longer declares {prop} as {expected} — "
+        "if this was a deliberate widening of LLM-COP-40's retarget, these "
+        "borders are byte-identical to their own fill in both skins, and on "
+        "v2 they sit on grounds the surface tuple does not name"
+    )
+
+
+def test_the_hover_border_is_excluded_because_it_equals_its_own_fill():
+    """A NOTE, NOT A GUARD, and it says so — the same idiom as
+    test_the_two_untouched_white_labels_are_still_there above.
+
+    `.button.primary:hover` sets `border-color` and `background` to the same
+    token, so the border is not a boundary anyone perceives and
+    contrast(x, x) is 1.0 for every colour there is. An assertion that could
+    never pass is proof the site was misidentified, not proof of a defect —
+    which is why this rule is outside SC 1.4.11's scope and outside the
+    retarget.
+
+    If a later change gives that rule a border colour different from its
+    fill, this test still passes; it is not watching for that. What it does
+    buy is that the exclusion cannot be quietly deleted and then cited as
+    coverage: removing the rule fails this, and folding it into RETARGETED
+    fails test_the_button_borders_that_must_stay_the_owners_own_still_do.
+    """
+    fill = _values_for("style-v2.css", ".button.primary:hover", "background")
+    edge = _values_for("style-v2.css", ".button.primary:hover", "border-color")
+    assert fill == edge == ["var(--v2-rust-dark)"]

@@ -767,6 +767,796 @@ def test_a_chosen_palette_renders_and_is_photographed(
 # --- what a stored colour looks like on the wire ----------------------------
 
 
+# --- 6: LLM-COP-40, the accent as an EDGE -----------------------------------
+#
+# EVERYTHING BELOW IS ADDITIVE. Not one line of the text-site machinery above
+# is edited — measure, TEXT_SITES, HOVER_SITES, PHONE_SITES, LEGIBILITY_CASES
+# and every test that reads them are untouched, because "text contrast is
+# unchanged" is a claim this file has to be able to make about itself.
+#
+# THE ANTI-HAZARD, and it is the reason measure_edges exists rather than a
+# second call to measure. `border-*-color`'s initial value is `currentColor`,
+# and style.css declares `--accent-fg: var(--accent)` — so an element that
+# renders accent-coloured TEXT and draws NO border at all computes
+# borderTopColor as the shipped accent. Measured in Chrome on this very page:
+# `.section-kicker` returns rgb(31, 111, 92) with nothing chosen and
+# rgb(133, 111, 46) with #ffe9a8 chosen, painting nothing either time. A pin
+# on the VALUE alone passes green on it. So every row below is required to
+# prove the edge is PAINTED — a non-zero width and a style that is not
+# `none` or `hidden` — BEFORE any ratio is computed from it. That is
+# USR-COP-2's "read the colour off an element that does not own it" mistake
+# in its border-shaped form, and it is closed here by a precondition rather
+# than by choosing selectors carefully.
+
+# The three owner picks every edge row is driven at: a PALE one (the defect
+# the ask names — 1.1247:1 raw on --paper), a MID one (2.5620:1 raw, the case
+# that catches a NEARLY right derivation, which the pale one alone would not)
+# and a DARK one, which the derivation must leave alone.
+EDGE_CASES = ("#ffe9a8", "#66aa88", "#1a1a2e")
+
+# (selector, property, pseudo, kind). `kind` decides two things: what counts
+# as proof the edge is painted, and which grounds the ratio is taken against.
+#
+# `:first-child` IS LOAD-BEARING on both card rows. style.css gives cards two
+# to four fixed literal border colours by ordinal position, so a row aimed at
+# `:nth-child(2)` would measure rgb(182, 137, 74) — a colour that clears 3:1
+# on white all by itself and proves nothing about this change. Measured, and
+# it is what test 1's value pin catches.
+EDGE_SITES = {
+    "v1": (
+        (".cta-row .button.secondary", "borderTopColor", None, "border"),
+        (
+            ".fact-cards .fact-card:first-child",
+            "borderTopColor",
+            None,
+            "border",
+        ),
+        (
+            ".service-cards .service-card:first-child",
+            "borderTopColor",
+            None,
+            "border",
+        ),
+    ),
+    "v2": (
+        (".v2-hero-card .button.secondary", "borderTopColor", None, "border"),
+        (
+            ".v2-band-media-left .v2-section-label",
+            "backgroundColor",
+            "::after",
+            "bar",
+        ),
+    ),
+}
+
+# The direct-edit affordance and focus ring, on the one route that both
+# receives the override and draws a ring of its own. A text field, because
+# direct-edit.js sets contentEditable at bind time and page.focus() then
+# reaches it the way a keyboard user's Tab does.
+DIRECT_FIELD = "[data-field='title']"
+DIRECT_ROW = (DIRECT_FIELD, "outlineColor", None, "outline")
+
+# The primary buttons whose border must stay the owner's RAW pick, per skin,
+# with the ground each actually sits on. On v2 neither ground is in the
+# surface tuple; on v1 --paper is. What excludes all three is the same
+# thing: the border is byte-identical to the fill — see test 3.
+PRIMARY_BORDERS = {
+    "v1": ((".cta-row .button.primary", "rgb(250, 247, 242)"),),
+    "v2": (
+        (".v2-contact-card .button.primary", "rgb(20, 50, 74)"),
+        (".v2-header .button.primary", "rgb(217, 232, 242)"),
+    ),
+}
+
+# One evaluate for every edge row. Four things this returns that `measure`
+# does not, and each closes a way a contrast assertion can be green and
+# meaningless:
+#
+# * borderTopWidth / borderTopStyle / outlineWidth / outlineStyle — the
+#   painted-edge precondition described above;
+# * `value` read through getComputedStyle(el, pseudo), so a ::after row
+#   measures the generated box and not its owner;
+# * `own` AND `under`, separately: a card's top rule is seen against the
+#   card's own white on its inner face and the paper outside on its outer
+#   one, and only asserting both covers the stripe a reader actually sees;
+# * content / width / height, so a pseudo-element the browser never paints
+#   cannot pass as one it does.
+#
+# THE GROUND RULE FOR A PSEUDO ROW, stated once and used in BOTH this helper
+# and the whole-document sweep further down: the walk starts at `el` ITSELF,
+# not at its parent. A ::after box paints on top of its owner's own
+# background, so the owner is the honest first candidate. For an element's
+# own border or outline the walk starts at `el.parentElement`, because the
+# element's own background is a separate candidate already carried in `own`
+# — and for an outline, which sits at outline-offset OUTSIDE the border box,
+# the element's own fill is not what it is seen against at all.
+_MEASURE_EDGES = """
+(rows) => rows.map(([selector, property, pseudo]) => {
+  const el = document.querySelector(selector);
+  if (!el) return { selector, property, pseudo, found: false };
+  const own = getComputedStyle(el);
+  const target = getComputedStyle(el, pseudo || null);
+  const opaque = (raw) => {
+    const parts = (raw.match(/[\\d.]+/g) || []).map(Number);
+    return parts.length >= 3 && (parts.length < 4 || parts[3] > 0);
+  };
+  const walk = (node) => {
+    while (node) {
+      const raw = getComputedStyle(node).backgroundColor;
+      if (opaque(raw)) return raw;
+      node = node.parentElement;
+    }
+    return null;
+  };
+  const box = el.getBoundingClientRect();
+  return {
+    selector,
+    property,
+    pseudo: pseudo || null,
+    found: true,
+    rendered: box.width > 0 && box.height > 0,
+    value: target[property],
+    color: own.color,
+    borderTopWidth: target.borderTopWidth,
+    borderTopStyle: target.borderTopStyle,
+    outlineWidth: target.outlineWidth,
+    outlineStyle: target.outlineStyle,
+    own: own.backgroundColor,
+    under: walk(pseudo ? el : el.parentElement),
+    content: target.content,
+    width: target.width,
+    height: target.height,
+  };
+});
+"""
+
+
+def measure_edges(page, rows):
+    """{selector: {...}} for every (selector, property, pseudo, kind) row."""
+    measured = page.evaluate(
+        _MEASURE_EDGES, [[s, p, pseudo] for s, p, pseudo, _ in rows]
+    )
+    return {row["selector"]: row for row in measured}
+
+
+def is_opaque(text):
+    """True for a computed colour with no alpha or an alpha of exactly 1."""
+    parts = [float(p) for p in re.findall(r"[\d.]+", text or "")]
+    return len(parts) >= 3 and (len(parts) < 4 or parts[3] == 1.0)
+
+
+def assert_painted(row, kind, where):
+    """THE PRECONDITION. An edge nobody drew has no contrast to measure.
+
+    Called before every ratio in this section, and it is what stops the
+    currentColor hazard: an accent-TEXT element with no border computes
+    borderTopColor as the shipped accent, so a value pin passes on it while
+    a width of 0px and a style of `none` say plainly that nothing is drawn.
+    """
+    assert row["found"], f"{where}: {row['selector']} is not on the page"
+    assert row["rendered"], f"{where}: {row['selector']} rendered at zero size"
+    if kind == "border":
+        assert float(row["borderTopWidth"].rstrip("px")) > 0, (
+            f"{where}: {row['selector']} draws no top border "
+            f"(width {row['borderTopWidth']}), so its borderTopColor "
+            f"{row['value']} is currentColor and not an edge"
+        )
+        assert row["borderTopStyle"] not in ("none", "hidden"), (
+            f"{where}: {row['selector']} border-top-style is "
+            f"{row['borderTopStyle']}"
+        )
+    elif kind == "outline":
+        assert float(row["outlineWidth"].rstrip("px")) > 0, (
+            f"{where}: {row['selector']} draws no outline "
+            f"(width {row['outlineWidth']}), so its outlineColor "
+            f"{row['value']} is currentColor and not a ring"
+        )
+        assert row["outlineStyle"] not in ("none", "hidden"), (
+            f"{where}: {row['selector']} outline-style is "
+            f"{row['outlineStyle']}"
+        )
+    elif kind == "bar":
+        assert row["content"] == '""', (
+            f"{where}: {row['selector']}::after content is {row['content']}, "
+            "so the browser generates no box at all"
+        )
+        assert row["height"] == "3px" and row["width"] != "0px", (
+            f"{where}: {row['selector']}::after is "
+            f"{row['width']} x {row['height']}"
+        )
+    else:  # pragma: no cover - a typo in a table, not a state to reach
+        raise AssertionError(f"unknown edge kind {kind!r}")
+
+
+def edge_grounds(row, kind):
+    """The backgrounds this edge is actually seen against.
+
+    A BORDER takes both faces: the element's own fill where it has one — a
+    .fact-card's top stripe is seen against the card's white on the inside —
+    and the walked ancestor outside it. A translucent own fill is skipped
+    rather than blended, the same rule rgb() holds to.
+
+    AN OUTLINE takes the walked ancestor only. It is painted at
+    outline-offset OUTSIDE the border box, so the element's own fill is not
+    under it — which is also what keeps `.cta-contact`, a [data-field] whose
+    own fill can be the raw accent, from being measured against itself.
+
+    A BAR takes the walk from its owner, which is where its own box sits.
+    """
+    grounds = []
+    if kind == "border" and is_opaque(row["own"]):
+        grounds.append(row["own"])
+    if row["under"]:
+        grounds.append(row["under"])
+    assert grounds, f"{row['selector']}: no opaque ground anywhere above it"
+    return grounds
+
+
+def edge_failures(seen, rows, where):
+    """Every row's ratio against every ground it has, as failure strings."""
+    failures = []
+    for selector, _prop, _pseudo, kind in rows:
+        row = seen[selector]
+        assert_painted(row, kind, where)
+        for ground in edge_grounds(row, kind):
+            measured = ratio(rgb(row["value"]), rgb(ground))
+            if measured < 3.0:
+                failures.append(
+                    f"{selector} {measured:.4f}:1 "
+                    f"({row['value']} on {ground})"
+                )
+    return failures
+
+
+def test_the_shipped_edges_are_the_skin_s_own_and_are_actually_painted(
+    page, live_app, skin
+):
+    """NOTHING PLANTED — the byte-identity proof, and the baseline that makes
+    every ratio below meaningful.
+
+    Two assertions per row, in this order and not the other. FIRST that the
+    edge is painted: a width and a style, or for the ::after bar a generated
+    box of the size the stylesheet asks for. THEN that the colour is the
+    skin's own shipped literal, exactly. A site that has chosen no colour
+    emits no <style> block at all, so every one of these resolves through
+    the new token's :root default to the value it rendered at 78d5d8e.
+
+    THIS IS THE TEST THAT CATCHES A ROW AIMED AT THE WRONG THING, which is
+    why it pins the value with nothing chosen rather than only checking a
+    ratio. Measured while writing it: `.fact-card:nth-child(2)` returns
+    rgb(182, 137, 74) — a fixed literal by ordinal position — and
+    `.section-kicker`, which draws no border, returns the shipped accent
+    with a width of 0px. The first fails the value pin, the second the
+    painted precondition, and neither would fail a 3:1 assertion.
+
+    The direct-edit idle affordance is measured here too, on the route that
+    draws it, because it is the same token and the same hazard.
+    """
+    plant(live_app, skin)
+    rows = EDGE_SITES[skin]
+    with anonymous(page.context.browser, live_app) as (visitor, response):
+        assert response.status == 200
+        assert_skin(visitor, skin)
+        assert "<style" not in response.text(), (
+            "a site that chose nothing must serve no block at all"
+        )
+        seen = measure_edges(visitor, rows)
+        for selector, _prop, _pseudo, kind in rows:
+            row = seen[selector]
+            assert_painted(row, kind, f"{skin} /")
+            assert rgb(row["value"]) == SKIN_DEFAULT_ACCENT[skin], (
+                f"{skin} {selector} renders {row['value']}, not the shipped "
+                "accent — the token's :root default does not resolve to what "
+                "this site rendered before the change"
+            )
+
+    # V1 only: /muokkaa/sivu draws the dashed affordance from the same token.
+    # V2 draws no author outline at all, which the recorded-defect test below
+    # pins rather than this one asserting around.
+    if skin == "v1":
+        page.goto(f"{live_app.base_url}/muokkaa/sivu")
+        page.wait_for_selector(DIRECT_FIELD)
+        row = measure_edges(page, (DIRECT_ROW,))[DIRECT_FIELD]
+        assert_painted(row, "outline", "v1 /muokkaa/sivu idle")
+        assert row["outlineStyle"] == "dashed" and row["outlineWidth"] == "1px"
+        assert rgb(row["value"]) == SKIN_DEFAULT_ACCENT["v1"]
+
+
+@pytest.mark.parametrize("accent", EDGE_CASES, ids=lambda v: v.lstrip("#"))
+def test_every_edge_reaches_three_to_one_against_its_own_ground(
+    page, live_app, skin, accent
+):
+    """THE CENTRAL CLAIM OF LLM-COP-40, in a real browser.
+
+    Every retargeted site, in both skins, at a pale, a mid and a dark owner
+    pick, measured from the colour Chrome resolved after the cascade, the
+    var() chain and the <style> block the choice produced — and required to
+    reach 3:1 against EVERY ground it is actually seen against, its own fill
+    included where it has one.
+
+    The arithmetic is this file's own, from the rgb() triples the browser
+    returned. app/palette.py is not imported for it: a ratio computed with
+    the curve of the module under proof is a statement about that module.
+
+    THE THREE PICKS EACH CATCH A DIFFERENT FAILURE. Pale is the defect the
+    ask names — raw, #ffe9a8 is 1.1247:1 on --paper and 1.1466:1 on
+    --v2-page, a border drawn and invisible. Mid is the one that catches a
+    NEARLY right derivation: raw #66aa88 is 2.5620:1, under 3 but not
+    absurd, and a pale-only test would pass on a walk that stopped short.
+    Dark is the identity case — #1a1a2e already clears 3:1 everywhere, so
+    the derivation must hand it back untouched and the ratio must be the raw
+    colour's own 15.9620:1, not something the walk invented.
+    """
+    plant(live_app, skin, accent=accent)
+    rows = EDGE_SITES[skin]
+    with anonymous(page.context.browser, live_app) as (visitor, response):
+        assert response.status == 200
+        assert_skin(visitor, skin)
+        assert "<style" in response.text(), "the colour never reached the page"
+        seen = measure_edges(visitor, rows)
+        failures = edge_failures(seen, rows, f"{skin} {accent} /")
+        assert not failures, (
+            f"{skin} with accent={accent}: " + "; ".join(failures)
+        )
+
+
+@pytest.mark.parametrize("accent", ("#ffe9a8", "#66aa88"), ids=("pale", "mid"))
+def test_the_primary_button_border_is_still_the_owners_own_colour(
+    page, live_app, skin, accent
+):
+    """THE OTHER HALF OF THE BOUNDARY, and it is a guard rather than a note.
+
+    A primary button's border is byte-identical to its fill, so it is no
+    boundary a user perceives and SC 1.4.11 does not reach it — and on v2
+    its grounds are outside the surface tuple as well, so the derivation has
+    nothing true to say about it there. Widening the retarget from
+    `.button.secondary` to the bare `.button` rule would repaint it anyway.
+
+    That is not a hypothetical: app/palette.py's own site list called those
+    two rules `.button.secondary` when they are the bare `.button`. Under
+    the wide retarget the v2 contact card's border would read
+    rgb(156, 134, 69) against a fill of rgb(255, 233, 168), and its ratio
+    against --v2-navy #14324a would fall from 11.0249:1 to 3.7287:1 for this
+    pale pick and 4.8397:1 to 3.7691:1 for the mid one — a real degradation
+    bought in the name of an improvement.
+
+    So the assertion is EQUALITY WITH THE FILL, not a ratio: the claim is
+    that these two are the same colour, and a ratio of 1.0 is what being the
+    same colour means.
+    """
+    plant(live_app, skin, accent=accent)
+    rows = tuple(
+        (selector, "borderTopColor", None, "border")
+        for selector, _ground in PRIMARY_BORDERS[skin]
+    )
+    with anonymous(page.context.browser, live_app) as (visitor, _):
+        assert_skin(visitor, skin)
+        seen = measure_edges(visitor, rows)
+        for selector, ground in PRIMARY_BORDERS[skin]:
+            row = seen[selector]
+            assert_painted(row, "border", f"{skin} {accent} primary")
+            assert rgb(row["value"]) == hex_to_rgb(accent), (
+                f"{skin} {selector} border is {row['value']}, not the raw "
+                f"{accent} — the retarget has been widened to the bare "
+                ".button rule, which paints every primary button too"
+            )
+            assert rgb(row["value"]) == rgb(row["own"]), (
+                f"{skin} {selector}: border {row['value']} no longer equals "
+                f"its own fill {row['own']}"
+            )
+            # And the ground it actually sits on, so the docstring's reason
+            # is a measured fact rather than a claim about the stylesheets.
+            assert row["under"] == ground, (selector, row["under"])
+
+
+@pytest.mark.parametrize(
+    "skin,selector,edge,text",
+    (
+        ("v1", ".cta-row .button.secondary", (89, 157, 123), (58, 126, 92)),
+        ("v2", ".v2-hero-card .button.secondary", (82, 150, 116),
+         (52, 120, 86)),
+    ),
+    ids=("v1", "v2"),
+)
+def test_the_edge_token_is_not_the_text_token(
+    page, live_app, skin, selector, edge, text
+):
+    """THE ANTI-FOLD ASSERTION, in the browser this time.
+
+    One element, two derivations, both reaching it: `.button.secondary`
+    takes --accent-fg on its label and --accent-edge on its border. With
+    #66aa88 chosen they are #599d7b and #3a7e5c on V1 and #529674 and
+    #347856 on V2 — different colours, because 3:1 and 4.5:1 are different
+    claims and the edge does not have to walk as far.
+
+    Alias the two derivations and this row's border becomes the label's
+    colour: the inequality fails, and it fails on the element where both
+    tokens are visible at once rather than in a module test. Both floors are
+    asserted alongside it, so a fold that happened to keep them apart would
+    still have to clear each claim on its own ground.
+    """
+    plant(live_app, skin, accent="#66aa88")
+    rows = ((selector, "borderTopColor", None, "border"),)
+    with anonymous(page.context.browser, live_app) as (visitor, _):
+        assert_skin(visitor, skin)
+        row = measure_edges(visitor, rows)[selector]
+        assert_painted(row, "border", f"{skin} anti-fold")
+        assert rgb(row["value"]) == edge, row["value"]
+        assert rgb(row["color"]) == text, row["color"]
+        assert rgb(row["value"]) != rgb(row["color"]), (
+            f"{skin} {selector}: the border and the label are the same "
+            "colour, so the edge derivation has been folded into the text one"
+        )
+        ground = rgb(row["under"])
+        assert ratio(rgb(row["value"]), ground) >= 3.0
+        assert ratio(rgb(row["color"]), ground) >= 4.5
+
+
+def test_the_v2_section_bar_is_drawn_at_desktop_and_deleted_at_the_phone_width(
+    page, live_app
+):
+    """WITHOUT THIS, THE ::after ROW ABOVE COULD PASS ON A BOX NOBODY PAINTS.
+
+    style-v2.css deletes the bar outright below 720px with `content: none`
+    (the phone spec says no rule is drawn beneath the label there). A
+    generated box that does not exist still answers getComputedStyle with a
+    backgroundColor, so a ratio taken from it would be green and meaningless
+    — the pseudo-element form of exactly the hazard the painted-edge
+    precondition closes for borders.
+
+    So both widths are asserted, on the same page with the same colour
+    chosen: content is '""' and the box is 3px tall at 1280, and content is
+    `none` at 390.
+    """
+    plant(live_app, "v2", accent="#ffe9a8")
+    rows = tuple(
+        row for row in EDGE_SITES["v2"] if row[2] == "::after"
+    )
+    selector = rows[0][0]
+    browser = page.context.browser
+    with anonymous(browser, live_app) as (visitor, _):
+        row = measure_edges(visitor, rows)[selector]
+        assert_painted(row, "bar", "v2 desktop")
+        assert rgb(row["value"]) == (156, 134, 69)
+    with anonymous(
+        browser, live_app, viewport=PHONE_VIEWPORT
+    ) as (visitor, _):
+        row = measure_edges(visitor, rows)[selector]
+        assert row["found"] and row["rendered"]
+        assert row["content"] == "none", (
+            "the phone breakpoint no longer deletes the bar, so the desktop "
+            "row above may be measuring a box the browser never paints"
+        )
+
+
+def test_the_direct_edit_focus_ring_reaches_three_to_one(
+    page, live_app, shots
+):
+    """THE HIGHEST-VALUE SITE OF THE SIX, and the one the ask names first: a
+    focus indicator nobody can see is the same as no focus indicator.
+
+    V1's /muokkaa/sivu is the one route that both receives the override and
+    draws its own ring. The field is focused for real — direct-edit.js sets
+    contentEditable at bind time, so page.focus() reaches it the way Tab
+    does — and the ring is measured against the walked CONTAINER, because
+    an outline sits at outline-offset 3px outside the border box and the
+    field's own translucent fill is not under it.
+
+    MEASURED BEFORE AND AFTER, in real Chrome, with #ffe9a8 chosen. Before
+    this change the ring computed rgb(255, 233, 168): 1.2019:1 on --card
+    #ffffff and 1.1247:1 on --paper #faf7f2 — drawn, and invisible. After
+    it computes rgb(163, 141, 76) on --paper, which is what this asserts.
+
+    The screenshot is taken by this test rather than a separate one, so no
+    picture here can be filed as evidence without a number beside it.
+    """
+    plant(live_app, "v1", accent="#ffe9a8")
+    page.goto(f"{live_app.base_url}/muokkaa/sivu")
+    page.wait_for_selector(DIRECT_FIELD)
+    page.focus(DIRECT_FIELD)
+    row = measure_edges(page, (DIRECT_ROW,))[DIRECT_FIELD]
+    assert_painted(row, "outline", "v1 focus ring")
+    assert row["outlineStyle"] == "solid"
+    assert row["outlineWidth"] == "2px"
+    ground = rgb(row["under"])
+    assert ground == (250, 247, 242), row["under"]
+    # The ratio FIRST and the exact value after it, so a revert of
+    # direct-edit.css's focus rule reports the number it collapsed to rather
+    # than only that a literal moved.
+    measured = ratio(rgb(row["value"]), ground)
+    assert measured >= 3.0, (
+        f"the focus ring is {measured:.4f}:1 "
+        f"({row['value']} on {row['under']})"
+    )
+    assert rgb(row["value"]) == (163, 141, 76), row["value"]
+    path = os.path.join(shots, "edge-focus-v1.png")
+    page.screenshot(path=path)
+    assert os.path.getsize(path) > 0
+
+
+def test_the_v2_direct_edit_page_draws_no_author_outline_at_all(
+    page, live_app, shots
+):
+    """A RECORDED DEFECT, PINNED HONESTLY — this change does not fix it.
+
+    direct-edit.css is loaded by /muokkaa/sivu on both skins and names
+    --accent-edge, which style-v2.css does not declare (it declares
+    --v2-rust-edge; the same was true of --accent before this change). An
+    undeclared custom property makes the `outline` shorthand invalid at
+    computed-value time, so outline-style computes to `none` — v2's
+    direct-edit page has NO author focus ring, and had none before this
+    change either. Measured at 78d5d8e and again here.
+
+    So the assertion is what is TRUE, not what ought to be. It is written to
+    go RED the day somebody gives v2 a ring, which is the only honest way to
+    hold a defect open — and the ratio assertion that would replace it is one
+    line away. The screenshot is the picture of the gap.
+
+    IT ASSERTS NOT-PAINTED, NOT A WIDTH LITERAL, and that distinction cost a
+    red CI run. `outline-width` is a UA-supplied value when the outline is
+    off: Chrome 142 collapses it to `0px`, Chrome 152 reports the UA default
+    `3px` and lets `outline-style: none` be the thing that suppresses the
+    ring. Both draw nothing. So `outlineWidth == "0px"` was a claim about a
+    browser VERSION rather than about whether a ring is painted, and it went
+    red on a Chrome upgrade with the product unchanged. The predicate here is
+    the exact negation of assert_painted's — style not none/hidden AND a
+    non-zero width — so it still fires the day v2 gains a real ring, which is
+    the whole point of the tripwire.
+    """
+    plant(live_app, "v2", accent="#ffe9a8")
+    page.goto(f"{live_app.base_url}/muokkaa/sivu")
+    page.wait_for_selector(DIRECT_FIELD)
+    page.focus(DIRECT_FIELD)
+    row = measure_edges(page, (DIRECT_ROW,))[DIRECT_FIELD]
+    assert row["found"] and row["rendered"]
+    ring_is_painted = (
+        row["outlineStyle"] not in ("none", "hidden")
+        and float(row["outlineWidth"].rstrip("px")) > 0
+    )
+    assert not ring_is_painted, (
+        "v2's direct-edit page now draws an author focus ring "
+        f"({row['outlineWidth']} {row['outlineStyle']} {row['value']}). That "
+        "is the fix this test was written to notice: replace it with the 3:1 "
+        "assertion test_the_direct_edit_focus_ring_reaches_three_to_one makes"
+    )
+    # And the chrome's own secondary buttons DO take the edge token on v2,
+    # so the page is not simply missing the override.
+    chrome = (".direct-topbar .button.secondary", "borderTopColor", None,
+              "border")
+    button = measure_edges(page, (chrome,))[chrome[0]]
+    assert_painted(button, "border", "v2 direct chrome")
+    assert rgb(button["value"]) == (156, 134, 69), button["value"]
+    assert ratio(rgb(button["value"]), rgb(button["under"])) >= 3.0
+    path = os.path.join(shots, "edge-focus-v2.png")
+    page.screenshot(path=path)
+    assert os.path.getsize(path) > 0
+
+
+def test_the_edge_token_never_reaches_the_admin_inbox(page, live_app, skin):
+    """style.css:77 now reads --accent-edge, and inbox.html links style.css.
+
+    /yllapito/viestit renders .button.secondary and receives no site_chrome
+    spread, so no <style> block reaches it whatever an owner picks — which
+    means the new token has to resolve through its :root DEFAULT there. If
+    it had been added without one, border-color would be invalid at
+    computed-value time and fall back to currentColor: a visible regression
+    on a page nobody tests for colour.
+
+    The border is proved PAINTED before its value is read, for that exact
+    reason — currentColor is what the failure would look like, and on this
+    element it would be the accent-fg green, which is the same value this
+    asserts. Nothing about the border tells the two apart — the width and
+    style come from the bare `.button` rule, which the invalid declaration
+    leaves alone. The custom property itself is read below, because it is
+    the only thing that differs.
+    """
+    plant(live_app, skin, main=PANEL_MAIN, accent="#ffe9a8")
+    public = page.goto(f"{live_app.base_url}/")
+    assert public.status == 200
+    assert "<style" in public.text(), "the colour never reached the page"
+
+    inbox = page.goto(f"{live_app.base_url}/yllapito/viestit")
+    assert inbox.status == 200, "the inbox route moved; the check below is void"
+    assert "<style" not in inbox.text()
+    # THE DISCRIMINATING READ, and it is the only assertion here that can
+    # tell the two worlds apart. Delete style.css's `--accent-edge:
+    # var(--accent)` and every other assertion in this test stays green:
+    # border-color becomes invalid at computed-value time, falls back to
+    # currentColor, and this element's color is var(--accent-fg) ->
+    # var(--accent) -> the same #1f6f5c the value pin below expects. The
+    # custom property is the one thing that differs — "#1f6f5c" with the
+    # default present, "" without it. Measured both ways.
+    declared = page.evaluate(
+        "getComputedStyle(document.documentElement)"
+        ".getPropertyValue('--accent-edge').trim()"
+    )
+    assert declared == "#1f6f5c", (
+        "style.css declares no :root default for --accent-edge, so on a page "
+        "that receives no override border-color is invalid at "
+        "computed-value time and falls back to currentColor — which on this "
+        "element is the same green, so the value pin below cannot see it"
+    )
+    rows = ((".button.secondary", "borderTopColor", None, "border"),)
+    row = measure_edges(page, rows)[".button.secondary"]
+    assert_painted(row, "border", "inbox")
+    assert rgb(row["value"]) == (31, 111, 92), (
+        f"the inbox's secondary button border is {row['value']}, not "
+        "style.css's own --accent — the edge token has no :root default"
+    )
+
+
+# --- 7: the surface SET, not just its values --------------------------------
+
+# Every element in the document whose PAINTED edge is the derived colour, and
+# the ground under each. app/palette.py's own comment says the surface VALUES
+# are fenced and the SET is not — a future rule painting the accent on a dark
+# band would pass every source-text and arithmetic test there is. This is the
+# edge half of that missing fence, and it is not circular: the tuple is the
+# claim and the rendered DOM is the evidence.
+#
+# THE GROUND RULE IS THE ONE measure_edges USES, deliberately and stated in
+# both places: a border hit takes its own opaque fill plus the walk from
+# el.parentElement, an outline hit takes the walk from el.parentElement
+# alone, and a pseudo-background hit walks from `el` ITSELF. One rule, two
+# call sites, so a hit found here is measured the way test 2 would measure it.
+#
+# UNPAINTED EDGES ARE NOT HITS. The same width-and-style precondition runs
+# inside the sweep, which is what keeps every accent-TEXT element in the
+# document — whose borderTopColor is currentColor — out of the result.
+_SWEEP_EDGES = """
+(sentinel) => {
+  const opaque = (raw) => {
+    const parts = (raw.match(/[\\d.]+/g) || []).map(Number);
+    return parts.length >= 3 && (parts.length < 4 || parts[3] > 0);
+  };
+  const walk = (node) => {
+    while (node) {
+      const raw = getComputedStyle(node).backgroundColor;
+      if (opaque(raw)) return raw;
+      node = node.parentElement;
+    }
+    return null;
+  };
+  const where = (el) => {
+    const bits = [el.tagName.toLowerCase()];
+    if (el.id) bits.push('#' + el.id);
+    if (el.className && typeof el.className === 'string') {
+      bits.push('.' + el.className.trim().split(/\\s+/).join('.'));
+    }
+    return bits.join('');
+  };
+  const painted = (width, style) =>
+    parseFloat(width) > 0 && style !== 'none' && style !== 'hidden';
+  const hits = [];
+  for (const el of document.querySelectorAll('*')) {
+    const cs = getComputedStyle(el);
+    for (const side of ['Top', 'Right', 'Bottom', 'Left']) {
+      if (cs['border' + side + 'Color'] !== sentinel) continue;
+      if (!painted(cs['border' + side + 'Width'],
+                   cs['border' + side + 'Style'])) continue;
+      const grounds = [];
+      if (opaque(cs.backgroundColor)) grounds.push(cs.backgroundColor);
+      const up = walk(el.parentElement);
+      if (up) grounds.push(up);
+      hits.push({ what: where(el), kind: 'border-' + side.toLowerCase(),
+                  grounds });
+    }
+    if (cs.outlineColor === sentinel
+        && painted(cs.outlineWidth, cs.outlineStyle)) {
+      const up = walk(el.parentElement);
+      hits.push({ what: where(el), kind: 'outline', grounds: up ? [up] : [] });
+    }
+    for (const pseudo of ['::before', '::after']) {
+      const ps = getComputedStyle(el, pseudo);
+      if (ps.content === 'none' || ps.content === 'normal') continue;
+      if (ps.backgroundColor !== sentinel) continue;
+      const up = walk(el);
+      hits.push({ what: where(el) + pseudo, kind: 'pseudo-background',
+                  grounds: up ? [up] : [] });
+    }
+  }
+  return hits;
+};
+"""
+
+# Where the sweep runs. `/` on both skins, and /muokkaa/sivu on both — the
+# plan scoped the second to v1, where the outlines live, but v2's copy of the
+# chrome carries four secondary buttons on a different ground (body
+# --v2-page, because .direct-topbar's `background: var(--card)` is invalid on
+# a skin that declares no --card) and sweeping it is strictly more fence for
+# no more machinery. Both were run; both are green.
+SWEEP_ROUTES = ("/", "/muokkaa/sivu")
+
+
+def edge_token_in(document, skin):
+    """The value the page's own <style> block gave the edge token.
+
+    READ OFF THE SERVED DOCUMENT, not computed by calling visible_on. The
+    needle this sweep hunts for has to be the colour that actually reached
+    the browser; deriving it from the module under proof would make the
+    sweep agree with that module by construction, and a wrong derivation
+    would simply be hunted for under its own wrong value.
+    """
+    from app.palette import ROLE_TOKENS
+
+    token = ROLE_TOKENS[skin]["accent_edge"]
+    found = re.search(rf"{token}:(#[0-9a-f]{{6}});", document)
+    assert found, f"{token} is in no <style> block on this page"
+    return found.group(1)
+
+
+@pytest.mark.parametrize("route", SWEEP_ROUTES, ids=lambda r: r.strip("/"))
+def test_no_edge_is_drawn_on_a_surface_the_tuple_does_not_name(
+    page, live_app, skin, route
+):
+    """THE FENCE app/palette.py SAYS IS MISSING, built for edges.
+
+    Plant a colour, walk EVERY element in the rendered document plus its
+    ::before and ::after, keep the ones whose PAINTED edge is the derived
+    colour, and require each one's ground to be a member of the skin's own
+    surface tuple. The tuple is what the derivation was computed against; a
+    hit on any other ground is an edge this change guarantees nothing about.
+
+    TWO GUARDS BEFORE THE CLAIM, and neither is decoration.
+
+    The VACUITY GUARD: the planted colour must be one the derivation MOVES.
+    #ffe9a8 becomes #a38d4c on V1 and #9c8645 on V2. Without it the sweep
+    would pass on a page where nothing was derived at all — and worse, it
+    would start matching the sites that deliberately KEEP the raw accent
+    (every .button.primary border, and .direct-changes at
+    direct-edit.css:180), which sit on grounds no tuple names, and go red
+    for a reason with nothing to do with the fence.
+
+    The NON-EMPTY GUARD: a sweep that finds nothing proves nothing. Measured
+    here: 6 hits on V1's `/`, 45 on V1's /muokkaa/sivu, 5 and 21 on V2's.
+
+    WHAT IT CANNOT DO, said rather than implied: it sees only the
+    backgrounds these two routes actually render. The retarget table in the
+    plan is what a human re-checks by hand.
+    """
+    from app.palette import ROLE_TOKENS
+
+    accent = "#ffe9a8"
+    plant(live_app, skin, accent=accent)
+    surfaces = ROLE_TOKENS[skin]["surfaces"]
+
+    response = page.goto(f"{live_app.base_url}{route}")
+    assert response.status == 200, route
+    edge = edge_token_in(response.text(), skin)
+    assert edge != accent, (
+        "the sweep needs a colour the derivation MOVES; this one is the "
+        "identity, so the needle is the raw accent and every site that "
+        "deliberately keeps it would be a false hit"
+    )
+    if route != "/":
+        page.wait_for_selector(DIRECT_FIELD)
+    sentinel = "rgb({}, {}, {})".format(*hex_to_rgb(edge))
+    hits = page.evaluate(_SWEEP_EDGES, sentinel)
+    assert hits, (
+        f"{skin} {route}: not one painted edge resolved to {edge} — either "
+        "the override never reached the page or every retarget was reverted"
+    )
+
+    allowed = {hex_to_rgb(surface) for surface in surfaces}
+    strays = [
+        (hit["what"], hit["kind"], ground)
+        for hit in hits
+        for ground in hit["grounds"]
+        if rgb(ground) not in allowed
+    ]
+    assert not strays, (
+        f"{skin} {route}: the edge token is drawn on grounds "
+        f"{ROLE_TOKENS[skin]['surfaces']} does not name — " + "; ".join(
+            f"{what} ({kind}) on {ground}" for what, kind, ground in strays
+        )
+    )
+    # Every hit had a ground to check at all — a hit whose walk reached the
+    # top of the document without finding one would otherwise pass silently.
+    assert all(hit["grounds"] for hit in hits), [
+        hit["what"] for hit in hits if not hit["grounds"]
+    ]
+
+
 def test_the_style_block_is_last_in_head_and_carries_only_the_closed_alphabet(
     page, live_app, skin
 ):

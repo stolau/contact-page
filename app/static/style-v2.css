@@ -36,7 +36,7 @@
               "Times New Roman", serif;
   --v2-sans: "Helvetica Neue", Helvetica, Arial, sans-serif;
 
-  /* The five tokens the owner's colour override writes into (USR-COP-2).
+  /* The six tokens the owner's colour override writes into (USR-COP-2).
      Every default is the var() or the literal that supplied the value
      before, so a site that has chosen no colour renders exactly what it
      rendered before — the override is a <style> block that is ABSENT, not
@@ -52,12 +52,25 @@
      single black-or-white label clears 4.5:1 against both (3.7680 at
      #e400f3 is the best there is). --v2-rust-fg is the rust as TEXT,
      pushed toward black or white only when a chosen colour would be
-     illegible on --v2-page, --v2-card or --v2-tint. */
+     illegible on --v2-page, --v2-card or --v2-tint.
+
+     --v2-rust-edge is the rust as a LINE (LLM-COP-40), walked to WCAG 2.1
+     SC 1.4.11's 3:1 against those same three surfaces rather than SC
+     1.4.3's 4.5 — a different claim, so a token of its own. Read by
+     .button.secondary's border-color and the short bar under a left-media
+     band's section label. The bare .button border below deliberately KEEPS
+     var(--v2-rust): on a primary button the border is byte-identical to the
+     fill, and that button's real grounds — --v2-navy #14324a on the contact
+     card, --v2-header #d9e8f2 in the header — are not in this derivation's
+     surface set. Retargeting it measurably makes the navy card WORSE
+     (11.0249:1 down to 3.7287:1) and still misses 3:1 on the header
+     (2.8386:1). */
   --v2-header-ink: var(--v2-ink);
   --v2-header-accent: var(--v2-rust);
   --v2-rust-ink: #ffffff;
   --v2-rust-dark-ink: #ffffff;
   --v2-rust-fg: var(--v2-rust);
+  --v2-rust-edge: var(--v2-rust);
 }
 
 * { box-sizing: border-box; }
@@ -89,9 +102,14 @@ h1, h2 { font-family: var(--v2-serif); color: var(--v2-ink); font-weight: 400; }
   text-decoration: none;
   text-align: center;
 }
+/* Both variants below keep the RAW token on background AND border-color: on a
+   primary button the two are the same value, so the border is no boundary a
+   user perceives and contrast(x, x) is 1.0 for every colour there is. Only
+   .button.secondary, whose background is transparent, draws an edge that has
+   to be seen — it alone takes --v2-rust-edge (LLM-COP-40). */
 .button.primary { background: var(--v2-rust); color: var(--v2-rust-ink); }
 .button.primary:hover { background: var(--v2-rust-dark); color: var(--v2-rust-dark-ink); border-color: var(--v2-rust-dark); }
-.button.secondary { background: transparent; color: var(--v2-rust-fg); }
+.button.secondary { background: transparent; color: var(--v2-rust-fg); border-color: var(--v2-rust-edge); }
 
 /* ---- header (v2-cp-hero.nav, v2-cp-phone-hero.header) ---------------- */
 
@@ -323,7 +341,7 @@ h1, h2 { font-family: var(--v2-serif); color: var(--v2-ink); font-weight: 400; }
   width: 3rem;
   height: 3px;
   margin-top: 0.55rem;
-  background: var(--v2-rust);
+  background: var(--v2-rust-edge);
 }
 
 .v2-band-heading {
