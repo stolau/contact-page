@@ -18,8 +18,10 @@
  *
  * data-field is bound at boot, not per click: a <button> or an <a href>
  * that becomes an editing host only on focus is a different, unmeasured
- * path, and these four labels (Ota yhteyttä, Lue palveluista, the
- * palvelut link and Lähetä) are real fields.
+ * path, and these four labels (the hero's Ota yhteyttä, Lue palveluista,
+ * the palvelut link and the contact card's button) are real fields. Since
+ * USR-COP-4 the card's button reads Ota yhteyttä too, so it is named here
+ * by what it is rather than by a word two of them now share.
  */
 (function () {
   "use strict";

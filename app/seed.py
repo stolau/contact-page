@@ -153,7 +153,12 @@ SEED_SECTIONS = [
             "name_label": "Nimi",
             "email_label": "Sähköposti",
             "message_label": "Mitä etsit?",
-            "send_label": "Lähetä",
+            # The card's button OPENS THE DIALOG and sends nothing
+            # (USR-COP-1 deleted the on-page form), so a new site is seeded
+            # with what it does (USR-COP-4). Migration 12 carries the same
+            # rename into every existing store, but only where the stored
+            # value is still this exact old default.
+            "send_label": "Ota yhteyttä",
             "thanks": "Kiitos yhteydenotosta! Palaan asiaan mahdollisimman pian.",
             "section_label": "YHTEYDENOTTO",
             # The contact card's four fields (LLM-COP-25), instructive
@@ -167,6 +172,14 @@ SEED_SECTIONS = [
                 "ja milloin vastaat."
             ),
             "caveat": "Älä lähetä arkaluonteisia tietoja lomakkeella.",
+            # The availability notice (USR-COP-4), BOTH EMPTY. A fresh site
+            # announces nothing about appointments — it has no appointments
+            # to announce — and no placeholder sentence about availability
+            # can be seeded without it reading as a real claim the moment
+            # the site is published. Empty also keeps blank_payload equality
+            # in app/sectionlist.py behaving as it does for every other key.
+            "notice_text": "",
+            "notice_on": "",
         },
     ),
     (

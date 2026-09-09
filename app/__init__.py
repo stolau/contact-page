@@ -15,6 +15,7 @@ from .fields import ANCHORS, NAV_LABELS
 from .images import bp as images_bp
 from .images import image_url
 from .messages import bp as messages_bp
+from .notice import contact_notice
 from .sanitize import sanitize_rich
 from .sectionlist import bp as sectionlist_bp
 from .sections import contact_dialog_copy, site_chrome, visible_sections
@@ -78,6 +79,13 @@ def create_app(instance_path=None):
     # A stored reference to a URL, or None. Registered as a filter so the
     # public template can ask for one without importing anything.
     app.add_template_filter(image_url, "image_url")
+
+    # The contact band's availability notice, resolved from the whole
+    # payload (USR-COP-4). Registered once, here, and that covers BOTH
+    # skins and all three renderers: the public page, the draft preview
+    # (app/edit.py) and direct edit (app/direct_edit.py) all render through
+    # template_for, so there is one filter registry between them.
+    app.add_template_filter(contact_notice, "contact_notice")
 
     @app.template_filter("render_rich")
     def render_rich(value):

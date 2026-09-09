@@ -121,6 +121,27 @@
      needs, and a migrated store has all four empty. #}
   <div class="contact-copy">
     <p class="contact-body" data-section="{{ sid }}" data-field="body">{{ p.body }}</p>
+    {# The availability notice (USR-COP-4), and it IS conditional where its
+       four neighbours above are not — the exception to the rule stated
+       there, with its own two reasons.
+
+       It carries NO data-field, so there is no binding for a conditional
+       element to take away. It renders contact_notice(payload), a RESOLVED
+       value that is "" whenever the flag is off even though notice_text
+       still holds the owner's sentence, and direct-edit.js's contract is an
+       identity — the element's text IS the field's value, read and write —
+       so binding it would let one keystroke or one undo write "" over that
+       sentence. Both keys are in tests/test_direct_edit.py's
+       EXCLUDED_SCALARS with that reason written out; the panel's
+       Ilmoitusteksti row and Ilmoitus toggle are their editors.
+
+       And `hidden` would not do instead: it still ships the withdrawn
+       notice into the served document, where view-source shows it and
+       search engines index it. "Switched off" has to mean absent from the
+       page, not invisible on it — a stale "no appointments" outliving the
+       owner's decision is the defect the toggle exists to prevent. #}
+    {% set notice = p|contact_notice %}
+    {% if notice %}<p class="contact-notice">{{ notice }}</p>{% endif %}
     <p class="contact-phone" data-section="{{ sid }}" data-field="phone">{{ p.phone }}</p>
     <p class="contact-email" data-section="{{ sid }}" data-field="email">{{ p.email }}</p>
     <p class="contact-caveat" data-section="{{ sid }}" data-field="caveat">{{ p.caveat }}</p>

@@ -574,6 +574,100 @@ def _migration_11(conn):
             )
 
 
+def _migration_12(conn):
+    # The contact card's button stops calling itself a send button, and the
+    # band gains an availability notice (USR-COP-4).
+    #
+    # TWO changes to one kind's payload, in one migration, because they are
+    # one visit to one band: the rename of yhteydenotto.send_label away from
+    # the old default, and the backfill of notice_text and notice_on. Every
+    # existing row needs the backfill or validate_payload's required-key
+    # check rejects the owner's first save — the hazard _migration_4,
+    # _migration_7, _migration_8 and _migration_11 exist for, and this is
+    # _migration_11's shape applied a fifth time.
+    #
+    # The literals here are FROZEN and no app.fields, app.seed or app.notice
+    # is imported, for the reason _migration_4 states: a migration that
+    # reads the live schema changes behaviour whenever the schema next
+    # changes, which is not a migration. "Lähetä" below is the OLD default
+    # and must stay spelled out here even after nothing else in app/ says
+    # it — it is what a pre-USR-COP-4 store holds, not what the app writes.
+    #
+    # THE RENAME IS GUARDED BY EXACT EQUALITY with the old default, which is
+    # the whole safety of it: an owner who typed their own words — "Varaa
+    # aika", "Soita minulle" — keeps them, and only an install still
+    # carrying the seed's own string is moved. A substring match or a
+    # case-insensitive one would take the owner's words with it.
+    #
+    # setdefault APPENDS and does not overwrite, so a backfilled row's key
+    # order still equals FIELDS["yhteydenotto"] declaration order — the two
+    # notice keys are last there — and a row that somehow already carries
+    # them survives a re-run byte-untouched.
+    #
+    # "" for both is the value that reproduces the page the install rendered
+    # a moment before the upgrade — _migration_8's rule — because
+    # app/notice.py renders nothing at all unless the flag is exactly "on".
+    #
+    # All three columns are rewritten in ONE pass by ONE pure function of
+    # the stored text. previous_published is included because restore copies
+    # it verbatim into draft (app/sectionlist.py), and a payload short of
+    # the two keys there would 400 the owner's next save.
+    #
+    # THIS MIGRATION IS NOT INJECTIVE, and that is stated rather than
+    # claimed away. _migration_5, _migration_8 and _migration_11 each earn
+    # an injectivity claim — the input is recoverable from the output, so
+    # two distinct stored texts cannot collapse into one and badge()
+    # (app/sections.py:15) cannot turn a Luonnos row into a Julkaistu one.
+    # This one cannot make that claim: the rename maps "Lähetä" to "Ota
+    # yhteyttä" and leaves "Ota yhteyttä" alone, so a row whose DRAFT
+    # already said "Ota yhteyttä" while its PUBLISHED still said "Lähetä"
+    # becomes equal in both columns, and its badge moves Luonnos ->
+    # Julkaistu. (The setdefault half stays injective: no pre-USR-COP-4
+    # writer emits the notice keys, so that collision is unreachable.)
+    #
+    # It is accepted, not overlooked, and it is not a lie: after this runs
+    # the two columns really ARE identical and the public page really does
+    # show what the draft said, because the published column was rewritten
+    # too. The owner's unpublished label edit is effectively adopted — but
+    # only where their edit was byte-identical to the new default, and only
+    # to the same string every other install gets anyway. Both alternatives
+    # are worse: rewriting draft alone flips EVERY site to Luonnos, and a
+    # row-atomic rule ("rename only if every non-NULL column holds the old
+    # default") would leave a live published page reading "Lähetä" on any
+    # row with a dirty draft, which is a different and worse lie.
+    defaults = {"notice_text": "", "notice_on": ""}
+    columns = ("draft", "published", "previous_published")
+    rows = conn.execute(
+        "SELECT id, draft, published, previous_published FROM sections"
+        " WHERE kind = 'yhteydenotto'"
+    ).fetchall()
+    for row in rows:
+        # Indexed positionally: a migration must not depend on the caller
+        # having set sqlite3.Row (app/db.py:110-113).
+        section_id = row[0]
+        for offset, column in enumerate(columns, start=1):
+            text = row[offset]
+            if not text:
+                continue
+            payload = json.loads(text)
+            if payload.get("send_label") == "Lähetä":
+                # Assignment to an EXISTING key does not move it in the
+                # dict, so the rename cannot reorder a stored payload.
+                payload["send_label"] = "Ota yhteyttä"
+            for key, value in defaults.items():
+                payload.setdefault(key, value)
+            new_text = json.dumps(payload, ensure_ascii=False)
+            # _migration_5's convention: a row already carrying the new
+            # label and the keys is byte-untouched by construction, not
+            # merely by luck.
+            if new_text == text:
+                continue
+            conn.execute(
+                f"UPDATE sections SET {column} = ? WHERE id = ?",
+                (new_text, section_id),
+            )
+
+
 MIGRATIONS = [
     _migration_1,
     _migration_2,
@@ -586,6 +680,7 @@ MIGRATIONS = [
     _migration_9,
     _migration_10,
     _migration_11,
+    _migration_12,
 ]
 
 

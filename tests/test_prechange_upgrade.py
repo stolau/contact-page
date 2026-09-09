@@ -46,6 +46,7 @@ from app.fields import FIELDS
 from app.sanitize import validate_payload
 from app.sections import badge
 from app.styles import STYLE_TEMPLATES
+from tests.conftest import assert_absent_from_app
 
 # The six rows, verbatim: (kind, position, state, draft, published,
 # previous_published).
@@ -259,6 +260,79 @@ SECTION_LABELS = {
     "sijainti": "SIJAINTI",
 }
 
+# The yhteydenotto row's stored draft text, named once so the splices below
+# read as the arithmetic they are. FROZEN_V6_ROWS[4] is that row and [3] is
+# its draft column; the two are asserted rather than trusted, in
+# test_migration_12_rewrites_the_frozen_yhteydenotto_text_byte_for_byte.
+FROZEN_YHTEYDENOTTO_DRAFT = FROZEN_V6_ROWS[4][3]
+
+# What _migration_8 leaves in that column: the frozen text with its own
+# five-key suffix spliced in front of the closing brace. The [:-1] is not
+# cosmetic — MIGRATION_8_SUFFIXES["yhteydenotto"] already ENDS in `}`, so
+# concatenating without it yields `..."caveat": ""}}` and json.loads raises.
+# This is the module's own idiom (`draft[:-1] + suffix`), spelled out once
+# here rather than inline in four tests.
+YHTEYDENOTTO_AFTER_8 = (
+    FROZEN_YHTEYDENOTTO_DRAFT[:-1] + MIGRATION_8_SUFFIXES["yhteydenotto"]
+)
+
+# What _migration_12 must then produce from THAT (USR-COP-4): the send_label
+# renamed away from the old default, and the two notice keys appended after
+# caveat. Built by SPLICE and REPLACE over the frozen literal, deliberately
+# not by a json.loads/json.dumps round trip — see the module docstring.
+# ensure_ascii=True would turn the ä of "Ota yhteyttä" into ä,
+# sort_keys=True would move notice_on out of last place, and a changed
+# separator would write ',"notice_text"'; every one of them is a diff here
+# and none of them is visible to an expectation built the way the code
+# builds it.
+#
+# WHAT THIS LITERAL PINS, and what it does NOT — stated because the two
+# halves of migration 12 differ here, which is the first time in this file
+# that has been true.
+#
+# The RENAME half is genuinely exercised, and it is the ONLY link of this
+# chain that is. MIGRATED_9_HERO_DRAFT and MIGRATED_11_HERO_DRAFT each name
+# their own blind spot: their defaults are "" and the frozen row's values
+# are "" too, so a constant-writing migration and the real one produce
+# identical bytes against them. Not here. This row's stored send_label is
+# the OLD DEFAULT "Lähetä" and the expected text says "Ota yhteyttä", so
+# these bytes can only be produced by a migration that actually renamed it —
+# and a migration that renamed the wrong rows, or renamed unconditionally,
+# is caught elsewhere rather than here.
+#
+# The BACKFILL half has exactly the blind spot its predecessors have: both
+# notice defaults are "", so this literal pins the serialiser and the key
+# order and NOTHING WHATEVER about the default VALUE. That gap is covered in
+# tests/test_db.py, on a store whose previous_published is non-NULL and whose
+# send_label is the owner's own — neither of which any row of this captured
+# artifact can be.
+MIGRATED_12_YHTEYDENOTTO = (
+    YHTEYDENOTTO_AFTER_8.replace(
+        '"send_label": "Lähetä"', '"send_label": "Ota yhteyttä"'
+    )[:-1]
+    + ', "notice_text": "", "notice_on": ""}'
+)
+
+# DERIVED, not captured — and deliberately NOT named FROZEN_*, for the reason
+# HERO_DRAFT_WITH_A_PLANTED_PICTURE states above.
+#
+# "Varaa aika soittamalla" is an OWNER's own words: it appears nowhere in
+# app/ (asserted in the test below rather than claimed here), so migration 12
+# has no default that could produce it and no equality guard that could match
+# it. The frozen row cannot ask this question — its send_label IS the old
+# default, which is exactly what makes it good for the rename test and
+# useless for this one.
+OWNERS_SEND_LABEL = "Varaa aika soittamalla"
+
+YHTEYDENOTTO_DRAFT_WITH_AN_OWNERS_LABEL = YHTEYDENOTTO_AFTER_8.replace(
+    '"send_label": "Lähetä"', f'"send_label": "{OWNERS_SEND_LABEL}"'
+)
+
+MIGRATED_12_YHTEYDENOTTO_WITH_AN_OWNERS_LABEL = (
+    YHTEYDENOTTO_DRAFT_WITH_AN_OWNERS_LABEL[:-1]
+    + ', "notice_text": "", "notice_on": ""}'
+)
+
 
 def frozen_v6_store(path):
     """The frozen install rebuilt: a database stopped at user_version 6 with
@@ -454,7 +528,7 @@ def test_the_frozen_v6_install_upgrades_with_every_badge_unchanged(tmp_path):
     database.migrate(conn)
 
     (version,) = conn.execute("PRAGMA user_version").fetchone()
-    assert version == len(database.MIGRATIONS) == 11
+    assert version == len(database.MIGRATIONS) == 12
     stored = rows_by_kind(conn)
     for kind, row in stored.items():
         assert badge(row["state"], row["draft"], row["published"]) == (
@@ -478,6 +552,19 @@ def test_the_frozen_v6_install_upgrades_with_every_badge_unchanged(tmp_path):
     # same reason each of the lines above exists: without it "no badge moved"
     # would be true of a chain that stopped at migration 9.
     assert json.loads(stored["hero"]["draft"])["color_main"] == ""
+    # And once more for USR-COP-4's migration 12, the newest link. This one
+    # is the strongest of the five, because unlike every line above it the
+    # frozen row's value is NOT already what the migration writes: this
+    # store's send_label is the old default "Lähetä" (FROZEN_V6_ROWS), so
+    # reading "Ota yhteyttä" here can only mean migration 12 ran and renamed
+    # it. It is also what makes the badge comparison above load-bearing for
+    # this migration: FROZEN_V6_ROWS' yhteydenotto row has draft ==
+    # published, so a migration 12 that rewrote draft alone would leave them
+    # unequal and turn FROZEN_BADGES["yhteydenotto"] == "Julkaistu" into
+    # "Luonnos".
+    assert json.loads(stored["yhteydenotto"]["draft"])["send_label"] == (
+        "Ota yhteyttä"
+    )
     conn.close()
 
 
@@ -564,6 +651,12 @@ def test_migration_8_appends_its_keys_to_every_frozen_row_byte_for_byte(
     # Trimming rather than spelling "portrait_alt" keeps the expectation
     # derived: the trim is itself asserted, so reordering FIELDS still fails
     # here.
+    #
+    # yhteydenotto is now read TWO KEYS SHORT for the same reason, and it is
+    # the second kind to need a trim rather than the first to be special:
+    # USR-COP-4's migration 12 appended notice_text and notice_on, so the
+    # schema's yhteydenotto tail is two keys past what migration 8 leaves in
+    # this store. Same idiom, same asserted trim.
     for kind, row in stored.items():
         declared = list(FIELDS[kind])
         if kind == "hero":
@@ -574,6 +667,9 @@ def test_migration_8_appends_its_keys_to_every_frozen_row_byte_for_byte(
                 "color_accent",
             ]
             declared = declared[:-4]
+        if kind == "yhteydenotto":
+            assert declared[-2:] == ["notice_text", "notice_on"]
+            declared = declared[:-2]
         assert list(json.loads(row["draft"]))[-1] == declared[-1], kind
         assert list(json.loads(row["draft"])) == declared, kind
 
@@ -804,6 +900,270 @@ def test_migration_11_leaves_every_non_hero_row_byte_untouched(tmp_path):
     # The hero really was reached in this same call — otherwise "the other
     # five are untouched" would be true of a migration that did nothing.
     assert stored["hero"]["draft"] == MIGRATED_11_HERO_DRAFT
+    conn.close()
+
+
+def test_migration_12_rewrites_the_frozen_yhteydenotto_text_byte_for_byte(
+    tmp_path,
+):
+    """_migration_7 through _12 called DIRECTLY, in the order a real install
+    upgrades in, over the real stored text.
+
+    The fifth link of the same chain, scoped the way its four predecessors
+    are: the expectation is FROZEN -> +migration 8's five keys -> renamed
+    send_label + the notice pair, three literals, none of them produced by
+    the code under test. _migration_9, _10 and _11 are called with the rest
+    even though none of them touches a yhteydenotto row — 9 and 11 are
+    WHERE kind = 'hero' and 10 writes no payload at all — because "the order
+    a real install upgrades in" is the claim, and a chain that quietly
+    skipped a slot would stop being that. Their non-effect on this row is
+    itself part of what the byte comparison says.
+
+    WHAT IS DIFFERENT ABOUT THIS LINK, and it is the reason it is worth
+    more than the four above it: every earlier splice pinned a default of ""
+    onto a row whose value was already "", so it could not tell the real
+    migration from one that wrote a constant. This row's send_label is the
+    OLD DEFAULT "Lähetä" and the expected text says "Ota yhteyttä", so these
+    bytes are unreachable without the rename. The backfill half still has
+    the old blind spot — both notice defaults are "" — and
+    MIGRATED_12_YHTEYDENOTTO's comment says so and says where it is closed.
+
+    The provenance of the splice is asserted, not trusted: FROZEN_V6_ROWS[4]
+    really is the yhteydenotto row, [3] really is its draft column, and the
+    replaced substring really occurs exactly once — the discipline
+    HERO_DRAFT_WITH_A_PLANTED_PICTURE states and
+    test_migration_9_copies_the_stored_portrait_rather_than_blanking_it
+    already applies. A second occurrence would make str.replace rewrite
+    something this test never looked at.
+    """
+    assert FROZEN_V6_ROWS[4][0] == "yhteydenotto"
+    assert FROZEN_YHTEYDENOTTO_DRAFT == FROZEN_V6_ROWS[4][3]
+    assert FROZEN_YHTEYDENOTTO_DRAFT == FROZEN_V6_ROWS[4][4]  # clean row
+    assert YHTEYDENOTTO_AFTER_8.count('"send_label": "Lähetä"') == 1
+    assert MIGRATED_12_YHTEYDENOTTO.count('"send_label": "Ota yhteyttä"') == 1
+    assert '"send_label": "Lähetä"' not in MIGRATED_12_YHTEYDENOTTO
+
+    conn = frozen_v6_store(tmp_path / "twelve.sqlite3")
+
+    database._migration_7(conn)
+    database._migration_8(conn)
+    database._migration_9(conn)
+    database._migration_10(conn)
+    database._migration_11(conn)
+    database._migration_12(conn)
+
+    row = rows_by_kind(conn)["yhteydenotto"]
+    assert row["draft"] == MIGRATED_12_YHTEYDENOTTO
+    assert row["published"] == MIGRATED_12_YHTEYDENOTTO
+    # Appended LAST, as a PAIR and in declaration order — which is what keeps
+    # the stored key order equal to the schema's and the owner's first save a
+    # no-op. Read off the parsed payload rather than the text, so it is a
+    # claim about the keys and not a second spelling of the splice.
+    payload = json.loads(row["draft"])
+    assert list(payload)[-2:] == ["notice_text", "notice_on"]
+    assert list(payload) == list(FIELDS["yhteydenotto"])
+    # The rename did not MOVE the key it rewrote: assignment to an existing
+    # key leaves it where it was, and a pop-then-set would put send_label
+    # last instead. Said in terms of the position, so a failure names the
+    # reordering rather than a 400-character diff.
+    assert list(payload).index("send_label") == 3
+    assert payload["send_label"] == "Ota yhteyttä"
+    # draft and published moved together, so no badge can have flipped.
+    assert row["draft"] == row["published"]
+    assert row["previous_published"] is None  # NULL stays NULL
+    conn.close()
+
+
+def test_migration_12_leaves_a_send_label_the_owner_already_wrote(tmp_path):
+    """THE SAFE-RENAME RULE, and the only test in this file that can see it.
+
+    The whole safety of migration 12 is that it renames ONLY where the stored
+    value still equals the old default exactly. An owner who typed their own
+    words on the button — "Varaa aika soittamalla" — keeps them; a substring
+    match, a case-insensitive one, or an unconditional assignment would take
+    those words away on the day the upgrade ships, silently, on a live
+    published page.
+
+    Every other migration-12 assertion in this file is BLIND to that. The
+    captured install's send_label IS the old default, so against it a guarded
+    rename and an unguarded one write byte-identical text. This plants a row
+    where they disagree — the same blind spot
+    test_migration_9_copies_the_stored_portrait_rather_than_blanking_it
+    closes for the copy, closed here for the guard.
+
+    The planted row is a DERIVED literal, not a captured one, and
+    HERO_DRAFT_WITH_A_PLANTED_PICTURE's comment says why that is still sound:
+    the expectation is a pure string transform of a frozen literal, never a
+    round trip through the code under test.
+
+    assert_absent_from_app is what makes the claim falsifiable rather than
+    decorative: if the owner's words appeared anywhere under app/ the
+    migration might have a default that produced them, and "it was left
+    alone" would be indistinguishable from "it was written".
+    """
+    assert_absent_from_app(OWNERS_SEND_LABEL)
+    # The transform's unambiguity, asserted rather than argued.
+    assert YHTEYDENOTTO_AFTER_8.count('"send_label": "Lähetä"') == 1
+    assert (
+        YHTEYDENOTTO_DRAFT_WITH_AN_OWNERS_LABEL.count(OWNERS_SEND_LABEL) == 1
+    )
+    assert '"Lähetä"' not in YHTEYDENOTTO_DRAFT_WITH_AN_OWNERS_LABEL
+    assert list(json.loads(YHTEYDENOTTO_DRAFT_WITH_AN_OWNERS_LABEL)) == list(
+        json.loads(YHTEYDENOTTO_AFTER_8)
+    )
+
+    conn = frozen_v6_store(tmp_path / "owners.sqlite3")
+    database._migration_7(conn)
+    database._migration_8(conn)
+    # The precondition, asserted rather than assumed: the store really is at
+    # migration 8's output, so the planted text below differs from what is
+    # there by exactly the one value and nothing else.
+    assert rows_by_kind(conn)["yhteydenotto"]["draft"] == YHTEYDENOTTO_AFTER_8
+    conn.execute(
+        "UPDATE sections SET draft = ?, published = ?"
+        " WHERE kind = 'yhteydenotto'",
+        (
+            YHTEYDENOTTO_DRAFT_WITH_AN_OWNERS_LABEL,
+            YHTEYDENOTTO_DRAFT_WITH_AN_OWNERS_LABEL,
+        ),
+    )
+    conn.commit()
+
+    database._migration_12(conn)
+
+    row = rows_by_kind(conn)["yhteydenotto"]
+    assert row["draft"] == MIGRATED_12_YHTEYDENOTTO_WITH_AN_OWNERS_LABEL
+    assert row["published"] == MIGRATED_12_YHTEYDENOTTO_WITH_AN_OWNERS_LABEL
+    # Said again in terms of the value, so the failure names the decision
+    # rather than a 400-character diff.
+    upgraded = json.loads(row["draft"])
+    assert upgraded["send_label"] == OWNERS_SEND_LABEL, (
+        "migration 12 overwrote the label the owner wrote instead of leaving"
+        " it"
+    )
+    # ...and the OTHER half of the migration still ran on this very row:
+    # "left alone" must mean the rename was skipped, not that the row was.
+    # Without these two lines a migration that skipped every row whose label
+    # it did not recognise would pass, and that owner's next save would 400
+    # on the two missing keys.
+    assert upgraded["notice_text"] == ""
+    assert upgraded["notice_on"] == ""
+    assert list(upgraded) == list(FIELDS["yhteydenotto"])
+    assert row["draft"] == row["published"]
+    conn.close()
+
+
+def test_migration_12_leaves_every_non_yhteydenotto_row_byte_untouched(
+    tmp_path,
+):
+    """WHERE kind = 'yhteydenotto' means what it says, asked of migration 12.
+
+    A SIBLING of the migration-7, -9 and -11 guards above rather than an
+    extension of any of them, for the reason migration 9's docstring gives:
+    the guard is made once per migration, each against the text its own
+    predecessors leave, because re-baselining an earlier test against a later
+    migration's output deletes that earlier guard permanently.
+
+    _migration_12 is called ALONE here, on the raw v6 capture, and that is a
+    stronger scoping than the three above use rather than a looser one: the
+    five other rows are compared to their OWN FROZEN LITERALS, with no
+    predecessor's suffix spliced on, so the claim is that this migration by
+    itself moved not one byte of them. A snapshot taken from the database a
+    moment earlier would still pass if the fixture and the migration were
+    wrong in the same direction; a frozen literal cannot.
+
+    What a failure here would mean in production: notice_text is a
+    yhteydenotto key, so a stray backfill onto tietoa makes that payload fail
+    validate_payload's unknown-key check on that owner's very next save — and
+    a stray RENAME would be worse, because send_label exists on no other kind
+    at all and the row would gain a key from nowhere.
+    """
+    conn = frozen_v6_store(tmp_path / "twelve_others.sqlite3")
+
+    database._migration_12(conn)
+
+    stored = rows_by_kind(conn)
+    for kind, _position, _state, draft, published, previous in FROZEN_V6_ROWS:
+        if kind == "yhteydenotto":
+            continue
+        assert stored[kind]["draft"] == draft, kind
+        assert stored[kind]["published"] == published, kind
+        assert stored[kind]["previous_published"] == previous, kind
+        assert "notice_text" not in json.loads(stored[kind]["draft"]), kind
+        assert "notice_on" not in json.loads(stored[kind]["draft"]), kind
+        assert "send_label" not in json.loads(stored[kind]["draft"]), kind
+    # The yhteydenotto row really was reached in this same call — otherwise
+    # "the other five are untouched" would be true of a migration that did
+    # nothing. The expected text is the v6 literal plus this migration's own
+    # work and NOT migration 8's suffix, because migration 8 has not run: a
+    # splice of the frozen row, spelled out here rather than reusing
+    # MIGRATED_12_YHTEYDENOTTO, which is the wrong era for this store.
+    assert stored["yhteydenotto"]["draft"] == (
+        FROZEN_YHTEYDENOTTO_DRAFT.replace(
+            '"send_label": "Lähetä"', '"send_label": "Ota yhteyttä"'
+        )[:-1]
+        + ', "notice_text": "", "notice_on": ""}'
+    )
+    conn.close()
+
+
+def test_migration_12_is_idempotent(tmp_path):
+    """_migration_12 called DIRECTLY a second time moves not one byte.
+
+    Directly, not migrate() twice: migrate() twice is a no-op by PRAGMA
+    user_version alone, so it says nothing about what this migration does to
+    a row it has already rewritten — the branch that matters when a store is
+    migrated on a newer build's data.
+
+    The last block is what byte-stability alone cannot show, and it is
+    test_migration_8_is_idempotent's and test_migration_9_is_idempotent's
+    lesson applied to the newest keys. On a row whose notice_text already
+    holds whatever the migration itself would write — "" — an ASSIGNMENT
+    produces the same bytes as a setdefault and the two are
+    indistinguishable. So plant a notice the OWNER wrote, switched ON, which
+    is the entire point of USR-COP-4, and re-run: setdefault leaves it, an
+    assignment silently blanks the owner's own line on the next upgrade,
+    which is precisely the loss "switched off without losing its text" exists
+    to prevent.
+
+    The owner's send_label is planted in the same pass, so this asks the
+    rename guard the same question the backfill is asked: the guard must be
+    an EQUALITY test against the old default that this row does not match,
+    not a rewrite that runs on every row it sees.
+    """
+    conn = frozen_v6_store(tmp_path / "twice12.sqlite3")
+    database.migrate(conn)
+    first = {kind: tuple(row) for kind, row in rows_by_kind(conn).items()}
+    # The first pass really did reach the yhteydenotto row — otherwise a
+    # second pass matching it would be true of a migration that does nothing
+    # at all. migrate() runs the whole chain, so the expectation is the last
+    # splice for this kind.
+    assert first["yhteydenotto"][3] == MIGRATED_12_YHTEYDENOTTO
+
+    database._migration_12(conn)
+
+    assert {kind: tuple(row) for kind, row in rows_by_kind(conn).items()} == first
+
+    owners = dict(
+        json.loads(first["yhteydenotto"][3]),
+        send_label=OWNERS_SEND_LABEL,
+        notice_text="Valitettavasti tällä hetkellä ei ole aikoja",
+        notice_on="on",
+    )
+    conn.execute(
+        "UPDATE sections SET draft = ? WHERE kind = 'yhteydenotto'",
+        (json.dumps(owners, ensure_ascii=False),),
+    )
+    conn.commit()
+
+    database._migration_12(conn)
+
+    survived = json.loads(rows_by_kind(conn)["yhteydenotto"]["draft"])
+    assert survived["send_label"] == OWNERS_SEND_LABEL
+    assert survived["notice_text"] == (
+        "Valitettavasti tällä hetkellä ei ole aikoja"
+    )
+    assert survived["notice_on"] == "on"
     conn.close()
 
 
@@ -1077,7 +1437,15 @@ def test_the_style_value_changes_nothing_until_it_names_another_template(
     conn = database.connect(app.config["DATABASE"])
     try:
         (version,) = conn.execute("PRAGMA user_version").fetchone()
-        assert version == 11
+        # The premise, not the claim: this test is about what the STYLE
+        # value does, and it only needs the store to have been carried all
+        # the way to the head. Written as len(MIGRATIONS) rather than a
+        # literal, the house form for a premise — the head itself is pinned
+        # as a literal in exactly one place, test_db.py's
+        # test_the_migration_head_is_twelve. It was a literal 11 here, which
+        # made this test go red for USR-COP-4's migration 12 without having
+        # anything to say about it.
+        assert version == len(database.MIGRATIONS)
     finally:
         conn.close()
 

@@ -22,9 +22,11 @@
     - .portrait — direct-edit.js anchors the disabled "Vaihda kuva" pill
       as its next sibling.
     - .header-contact / .cta-contact — contact_dialog.html's openers. The
-      HERO's button and the contact card's Lähetä both carry .cta-contact
-      (USR-COP-1): the dialog is the one place the product collects a
-      message, so every contact action opens it.
+      HERO's button and the contact card's Ota yhteyttä both carry
+      .cta-contact (USR-COP-1): the dialog is the one place the product
+      collects a message, so every contact action opens it. Since USR-COP-4
+      renamed the card's default label those two read the SAME WORDS, so
+      they are told apart by their bindings, never by their text.
   And id="{{ anchors[kind] }}" is what preview.js highlights and what the
   nav links point at.
 
@@ -238,6 +240,17 @@
     <div class="v2-contact-copy">
       <p class="section-kicker v2-contact-kicker" data-section="{{ sid }}" data-field="section_label">{{ p.section_label }}</p>
       <p class="v2-contact-body" data-section="{{ sid }}" data-field="body">{{ p.body }}</p>
+      {# The availability notice (USR-COP-4) — under the body and above the
+         caveat, the same reading position it takes on V1. Conditional and
+         UNBOUND for the two reasons page.html's own comment sets out: it
+         renders a resolved value, so the in-place editor's read/write
+         identity would not hold with the flag off, and `hidden` would still
+         serve a withdrawn notice into the document. It carries no
+         data-field on either skin, so the V1/V2 binding fence
+         (tests/test_page_v2.py) is satisfied by construction, in every data
+         state rather than only the seeded one. #}
+      {% set notice = p|contact_notice %}
+      {% if notice %}<p class="v2-contact-notice">{{ notice }}</p>{% endif %}
       <p class="v2-contact-caveat" data-section="{{ sid }}" data-field="caveat">{{ p.caveat }}</p>
     </div>
     <div class="v2-contact-actions">

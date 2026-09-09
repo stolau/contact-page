@@ -131,6 +131,21 @@ FIELDS = {
         "email": {"type": "plain"},
         "body": {"type": "plain"},
         "caveat": {"type": "plain"},
+        # USR-COP-4: the availability notice — a line the owner writes and
+        # can switch OFF WITHOUT LOSING IT. Appended last, by the rule the
+        # hero states above: validate_payload rebuilds a payload in
+        # declaration order, so a mid-list key would rewrite every stored
+        # yhteydenotto payload on the owner's first save and flip its badge.
+        #
+        # notice_on is a FLAG, not content: "on" means shown and anything
+        # else means not (app/notice.py resolves it, and never raises on a
+        # value it does not know). It is deliberately absent from
+        # FIELD_LABELS below — the first unlabelled key outside the hero —
+        # so the schema-driven builder cannot draw it. A text box an owner
+        # can type "kyllä" into is exactly the value the resolver would then
+        # have to refuse; its editor is the panel's own Ilmoitus row.
+        "notice_text": {"type": "plain"},
+        "notice_on": {"type": "plain"},
     },
     "sijainti": {
         "address": {"type": "plain"},
@@ -204,13 +219,21 @@ FIELD_LABELS = {
         "name_label": "Nimikentän otsikko",
         "email_label": "Sähköpostikentän otsikko",
         "message_label": "Viestikentän otsikko",
-        "send_label": "Lähetä-painike",
+        # "Painike", not "Lähetä-painike" (USR-COP-4): USR-COP-1 deleted the
+        # on-page form and this button now OPENS THE DIALOG, so a panel row
+        # calling it a send button tells the owner they are editing
+        # behaviour it no longer has. Named the way hero.contact_label and
+        # hero.services_label are named — by what it is, a button.
+        "send_label": "Painike",
         "thanks": "Kiitosviesti",
         "section_label": "Osion otsikko",
         "phone": "Puhelinnumero",
         "email": "Sähköpostiosoite",
         "body": "Esittelyteksti",
         "caveat": "Huomautus",
+        # Labelled, so the generated form draws it — last, because it is
+        # declared last. Its flag, notice_on, is NOT labelled: see FIELDS.
+        "notice_text": "Ilmoitusteksti",
     },
     "sijainti": {
         "address": "Osoite",

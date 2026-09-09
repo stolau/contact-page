@@ -461,6 +461,20 @@ h1, h2 { font-family: var(--v2-serif); color: var(--v2-ink); font-weight: 400; }
   line-height: 1.6;
   color: #c3d5e3;
 }
+/* The availability notice (USR-COP-4), between the body and the caveat.
+   NOT an error: the owner's second example ("Seuraavat ajat mm.yyyy
+   alussa") is a promise, so this deliberately does not reuse #ffb4a2, the
+   card's error ink below, and carries no role="alert" or aria-live in the
+   template. #c3d5e3 is .v2-contact-body's own colour, reused rather than a
+   new literal — the notice reads as part of the card's copy, one weight
+   heavier. */
+.v2-contact-notice {
+  margin: 0 0 1.2rem;
+  font-size: 1.02rem;
+  line-height: 1.6;
+  font-weight: 600;
+  color: #c3d5e3;
+}
 .v2-contact-caveat {
   margin: 1.1rem 0 0;
   font-size: 0.88rem;

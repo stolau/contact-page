@@ -27,6 +27,8 @@
   // (LLM-COP-30) and every control inside one is reached through the row it
   // belongs to. See createImageRow below.
   var kuvaRows = document.querySelectorAll(".kuva-row");
+  var ilmoitusRow = document.querySelector(".ilmoitus-row");
+  var ilmoitusToggle = document.querySelector(".ilmoitus-toggle");
   var muutOsiotList = document.querySelector(".muut-osiot-list");
   var savedNote = document.querySelector(".draft-saved-note");
   var savedTime = document.querySelector(".saved-time");
@@ -226,6 +228,7 @@
     sectionPosition.textContent =
       "Osio " + (index + 1) + " / " + sections.length;
     refreshImageRows(section.kind !== "hero");
+    refreshNoticeRow(section.kind !== "yhteydenotto");
     // The style mark's SOURCE changes with the open section — `draft` when
     // the hero is open, hero.payload otherwise — so switching sections owes
     // it a refresh even though the stored value did not move. The two colour
@@ -341,6 +344,44 @@
     imageRows.forEach(function (imageRow) {
       if (hidden !== undefined) imageRow.element.hidden = hidden;
       imageRow.refresh();
+    });
+  }
+
+  /* ---- the availability notice's toggle (USR-COP-4) ---- */
+
+  // yhteydenotto.notice_on is a flag, not content: "on" means shown and
+  // anything else means not (app/notice.py). It is deliberately absent from
+  // FIELD_LABELS, so the schema-driven builder never draws it and this row
+  // is its only editor — the same arrangement hero.portrait and
+  // hero.background have with the two picture rows above.
+  //
+  // Unlike those, and unlike the Ulkoasu tab's three hero controls, this
+  // field belongs to the section the row is VISIBLE FOR. The row is hidden
+  // unless yhteydenotto is open, so `draft` is always this field's payload
+  // and none of setHeroValue's "which section is open" branching is needed:
+  // write into draft, refresh, save, exactly as the generated form does.
+  //
+  // notice_text is never touched here. That is the whole point of two
+  // fields: switching the notice off must not cost the owner the sentence
+  // they wrote.
+
+  function refreshNoticeRow(hidden) {
+    if (!ilmoitusRow || !ilmoitusToggle) return;
+    if (hidden !== undefined) ilmoitusRow.hidden = hidden;
+    // What the box shows is what is STORED, the same rule the style mark
+    // and the colour swatches follow — never what was last clicked.
+    ilmoitusToggle.checked = draft && draft.notice_on === "on";
+  }
+
+  if (ilmoitusToggle) {
+    ilmoitusToggle.addEventListener("change", function () {
+      // "" rather than "off": every value app/notice.py does not recognise
+      // means not shown, and "" is what the seed and the migration store,
+      // so a toggled-off row is byte-identical to a never-touched one.
+      draft.notice_on = ilmoitusToggle.checked ? "on" : "";
+      // Saved at once rather than through the debounce: a click is a whole
+      // decision, not a keystroke in the middle of one.
+      save();
     });
   }
 
@@ -510,6 +551,11 @@
       // back is to leave the section and return. No visibility argument:
       // Peruuta cannot change which section is open.
       refreshImageRows();
+      // And the same debt for the notice box, the fourth writer of `draft`:
+      // an optimistic tick left by a failed save has to go back with the
+      // rest of the draft, or the panel claims a notice the store says is
+      // off. Again no visibility argument, for the same reason.
+      refreshNoticeRow();
       // Same debt for the style: Peruuta is a writer of draft.style too,
       // through the hero-open branch of setStyle, so an optimistic mark left
       // by a failed style write has to go back with the rest of the draft.

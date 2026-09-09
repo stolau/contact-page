@@ -11,6 +11,8 @@ No test here sleeps. Time is page.clock's throughout: frozen, so nothing
 fires by accident, and advanced explicitly where a timer is the subject.
 """
 
+import json
+
 from tests.browser.conftest import (
     V2_STYLESHEET,
     hero_draft,
@@ -809,3 +811,159 @@ def test_a_renamed_section_label_reaches_the_public_page(
     # trips this line instead of four spec criteria.
     expect(public.locator("nav")).to_contain_text("Palvelut")
     public.close()
+
+
+# --- USR-COP-4: the availability notice, in a real browser ------------------
+
+NOTICE_SENTENCE = "Ajanvaraus on tauolla kesäkuun ajan"
+
+
+def yhteydenotto_draft(app):
+    """The contact section's drafted payload, out of the app's own store."""
+    row = next(r for r in section_rows(app) if r["kind"] == "yhteydenotto")
+    return json.loads(row["draft"])
+
+
+def test_the_owner_writes_a_notice_switches_it_on_and_off_and_keeps_the_text(
+    page, expect, live_app
+):
+    """The whole feature in one owner's hands, and the half no server-side
+    test can show.
+
+    tests/test_page.py and tests/test_page_v2.py prove that the resolver
+    decides and that "off" means absent from the served bytes. What they
+    cannot show is that an owner can reach any of it: that the toggle is a
+    real control in the panel, that ticking it writes without touching the
+    text, and — the assertion this feature exists for — that after switching
+    the notice OFF the sentence is still sitting in the Ilmoitusteksti box,
+    ready to switch back on. One field where empty means off would pass every
+    server-side test in this repo and fail that last line.
+
+    The hidden-with-the-hero assertion at the top is not decoration. edit.js
+    sets .hidden on this row for every non-yhteydenotto section, but
+    .ilmoitus-row declares `display: flex`, and an author-origin display
+    beats the UA sheet's [hidden] { display: none } by origin — which is
+    exactly how the portrait row leaked into every section until LLM-COP-30
+    added .kuva-row[hidden]. This row's companion rule is asserted here so
+    that defect cannot ship a second time. ATTACHED as well as not visible,
+    for the reason the picture-row test states: to_be_hidden passes for an
+    element that is not in the document at all.
+    """
+    assert_absent_from_app(NOTICE_SENTENCE)
+
+    page.goto(f"{live_app.base_url}/muokkaa")
+    freeze_clock(page)
+
+    # The hero is the section the panel opens on, so this is the [hidden]
+    # check in the state cp-main-edit's own screenshots were captured in.
+    expect(page.locator(".section-name")).to_have_text("Aloitusosio")
+    expect(page.locator(".ilmoitus-row")).to_have_count(1)
+    expect(page.locator(".ilmoitus-row")).to_be_hidden()
+
+    page.locator(".muut-osiot-list li").filter(
+        has=page.locator(".muut-osiot-name", has_text="Yhteydenottolomake")
+    ).first.click()
+    expect(page.locator(".section-name")).to_have_text("Yhteydenottolomake")
+    expect(page.locator(".ilmoitus-row")).to_be_visible()
+    # Nothing is ticked before the owner ticks it: the seed stores "" for
+    # notice_on, and what the box shows is what is STORED — the same rule the
+    # style mark and the colour swatches follow.
+    expect(page.locator(".ilmoitus-toggle")).not_to_be_checked()
+
+    # The text first, through the generated form's own row. It is drawn LAST
+    # because notice_text is declared last in its kind, which is what puts it
+    # directly above the toggle rather than far from it.
+    panel_input(page, "Ilmoitusteksti").fill(NOTICE_SENTENCE)
+    with page.expect_response("**/api/sections/*/draft"):
+        page.clock.fast_forward("00:03")
+
+    # Typing the text alone must not publish a notice: the flag is still "".
+    with page.expect_response("**/api/publish"):
+        page.click(".julkaise-button")
+    public = page.context.new_page()
+    public.goto(f"{live_app.base_url}/")
+    expect(public.locator(".contact-notice")).to_have_count(0)
+
+    # Now the toggle. A click IS the write here — no debounce — so the
+    # response is awaited on the click itself.
+    with page.expect_response("**/api/sections/*/draft"):
+        page.click(".ilmoitus-toggle")
+    expect(page.locator(".ilmoitus-toggle")).to_be_checked()
+    with page.expect_response("**/api/publish"):
+        page.click(".julkaise-button")
+
+    public.reload()
+    expect(public.locator(".contact-notice")).to_have_text(NOTICE_SENTENCE)
+
+    # And off again, WITHOUT touching Ilmoitusteksti.
+    with page.expect_response("**/api/sections/*/draft"):
+        page.click(".ilmoitus-toggle")
+    expect(page.locator(".ilmoitus-toggle")).not_to_be_checked()
+    with page.expect_response("**/api/publish"):
+        page.click(".julkaise-button")
+
+    public.reload()
+    # Gone from the page, and gone from the BYTES — not merely invisible.
+    # This is the assertion an always-emitted `hidden` paragraph would fail,
+    # and the reason the render is conditional at all.
+    expect(public.locator(".contact-notice")).to_have_count(0)
+    assert NOTICE_SENTENCE not in public.content()
+    public.close()
+
+    # THE LINE THE FEATURE IS FOR: the owner's sentence is still in the box.
+    expect(panel_input(page, "Ilmoitusteksti")).to_have_value(NOTICE_SENTENCE)
+
+    # And it survives leaving the section and coming back, which is where a
+    # value held only in an unsaved DOM node would be lost.
+    page.locator(".muut-osiot-list li").first.click()
+    expect(page.locator(".ilmoitus-row")).to_be_hidden()
+    page.locator(".muut-osiot-list li").filter(
+        has=page.locator(".muut-osiot-name", has_text="Yhteydenottolomake")
+    ).first.click()
+    expect(panel_input(page, "Ilmoitusteksti")).to_have_value(NOTICE_SENTENCE)
+    expect(page.locator(".ilmoitus-toggle")).not_to_be_checked()
+
+
+def test_peruuta_puts_the_notice_box_back_to_what_is_stored(page, expect, live_app):
+    """The toggle is the fourth writer of `draft`, so Peruuta owes it the
+    same refresh it already pays refreshImageRows and the style mark.
+
+    The route is what makes the tick optimistic: the click writes
+    draft.notice_on = "on" and saves at once, the PUT never lands, so
+    lastSaved still holds the seeded "". Peruuta then restores that draft
+    and the box must follow it down. Without refreshNoticeRow() in the
+    Peruuta handler the box stays ticked over a store that says off — the
+    panel promises a notice every later save writes away, and it heals
+    only by leaving the section and coming back.
+
+    An abort rather than a rejected payload, for the reason the style test
+    gives: it makes the failed write deterministic instead of a race.
+    """
+    page.goto(f"{live_app.base_url}/muokkaa")
+    freeze_clock(page)
+    page.locator(".muut-osiot-list li").filter(
+        has=page.locator(".muut-osiot-name", has_text="Yhteydenottolomake")
+    ).first.click()
+    expect(page.locator(".section-name")).to_have_text("Yhteydenottolomake")
+    expect(page.locator(".ilmoitus-toggle")).not_to_be_checked()
+
+    page.route("**/api/sections/*/draft", lambda route: route.abort())
+    with page.expect_event("requestfailed"):
+        page.click(".ilmoitus-toggle")
+    # The click itself ticks the box — that much is the browser's own doing.
+    expect(page.locator(".ilmoitus-toggle")).to_be_checked()
+    assert yhteydenotto_draft(live_app)["notice_on"] == ""
+    page.unroute("**/api/sections/*/draft")
+
+    page.click(".peruuta-button")
+    expect(page.locator(".peruuta-note")).to_be_visible()
+    expect(page.locator(".ilmoitus-toggle")).not_to_be_checked()
+
+    # And the second half, so "unticked" is not merely true of a panel whose
+    # toggle never moves: the same click, with the write allowed through.
+    with page.expect_response("**/api/sections/*/draft"):
+        page.click(".ilmoitus-toggle")
+    expect(page.locator(".ilmoitus-toggle")).to_be_checked()
+    assert yhteydenotto_draft(live_app)["notice_on"] == "on"
+    page.click(".peruuta-button")
+    expect(page.locator(".ilmoitus-toggle")).to_be_checked()
