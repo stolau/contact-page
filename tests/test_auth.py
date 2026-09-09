@@ -2033,6 +2033,44 @@ def test_a_recovery_code_can_never_look_like_a_totp_code(conn):
         assert not any(code in str(tuple(row)) for row in stored), code
 
 
+def test_a_non_ascii_code_is_refused_the_way_a_wrong_one_is(
+    admin_app, monkeypatch
+):
+    """A typo is answered in the same bytes as a wrong code, not a 500.
+
+    hmac.compare_digest raises TypeError on a non-ASCII str, and the field
+    is labelled Kertakäyttökoodi for a Finnish audience — ä is one key away
+    from a digit, so this is an ordinary typo rather than a crafted attack.
+    accepted_step refuses it instead, which is what keeps the route's own
+    invariant true: a wrong code, a missing pending cookie and a throttled
+    request answer identically. A 500 is not 200.
+
+    The fullwidth and Arabic-Indic rows are the subtle half. str.isdigit()
+    is True for both, so they are exactly the inputs a shape check written
+    with isdigit() alone would wave through — and they reach compare_digest
+    before _looks_like_a_totp_code ever sees them.
+    """
+    enrol(admin_app, monkeypatch)
+    freeze_totp(monkeypatch, LOGIN_AT)
+
+    for code in ("12345ä", "１２３４５６", "١٢٣٤٥٦"):
+        reset_last_step(admin_app)
+        clear_attempts(admin_app)
+        client = admin_app.test_client()
+        assert login(client).status_code == 200, code
+
+        response = post_code(client, code)
+
+        assert response.status_code == 200, code
+        assert LOGIN_ERROR in response.get_data(as_text=True), code
+        assert "Set-Cookie" not in response.headers, code
+        c = app_conn(admin_app)
+        try:
+            assert session_rows(c) == [], code
+        finally:
+            c.close()
+
+
 def test_mint_pending_leaves_one_live_row_per_account(app):
     """One live pending row is an invariant, not a hope.
 

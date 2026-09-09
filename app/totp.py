@@ -69,6 +69,12 @@ def accepted_step(secret, code, last_step, at=None, skew=TOTP_SKEW):
 
     at=None means "now", resolved through the module's _now seam.
     """
+    if not code.isascii():
+        # compare_digest RAISES on a non-ASCII str, and this is the only
+        # place that knows it. Refusing here rather than at the caller keeps
+        # every refusal byte-identical — a typo'd "ä" in a field labelled
+        # Kertakäyttökoodi is a wrong code, not a 500.
+        return None
     if at is None:
         at = _now()
     current = step_for(at)

@@ -130,6 +130,26 @@ def test_a_wrong_code_is_refused():
     assert totp.accepted_step(RFC_SEED, "", None, at=at) is None
 
 
+def test_a_non_ascii_code_is_refused_rather_than_raising():
+    """compare_digest raises TypeError on a non-ASCII str; this refuses.
+
+    accepted_step owns the compare_digest rule, so it owns the one input
+    that rule cannot be handed. The fullwidth and Arabic-Indic rows are the
+    subtle half: str.isdigit() is True for both, so a shape check written
+    with isdigit() alone would wave them straight through to the crash.
+    """
+    at = 1000 * totp.TOTP_PERIOD + 15
+    here = totp.step_for(at)
+    codes = [
+        "12345ä",  # a Finnish keyboard's typo
+        "１２３４５６",  # fullwidth digits
+        "١٢٣٤٥٦",  # Arabic-Indic digits
+        _code_at(here)[:-1] + "ä",  # the right code but for one key
+    ]
+    for code in codes:
+        assert totp.accepted_step(RFC_SEED, code, None, at=at) is None, code
+
+
 def test_the_now_seam_and_an_explicit_at_agree(monkeypatch):
     """The seam itself is tested, so it cannot rot.
 
