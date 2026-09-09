@@ -60,9 +60,13 @@
 
   // Does this kind declare this field? (LLM-COP-28.) The one predicate that
   // decides which of the panel's own rows — the three picture rows and the
-  // shape row — are shown for the open section. It replaced the last
-  // field-name literal in this file, `section.kind !== "hero"`, which was
-  // right only while hero was the only kind with a picture.
+  // shape row — are shown for the open section. It replaced the last KIND
+  // literal governing row visibility, `section.kind !== "hero"`, which was
+  // right only while hero was the only kind with a picture. (A kind
+  // literal, not a field-name one: the factory below has been free of
+  // field names since LLM-COP-30, and `kind === "hero"` still stands at the
+  // Ulkoasu writes further down, legitimately — those really are the hero's
+  // own keys.)
   //
   // KEYED ON THE SCHEMA, NOT ON `draft`, and that is deliberate: a payload is
   // data, and a pre-migration or hand-written row could be short a key, so
