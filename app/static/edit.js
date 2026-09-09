@@ -366,7 +366,7 @@
   // they wrote.
 
   function refreshNoticeRow(hidden) {
-    if (!ilmoitusRow) return;
+    if (!ilmoitusRow || !ilmoitusToggle) return;
     if (hidden !== undefined) ilmoitusRow.hidden = hidden;
     // What the box shows is what is STORED, the same rule the style mark
     // and the colour swatches follow — never what was last clicked.
@@ -551,6 +551,11 @@
       // back is to leave the section and return. No visibility argument:
       // Peruuta cannot change which section is open.
       refreshImageRows();
+      // And the same debt for the notice box, the fourth writer of `draft`:
+      // an optimistic tick left by a failed save has to go back with the
+      // rest of the draft, or the panel claims a notice the store says is
+      // off. Again no visibility argument, for the same reason.
+      refreshNoticeRow();
       // Same debt for the style: Peruuta is a writer of draft.style too,
       // through the hero-open branch of setStyle, so an optimistic mark left
       // by a failed style write has to go back with the rest of the draft.

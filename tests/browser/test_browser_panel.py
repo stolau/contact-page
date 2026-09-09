@@ -11,6 +11,8 @@ No test here sleeps. Time is page.clock's throughout: frozen, so nothing
 fires by accident, and advanced explicitly where a timer is the subject.
 """
 
+import json
+
 from tests.browser.conftest import (
     V2_STYLESHEET,
     hero_draft,
@@ -816,6 +818,12 @@ def test_a_renamed_section_label_reaches_the_public_page(
 NOTICE_SENTENCE = "Ajanvaraus on tauolla kesäkuun ajan"
 
 
+def yhteydenotto_draft(app):
+    """The contact section's drafted payload, out of the app's own store."""
+    row = next(r for r in section_rows(app) if r["kind"] == "yhteydenotto")
+    return json.loads(row["draft"])
+
+
 def test_the_owner_writes_a_notice_switches_it_on_and_off_and_keeps_the_text(
     page, expect, live_app
 ):
@@ -914,3 +922,48 @@ def test_the_owner_writes_a_notice_switches_it_on_and_off_and_keeps_the_text(
     ).first.click()
     expect(panel_input(page, "Ilmoitusteksti")).to_have_value(NOTICE_SENTENCE)
     expect(page.locator(".ilmoitus-toggle")).not_to_be_checked()
+
+
+def test_peruuta_puts_the_notice_box_back_to_what_is_stored(page, expect, live_app):
+    """The toggle is the fourth writer of `draft`, so Peruuta owes it the
+    same refresh it already pays refreshImageRows and the style mark.
+
+    The route is what makes the tick optimistic: the click writes
+    draft.notice_on = "on" and saves at once, the PUT never lands, so
+    lastSaved still holds the seeded "". Peruuta then restores that draft
+    and the box must follow it down. Without refreshNoticeRow() in the
+    Peruuta handler the box stays ticked over a store that says off — the
+    panel promises a notice every later save writes away, and it heals
+    only by leaving the section and coming back.
+
+    An abort rather than a rejected payload, for the reason the style test
+    gives: it makes the failed write deterministic instead of a race.
+    """
+    page.goto(f"{live_app.base_url}/muokkaa")
+    freeze_clock(page)
+    page.locator(".muut-osiot-list li").filter(
+        has=page.locator(".muut-osiot-name", has_text="Yhteydenottolomake")
+    ).first.click()
+    expect(page.locator(".section-name")).to_have_text("Yhteydenottolomake")
+    expect(page.locator(".ilmoitus-toggle")).not_to_be_checked()
+
+    page.route("**/api/sections/*/draft", lambda route: route.abort())
+    with page.expect_event("requestfailed"):
+        page.click(".ilmoitus-toggle")
+    # The click itself ticks the box — that much is the browser's own doing.
+    expect(page.locator(".ilmoitus-toggle")).to_be_checked()
+    assert yhteydenotto_draft(live_app)["notice_on"] == ""
+    page.unroute("**/api/sections/*/draft")
+
+    page.click(".peruuta-button")
+    expect(page.locator(".peruuta-note")).to_be_visible()
+    expect(page.locator(".ilmoitus-toggle")).not_to_be_checked()
+
+    # And the second half, so "unticked" is not merely true of a panel whose
+    # toggle never moves: the same click, with the write allowed through.
+    with page.expect_response("**/api/sections/*/draft"):
+        page.click(".ilmoitus-toggle")
+    expect(page.locator(".ilmoitus-toggle")).to_be_checked()
+    assert yhteydenotto_draft(live_app)["notice_on"] == "on"
+    page.click(".peruuta-button")
+    expect(page.locator(".ilmoitus-toggle")).to_be_checked()

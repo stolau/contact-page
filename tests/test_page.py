@@ -583,6 +583,15 @@ def test_the_availability_notice_shows_the_owners_text_when_it_is_switched_on(
     assert text is not None, "no p.contact-notice in the served page"
     assert text.strip() == NOTICE_TEXT
 
+    # And it carries NEITHER binding. Both fields are excluded from direct
+    # edit on purpose (app/templates/page.html, and the two reasons in
+    # tests/test_direct_edit.py's EXCLUDED_SCALARS), and this is the only
+    # place that can hold it: direct edit's bound-attribute count renders
+    # the seeded store, where notice_on is "", so the element is not in the
+    # document at all and no count there can ever see its binding.
+    assert 'data-field="notice_text"' not in after
+    assert 'data-field="notice_on"' not in after
+
     edit_published_payload(
         app, "yhteydenotto", lambda p: p.update(notice_text=NOTICE_PROMISE)
     )

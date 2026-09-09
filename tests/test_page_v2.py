@@ -431,6 +431,13 @@ def test_the_v2_card_shows_the_availability_notice_when_it_is_switched_on(app):
         < html.index("v2-contact-notice")
         < html.index("v2-contact-caveat")
     )
+    # Neither field is bound for direct edit here either, and the V1 sibling
+    # says the same of its own skin. Held on both, deliberately: a one-sided
+    # binding is exactly what the V1/V2 fence exists to catch, and that fence
+    # cannot see this element — direct edit renders the seeded store, where
+    # notice_on is "" and the notice is not emitted at all.
+    assert 'data-field="notice_text"' not in html
+    assert 'data-field="notice_on"' not in html
 
 
 def test_switching_the_v2_notice_off_removes_it_from_the_rendered_bytes(app):

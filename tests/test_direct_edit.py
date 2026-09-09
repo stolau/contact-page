@@ -600,10 +600,23 @@ EXCLUDED_SCALARS = {
 # V1/V2 binding fence (tests/test_page_v2.py) satisfied by construction in
 # every data state rather than only the seeded one. That invariant was
 # checked before the constant was touched — `grep -c 'data-field='` over
-# both templates returns the same two numbers before and after the change —
-# and it is the falsifier for this block: if the bound count had moved, a
-# template grew a binding it was not supposed to, and the fix is in the
-# template, never in this constant.
+# both templates returns the same two numbers before and after the change.
+#
+# The counts are NOT the falsifier for THESE two rows, and it would be
+# untrue to say they are: direct_html and the V1/V2 fence both render the
+# SEEDED store, where notice_on is "", so the paragraph is not in the
+# document and no count taken here can see a binding on it. Bind
+# notice_text in one template and every number in this file stays put —
+# measured. What holds these two rows is a pair of assertions in the two
+# tests that render the notice ON, one per skin:
+# test_the_availability_notice_shows_the_owners_text_when_it_is_switched_on
+# (tests/test_page.py) and its V2 sibling
+# test_the_v2_card_shows_the_availability_notice_when_it_is_switched_on
+# (tests/test_page_v2.py), each asserting the emitted paragraph carries
+# neither data-field. For every OTHER row the counts do remain the
+# falsifier for this block: if the bound count had moved, a template grew a
+# binding it was not supposed to, and the fix is in the template, never in
+# this constant.
 #
 # The rename of yhteydenotto.send_label's default moves neither count: it
 # changes a stored word, not a binding. It does cost the assertion at the
