@@ -828,3 +828,113 @@ def test_the_footer_carries_the_privacy_link(page_html):
     )
     assert link is not None, "no a.gdpr-open in the footer"
     assert link.group(1).strip() == "Tietosuojaseloste"
+
+
+# --- LLM-COP-28: V1 renders no editorial-band picture -----------------------
+
+
+def test_v1_renders_no_editorial_band_picture(app, client):
+    """The artifact's Decision 1, made falsifiable instead of asserted in
+    prose.
+
+    Every editorial kind — tietoa, palvelut, vastaanottoajat, sijainti —
+    stores an `image`, an `image_alt` and an `image_shape` since LLM-COP-28,
+    and V1 draws NONE of them. That is a decision rather than an omission,
+    and the reasoning is worth restating where the test lives:
+
+      * V1 has no design for a picture beside an editorial band. Inventing
+        one would be inventing a design, which is the mistake LLM-COP-8 and
+        LLM-COP-10 were spent undoing.
+      * The V1/V2 binding fence (tests/test_page_v2.py) means a field bound
+        in one template is bound in both — so LLM-COP-25's four contact
+        fields HAD to grow V1 elements, and page.html says so in its own
+        comment. These three do not, because none of them is bound in EITHER
+        template: an image slot, an alt attribute and a crop are not text
+        nodes, so the fence is satisfied by construction here rather than by
+        adding markup.
+      * The field is still stored and still editable on V1, deliberately, so
+        an owner who switches to V2 tomorrow finds their picture already
+        there — the rule app/db.py wrote down for hero.background, applied
+        to the mirror case.
+
+    A PROSE CLAIM CANNOT FAIL, so this asserts it over a document rendered
+    with all four pictures set to real digests: none of the four URLs is in
+    the page, none of the four alt strings is, and the only .portrait element
+    on the page is the hero's. A build that grew a V1 band picture "to keep
+    the skins consistent" fails here.
+
+    The alt strings are checked to appear nowhere in app/ first, so the
+    absence assertions cannot be satisfied by a template that hard-coded
+    them.
+    """
+    kinds = ("tietoa", "palvelut", "vastaanottoajat", "sijainti")
+    digests = {kind: chr(ord("a") + i) * 64 for i, kind in enumerate(kinds)}
+    alts = {
+        "tietoa": "Kirjoituspöytä ja kahvikuppi, lämmin sivuvalo",
+        "palvelut": "Kaksi tuolia vastakkain, pehmeä varjo",
+        "vastaanottoajat": "Seinäkello ja kalenteri, kapea rajaus",
+        "sijainti": "Talon sisäänkäynti kadulta, harmaa päivä",
+    }
+    for alt in alts.values():
+        assert_absent_from_app(alt)
+
+    for kind in kinds:
+        edit_published_payload(
+            app,
+            kind,
+            lambda p, k=kind: p.update(
+                image=digests[k], image_alt=alts[k], image_shape="square"
+            ),
+        )
+
+    html = client.get("/").get_data(as_text=True)
+
+    for kind in kinds:
+        assert f"/kuvat/{digests[kind]}" not in html, kind
+        assert digests[kind] not in html, kind
+        assert alts[kind] not in html, kind
+
+    # No square crop reaches V1 either: the class exists only in
+    # app/static/style-v2.css, so a V1 element wearing it would be a picture
+    # with no rule to draw it.
+    assert "square" not in html
+
+    # Exactly one .portrait on the page, and it is the hero's — the element
+    # direct-edit.js anchors its disabled Vaihda kuva pill on. This is what
+    # "no .portrait outside the hero" means as an assertion rather than as a
+    # description: a band that grew one would push the count to two.
+    portraits = re.findall(r'<div class="portrait[^"]*"', html)
+    assert len(portraits) == 1, portraits
+    hero = re.search(
+        r'<section[^>]*data-kind="hero".*?(?=<section|\Z)', html, re.DOTALL
+    )
+    assert hero is not None, "no hero section in the served page"
+    assert 'class="portrait' in hero.group(0)
+
+
+def test_v1_still_draws_the_hero_portrait_after_the_bands_got_their_own(
+    app, client
+):
+    """The other half of Decision 3, and it is asserted rather than assumed
+    because the migration deliberately did NOT clear this field.
+
+    V2 stopped reading hero.portrait when the bands got their own pictures.
+    V1 did not, and must not: DEFAULT_STYLE is "v1", so this is the default
+    skin's portrait, and clearing the field to tidy up after _migration_14's
+    copy would have blanked the picture of every V1 install on deploy.
+
+    Asserted through the real public route with a real digest in the field,
+    next to its own alt text, so "V1 draws it" means the src and the
+    description reach the served document paired — not merely that some
+    <img> is emitted.
+    """
+    digest = "9" * 64
+    alt = "Muotokuva ikkunan edessä, pehmeä vastavalo"
+    assert_absent_from_app(alt)
+    edit_published_payload(
+        app, "hero", lambda p: p.update(portrait=digest, portrait_alt=alt)
+    )
+
+    html = client.get("/").get_data(as_text=True)
+    assert f'src="/kuvat/{digest}" alt="{alt}"' in html
+    assert "has-image" in html

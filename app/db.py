@@ -738,6 +738,144 @@ def _migration_13(conn):
     )
 
 
+def _migration_14(conn):
+    # Every editorial band gets its own picture (LLM-COP-28): image,
+    # image_alt and image_shape on tietoa, palvelut, vastaanottoajat and
+    # sijainti. Twelve new declared keys, so without a backfill
+    # validate_payload's required-key check rejects the owner's first save on
+    # every existing row of those four kinds — the hazard _migration_4,
+    # _migration_7, _migration_8, _migration_11 and _migration_12 exist for,
+    # and this is _migration_8's shape applied again with one read in front
+    # of it.
+    #
+    # THE FIRST MIGRATION IN THIS FILE THAT READS ONE KIND TO WRITE ANOTHER,
+    # and that is stated rather than slipped past. Every predecessor computed
+    # each row's new text from that row's own stored text and nothing else.
+    # This one reads the HERO once, before the loop, and writes what it finds
+    # into the tietoa rows.
+    #
+    # WHY. _migration_8's rule: every default is the value that reproduces
+    # the page the install rendered a moment before the upgrade. A V2 install
+    # rendered the tietoa band's circle FROM hero.portrait — the template
+    # hoisted it across the section boundary — and after this change that
+    # band reads tietoa.image. So "" here would blank the bio picture of
+    # every deployed V2 site on deploy, which is exactly the harm
+    # _migration_9 refused for the hero photograph. The other three kinds
+    # DREW NO PICTURE before the upgrade, so for them "" is the value that
+    # reproduces the page and a copy would invent one.
+    #
+    # THE COPY IS ONE-WAY AND hero.portrait IS NOT CLEARED. V1's hero card
+    # still draws it (app/templates/page.html), and DEFAULT_STYLE is "v1"
+    # (app/styles.py), so clearing it to tidy up after the copy would blank
+    # the portrait of every V1 install on deploy. The two fields diverge from
+    # here: hero.portrait is V1's picture, tietoa.image is V2's, and the
+    # panel shows both rows on both skins so the owner can always set or
+    # clear either — the rule _migration_9 wrote down for hero.background.
+    #
+    # PUBLISHED FIRST, DRAFT ONLY IF NEVER PUBLISHED, and the price of that
+    # choice is named rather than hidden. A row that has been published is
+    # read from its published column, so the value copied is the one the
+    # public page is actually showing. The owner of an install with an
+    # UNPUBLISHED new portrait therefore finds the PUBLISHED one in the
+    # tietoa band — including in their draft preview, which is the half of
+    # this trade a reader meets first. The alternative, copying the draft,
+    # would put an unpublished picture into a published column, which is
+    # worse: it publishes something the owner did not.
+    #
+    # IT IS INJECTIVE, so badge() (app/sections.py) cannot flip. For a fixed
+    # database the per-kind suffix is a CONSTANT — computed once, before the
+    # loop, from a row this migration never rewrites — so the map is "the
+    # input plus a fixed appended suffix" and the input is recoverable by
+    # dropping it; no two distinct stored texts collapse into one. That is
+    # _migration_11's claim rather than _migration_12's refusal, and it
+    # carries _migration_12's caveat with it: the claim holds GIVEN that no
+    # pre-migration-14 writer emits these three keys, which is what rules out
+    # a stored text T' and a stored text T'+suffix both existing.
+    #
+    # IT IS NOT A PURE FUNCTION OF THE ROW'S OWN STORED TEXT, and that is the
+    # honest wording. It is a pure function of (row text, one constant read
+    # once). Badge safety survives because ALL THREE COLUMNS OF EVERY ROW get
+    # the same constant, so draft == published before implies it after.
+    #
+    # THE REJECTED ALTERNATIVE, NAMED. A column-wise copy — tietoa.draft.image
+    # from hero.draft.portrait, tietoa.published.image from
+    # hero.published.portrait — is more faithful per column and is REFUSED:
+    # on any install whose hero draft and published portraits differ it makes
+    # tietoa.draft != tietoa.published and flips a Julkaistu badge to
+    # Luonnos, which is the headline hazard the frozen-install upgrade test
+    # exists for. The price paid instead is that a tietoa rollback may
+    # restore an image the hero's previous_published did not name — the same
+    # class of accepted imperfection _migration_12 writes out above.
+    #
+    # The literals below are FROZEN and no app.fields, app.seed or app.shapes
+    # is imported, for the reason _migration_4 states: a migration that reads
+    # the live schema changes behaviour whenever the schema next changes,
+    # which is not a migration. "" for image_shape is app/shapes.py's circle,
+    # which is the crop the shipped stylesheet already drew, so an upgraded
+    # install serves the same picture in the same shape.
+    #
+    # Each per-kind dict is in FIELDS declaration order, because setdefault
+    # APPENDS in iteration order and those two orders being equal is what
+    # keeps a backfilled row's key order equal to declaration order — and
+    # setdefault does not overwrite, so a re-run is byte-untouched by
+    # construction. previous_published is backfilled too: restore copies it
+    # verbatim into draft (app/sectionlist.py), and a payload short of the
+    # three keys there would 400 the owner's next save (app/sanitize.py ->
+    # app/edit.py). A kind absent from the map below is left entirely alone,
+    # which is what leaves hero and yhteydenotto byte-untouched.
+    hero = conn.execute(
+        "SELECT published, draft FROM sections WHERE kind = 'hero'"
+    ).fetchone()
+    portrait, portrait_alt = "", ""
+    if hero is not None:
+        # Indexed positionally: a migration must not depend on the caller
+        # having set sqlite3.Row (app/db.py:110-113).
+        text = hero[0] or hero[1]
+        if text:
+            payload = json.loads(text)
+            value = payload.get("portrait")
+            portrait = value if isinstance(value, str) else ""
+            value = payload.get("portrait_alt")
+            portrait_alt = value if isinstance(value, str) else ""
+    defaults = {
+        "tietoa": {
+            "image": portrait,
+            "image_alt": portrait_alt,
+            "image_shape": "",
+        },
+        "palvelut": {"image": "", "image_alt": "", "image_shape": ""},
+        "vastaanottoajat": {"image": "", "image_alt": "", "image_shape": ""},
+        "sijainti": {"image": "", "image_alt": "", "image_shape": ""},
+    }
+    columns = ("draft", "published", "previous_published")
+    rows = conn.execute(
+        "SELECT id, draft, published, previous_published, kind FROM sections"
+    ).fetchall()
+    for row in rows:
+        # Indexed positionally: a migration must not depend on the caller
+        # having set sqlite3.Row (app/db.py:110-113).
+        section_id = row[0]
+        kind_defaults = defaults.get(row[4])
+        if kind_defaults is None:
+            continue
+        for offset, column in enumerate(columns, start=1):
+            text = row[offset]
+            if not text:
+                continue
+            payload = json.loads(text)
+            for key, value in kind_defaults.items():
+                payload.setdefault(key, value)
+            new_text = json.dumps(payload, ensure_ascii=False)
+            # _migration_5's convention: a row already carrying the keys is
+            # byte-untouched by construction, not merely by luck.
+            if new_text == text:
+                continue
+            conn.execute(
+                f"UPDATE sections SET {column} = ? WHERE id = ?",
+                (new_text, section_id),
+            )
+
+
 MIGRATIONS = [
     _migration_1,
     _migration_2,
@@ -752,6 +890,7 @@ MIGRATIONS = [
     _migration_11,
     _migration_12,
     _migration_13,
+    _migration_14,
 ]
 
 

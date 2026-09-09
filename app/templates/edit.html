@@ -40,11 +40,12 @@
         <span class="section-position">Osio 1 / {{ sections|length }}</span>
       </div>
 
-      {# Two picture rows (LLM-COP-30), one per hero image field, each
-         carrying its own data-field. .vaihda-input, .vaihda-button and
-         .poista-button therefore appear TWICE in this document and are only
-         ever reached from within a row — edit.js queries them off the row
-         element, never off the document.
+      {# The hero's two picture rows (LLM-COP-30), one per hero image field,
+         each carrying its own data-field. With LLM-COP-28's generic section
+         row below them .vaihda-input, .vaihda-button and .poista-button
+         appear THREE times in this document and are only ever reached from
+         within a row — edit.js queries them off the row element, never off
+         the document.
 
          .muotokuva-row and .muotokuva-error stay on the portrait row ALONE.
          They are the scoping handle the browser suite resolves strictly
@@ -73,6 +74,54 @@
         <button type="button" class="button secondary poista-button" hidden>Poista</button>
         <input type="file" class="vaihda-input" accept="image/png,image/jpeg" hidden>
         <span class="taustakuva-error kuva-error" role="alert" hidden></span>
+      </div>
+
+      {# The third picture row (LLM-COP-28), and the first that is not the
+         hero's: every editorial band — Tietoa, Palvelut, Vastaanottoajat,
+         Sijainti — declares its own `image`, and this ONE row edits whichever
+         of them is open. It is generic because the four kinds use the same
+         field name, so there is one row rather than four, and edit.js decides
+         its visibility from the SCHEMA — does the open section's kind declare
+         `image`? — which is the same predicate the shape row below uses and
+         which replaced the last `kind !== "hero"` literal in that file.
+
+         It wears .kuva-row, so the same factory drives it and the same CSS
+         styles it, and its own .osiokuva-row / .osiokuva-error. NOT
+         .muotokuva-error or .taustakuva-error: those two are the browser
+         suite's strict scoping handles, so a third element wearing either
+         would be a strict-mode violation rather than a pass. #}
+      <div class="osiokuva-row kuva-row" data-field="image" hidden>
+        <span class="osiokuva-icon kuva-icon" aria-hidden="true">&#128247;</span>
+        <span class="kuva-text">Kuva<br><span class="kuva-detail">Osion oma kuva</span></span>
+        <button type="button" class="button secondary vaihda-button">Vaihda</button>
+        <button type="button" class="button secondary poista-button" hidden>Poista</button>
+        <input type="file" class="vaihda-input" accept="image/png,image/jpeg" hidden>
+        <span class="osiokuva-error kuva-error" role="alert" hidden></span>
+      </div>
+
+      {# How that picture is cropped (LLM-COP-28). image_shape is a
+         constrained vocabulary, not content: app/shapes.py resolves it and
+         "" is the circle. It carries no FIELD_LABELS entry deliberately
+         (app/fields.py), so the generated form never draws it — a text box an
+         owner types "pyöreä" into is exactly the value the resolver would
+         then have to refuse — and this is its only editor, the way the
+         picture rows are their fields'.
+
+         Buttons rather than a checkbox, for the reason the Ulkoasu tab's
+         style list gives: the click IS the write, every option is its own
+         addressable control, and both crops the design names — Pyöreä and
+         Neliö — are on screen. A checkbox would hide the word Neliö.
+
+         NOT a .kuva-row: it has no uploader, no .vaihda-input and no
+         .kuva-error, and that class is both edit.js's picture-row loop and a
+         browser-suite scoping handle. Its classes are its own, the rule
+         .ilmoitus-row already keeps. Shown by edit.js's refreshShapeRow, on
+         the same schema predicate as the row above. #}
+      <div class="muoto-row" data-field="image_shape" hidden>
+        <span class="muoto-text">Kuvan muoto</span>
+        {% for value, label in shapes %}
+        <button type="button" class="muoto-option" data-shape="{{ value }}">{{ label }}</button>
+        {% endfor %}
       </div>
 
       <form class="section-form"></form>

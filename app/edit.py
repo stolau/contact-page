@@ -26,6 +26,7 @@ from .sections import (
     publish_dirty,
     site_chrome,
 )
+from .shapes import SHAPE_CHOICES
 from .styles import STYLE_CHOICES, resolve_style, template_for
 
 bp = Blueprint("edit", __name__)
@@ -78,6 +79,16 @@ def muokkaa():
         section_names=SECTION_NAMES,
         bootstrap=bootstrap,
         styles=STYLE_CHOICES,
+        # The two crops the Kuvan muoto row offers (LLM-COP-28), passed the
+        # way styles is: the vocabulary lives in one Python module
+        # (app/shapes.py) and the template renders whatever it names, so
+        # offering a third crop is one tuple there and nothing here.
+        #
+        # No active_shape beside it, unlike the style: image_shape belongs to
+        # the section the row is visible for, so the mark comes from the open
+        # section's draft in edit.js rather than from a server-rendered
+        # attribute — the arrangement the Ilmoitus row already has.
+        shapes=SHAPE_CHOICES,
         active_style=active_style,
         color_defaults=color_defaults,
     )

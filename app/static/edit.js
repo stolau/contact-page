@@ -29,6 +29,8 @@
   var kuvaRows = document.querySelectorAll(".kuva-row");
   var ilmoitusRow = document.querySelector(".ilmoitus-row");
   var ilmoitusToggle = document.querySelector(".ilmoitus-toggle");
+  var muotoRow = document.querySelector(".muoto-row");
+  var muotoOptions = document.querySelectorAll(".muoto-option");
   var muutOsiotList = document.querySelector(".muut-osiot-list");
   var savedNote = document.querySelector(".draft-saved-note");
   var savedTime = document.querySelector(".saved-time");
@@ -53,6 +55,26 @@
 
   function labelFor(kind, name) {
     return (LABELS[kind] || {})[name];
+  }
+
+  // Does this kind declare this field? (LLM-COP-28.) The one predicate that
+  // decides which of the panel's own rows — the three picture rows and the
+  // shape row — are shown for the open section. It replaced the last
+  // field-name literal in this file, `section.kind !== "hero"`, which was
+  // right only while hero was the only kind with a picture.
+  //
+  // KEYED ON THE SCHEMA, NOT ON `draft`, and that is deliberate: a payload is
+  // data, and a pre-migration or hand-written row could be short a key, so
+  // asking the payload would hide the row precisely on the store that most
+  // needs it. FIELDS is the declaration itself (app/fields.py, bootstrapped
+  // by app/edit.py), so it answers what the kind HAS rather than what one row
+  // happens to carry.
+  //
+  // hasOwnProperty through Object.prototype: FIELDS comes from JSON.parse, so
+  // a kind named "constructor" or a field named "toString" would answer true
+  // to a bare `in`.
+  function declares(kind, field) {
+    return Object.prototype.hasOwnProperty.call(FIELDS[kind] || {}, field);
   }
 
   /* ---- saving ---- */
@@ -227,8 +249,12 @@
     sectionName.textContent = NAMES[section.kind];
     sectionPosition.textContent =
       "Osio " + (index + 1) + " / " + sections.length;
-    refreshImageRows(section.kind !== "hero");
+    // The KIND, not a boolean: each picture row is shown for the kinds that
+    // declare its own field, so the hero's two rows and the section row can
+    // no longer share one answer (LLM-COP-28).
+    refreshImageRows(section.kind);
     refreshNoticeRow(section.kind !== "yhteydenotto");
+    refreshShapeRow(section.kind);
     // The style mark's SOURCE changes with the open section — `draft` when
     // the hero is open, hero.payload otherwise — so switching sections owes
     // it a refresh even though the stored value did not move. The two colour
@@ -241,26 +267,35 @@
     highlightPreview();
   }
 
-  /* ---- the picture rows (LLM-COP-21, two of them since LLM-COP-30) ---- */
+  /* ---- the picture rows (LLM-COP-21; two since LLM-COP-30, three since
+         LLM-COP-28's generic section row) ---- */
 
-  // hero.portrait and hero.background are in no form: both are plain fields
+  // hero.portrait, hero.background and every editorial band's own `image`
+  // are in no form: all are plain fields
   // deliberately absent from FIELD_LABELS, so the schema-driven builder
   // never draws them. Each row's two buttons are its field's only writers —
   // Vaihda sets a reference, Poista clears it — and both then go through the
   // ordinary save().
   //
   // Errors do NOT go through showErrors: that maps every key through
-  // labelFor, and LABELS.hero.portrait / .background are undefined by
+  // labelFor, and LABELS.hero.portrait / .background and every kind's
+  // .image are undefined by
   // design, so the owner would read a raw "portrait: ..." key in an
   // otherwise Finnish panel. The server's message is already Finnish and
   // already actionable, so it goes verbatim into the row's own error
   // element.
   //
   // ONE factory per row, and every control is queried WITHIN the row: the
-  // three control classes appear twice in the document now, so a
+  // three control classes appear three times in the document now, so a
   // document-wide query would silently take whichever came first in the DOM.
   // Which field a row writes is the row's own data-field, so the order the
-  // two rows are written in edit.html is not load-bearing.
+  // rows are written in edit.html is not load-bearing.
+  //
+  // Which SECTION a row writes is never asked, and does not need to be: a
+  // row is only ever visible while a section whose kind declares its field is
+  // open (see declares above), so `draft` is always that field's payload.
+  // The hero's two rows and the section row therefore share one factory
+  // unchanged — the generic row cost it one line, the `field` on its return.
 
   function createImageRow(row) {
     var field = row.dataset.field;
@@ -335,14 +370,21 @@
       setRef("");
     });
 
-    return { element: row, refresh: refresh };
+    // `field` rides out with the element (LLM-COP-28): visibility is now
+    // per-row — does the open kind declare THIS row's field? — so the caller
+    // needs the name the factory already had in hand.
+    return { element: row, field: field, refresh: refresh };
   }
 
   var imageRows = Array.prototype.map.call(kuvaRows, createImageRow);
 
-  function refreshImageRows(hidden) {
+  // Called with the open section's KIND, or with nothing when only the
+  // Poista buttons need re-reading (Peruuta below).
+  function refreshImageRows(kind) {
     imageRows.forEach(function (imageRow) {
-      if (hidden !== undefined) imageRow.element.hidden = hidden;
+      if (kind !== undefined) {
+        imageRow.element.hidden = !declares(kind, imageRow.field);
+      }
       imageRow.refresh();
     });
   }
@@ -384,6 +426,66 @@
       save();
     });
   }
+
+  /* ---- the section picture's shape (LLM-COP-28) ---- */
+
+  // image_shape is a constrained vocabulary, not content: "square" is the
+  // square and everything else — "", an unknown value, a value some later
+  // build stopped writing — is the circle (app/shapes.py). It is deliberately
+  // absent from FIELD_LABELS, so the schema-driven builder never draws it and
+  // this row is its only editor, the arrangement the picture rows and the
+  // notice toggle both have.
+  //
+  // Like the notice toggle and unlike the Ulkoasu tab's three hero controls,
+  // the field belongs to the section the row is VISIBLE FOR: the row is
+  // hidden unless a kind that declares image_shape is open, so `draft` is
+  // always this field's payload and none of setHeroValue's "which section is
+  // open" branching is needed.
+  //
+  // ITS OWN TOGGLE, not refreshImageRows': the row is not a .kuva-row — no
+  // uploader, no error element — and that class is both the picture-row loop
+  // and a browser-suite scoping handle. This is refreshNoticeRow's shape with
+  // the schema predicate the picture rows now use.
+
+  // A three-line mirror of app/shapes.py's resolve_shape. Two copies of one
+  // vocabulary is the price of marking the row without a round trip; the
+  // fallback is the same in both, and it is the ONE place this file may
+  // decide what a stored value means.
+  function resolveShape(value) {
+    return value === "square" ? "square" : "circle";
+  }
+
+  function refreshShapeRow(kind) {
+    if (!muotoRow) return;
+    if (kind !== undefined) muotoRow.hidden = !declares(kind, "image_shape");
+    // The mark shows resolve_shape's ANSWER, not the raw stored value, and
+    // that is a deliberate divergence from the Ulkoasu tab's style list,
+    // whose mark says what is STORED so that "" (unchosen) can be told apart
+    // from "v1". The shape has no third state: "" IS the circle and the page
+    // draws one, so marking neither option would tell the owner their round
+    // picture is neither round nor square.
+    var active = resolveShape(draft && draft.image_shape);
+    muotoOptions.forEach(function (option) {
+      option.classList.toggle("active", option.dataset.shape === active);
+    });
+  }
+
+  function setShape(value) {
+    draft.image_shape = value;
+    refreshShapeRow();
+    // Saved at once rather than through the debounce, the notice toggle's
+    // reason: a click is a whole decision, not a keystroke in the middle of
+    // one. The mark is set optimistically first, as every other field in the
+    // panel behaves on a failed save — the value stays, showErrors explains,
+    // Peruuta reverts it.
+    return save();
+  }
+
+  muotoOptions.forEach(function (option) {
+    option.addEventListener("click", function () {
+      setShape(option.dataset.shape);
+    });
+  });
 
   /* ---- ulkoasu: the site-wide style (LLM-COP-22) and the two colours
          (USR-COP-2) ---- */
@@ -556,6 +658,11 @@
       // rest of the draft, or the panel claims a notice the store says is
       // off. Again no visibility argument, for the same reason.
       refreshNoticeRow();
+      // And the same debt for the shape row, the fifth writer of `draft`:
+      // setShape marks optimistically, so a mark left by a failed save has to
+      // go back with the rest of the draft. Again no visibility argument, for
+      // the same reason.
+      refreshShapeRow();
       // Same debt for the style: Peruuta is a writer of draft.style too,
       // through the hero-open branch of setStyle, so an optimistic mark left
       // by a failed style write has to go back with the rest of the draft.

@@ -448,6 +448,19 @@ EXCLUDED_SCALARS = {
         " image slot in place is still out of scope, so the direct-edit"
         " affordance stays the disabled 'Vaihda kuva' pill (Rule D). It has"
         " no FIELD_LABELS entry either, so it is not a form field anywhere."
+        " WHICH PICTURE THAT PILL SITS OVER IS SKIN-DEPENDENT SINCE"
+        " LLM-COP-28, and saying so is the honest version of this row."
+        " direct-edit.js anchors the pill on query('.portrait') —"
+        " querySelector, the FIRST match in the document. On V1 that is the"
+        " hero card's portrait, which is this field. On V2 this field is"
+        " drawn nowhere at all: every band now stores and draws its own"
+        " picture, so the first .portrait on that page belongs to whichever"
+        " band renders one first — tietoa in the shipped order, and its"
+        " tietoa.image. The pill therefore names THIS field on V1 and a"
+        " section's own image on V2. It stays one pill either way (asserted"
+        " below), and the field stays stored, still uploadable and still"
+        " clearable from the panel's Muotokuva row on both skins, which is"
+        " what keeps a stored digest revocable."
     ),
     ("yhteydenotto", "name_label"): (
         "rendered since USR-COP-1 inside div.contact-dialog, which ships"
@@ -503,6 +516,17 @@ EXCLUDED_SCALARS = {
         " Editable in the side panel (Muotokuvan tekstivastine) — which is"
         " why, unlike hero.portrait and hero.style, it DOES carry a"
         " FIELD_LABELS entry: the generated form is its only editor."
+        " THAT <img> IS V1'S HERO CARD ALONE SINCE LLM-COP-28. V2 used to"
+        " draw this alt text on the tietoa band's circle, because the"
+        " template hoisted hero.portrait across the section boundary; that"
+        " hoist is gone and the band pairs tietoa.image with"
+        " tietoa.image_alt. So on V2 this string reaches no attribute and no"
+        " text node, which is a second, independent reason it cannot be"
+        " bound — and the reason it must not be: an alt attribute on one"
+        " skin and nothing on the other is not something direct-edit.js"
+        " could round-trip. It stays stored and stays editable in the panel"
+        " on both skins, so an owner who switches to V1 finds their"
+        " description already written."
     ),
     # LLM-COP-30's pair, and each takes the shape of the one above it for the
     # same reason rather than a new one.
@@ -571,11 +595,149 @@ EXCLUDED_SCALARS = {
         " Ilmoitus row (Näytä ilmoitus), a checkbox that can emit nothing"
         " but \"on\" or \"\"."
     ),
+    # LLM-COP-28's twelve: image, image_alt and image_shape on each of the
+    # four editorial kinds. Twelve rows and twelve reasons, no cross
+    # references — the standard USR-COP-4's pair set directly above. They
+    # divide into three shapes (a slot, an alt attribute, a crop) but the
+    # BAND each one belongs to is different in every case, and what a band
+    # draws is exactly what decides whether a field could be bound at all,
+    # so each row says what its own band does with its own value.
+    #
+    # All twelve share one fact worth stating once, because it is the
+    # artifact's central decision rather than any single row's reason: V1
+    # renders NONE of them. page.html has no editorial-band picture design
+    # and this change invented none, so nothing was added to either public
+    # template — which is what keeps the V1/V2 binding fence
+    # (tests/test_page_v2.py) satisfied by construction in every data state
+    # rather than only the seeded one. Measured, not assumed:
+    # `grep -c 'data-field=' app/templates/page.html app/templates/page_v2.html`
+    # returns the same two numbers before and after this change.
+    ("tietoa", "image"): (
+        "not text — it names an image slot. It is the picture the V2"
+        " portrait band draws in its circle, and it reaches that page as an"
+        " <img>'s src attribute built by the image_url filter, never as an"
+        " element's content, so there is nothing for direct-edit.js to make"
+        " contenteditable. V1's Tietoa band draws no picture at all, so on"
+        " the default skin the field reaches no element whatever. It has no"
+        " FIELD_LABELS entry either, so the schema-driven panel form never"
+        " draws it — a text input would invite an owner to type a digest by"
+        " hand. Its editor is the panel's Kuva row, which uploads a file and"
+        " stores the reference the upload answered."
+    ),
+    ("tietoa", "image_alt"): (
+        "rendered as the alt attribute of the portrait band's <img> on V2,"
+        " not a text node, so direct-edit.js has nothing to bind: an"
+        " attribute is not a place a caret can go. On V1 the band draws no"
+        " picture, so the string reaches nothing at all there. It DOES carry"
+        " a FIELD_LABELS entry (Kuvan tekstivastine), and that is the whole"
+        " reason it is editable anywhere: the generated form is its only"
+        " editor, exactly as it is for the hero's two alt fields."
+    ),
+    ("tietoa", "image_shape"): (
+        "not content — it names how the band's picture is CROPPED, circle or"
+        " square (app/shapes.py), so there is no element on either public"
+        " page whose text it is. It reaches V2 as one word inside a class"
+        " attribute, after being resolved: the stored value is never"
+        " rendered raw, so binding it would let an in-place edit write a"
+        " word the resolver then has to throw away, and the owner would see"
+        " their typing vanish on reload. No FIELD_LABELS entry, and"
+        " deliberately: a text box an owner could type \"pyöreä\" into is"
+        " exactly the value app/shapes.py would have to refuse. Its editor"
+        " is the panel's Kuvan muoto row, two buttons that can emit nothing"
+        " but \"circle\" or \"square\"."
+    ),
+    ("palvelut", "image"): (
+        "not text — it names an image slot for the services band. That band"
+        " is a prose band on V2 and renders its media column ONLY when this"
+        " field holds a real reference, so on a store that has none — the"
+        " seeded one this document is rendered from — there is not even an"
+        " element in the page to consider binding. When it does hold one the"
+        " value is an <img> src attribute, which is not bindable either. V1"
+        " draws no picture beside the service list. No FIELD_LABELS entry;"
+        " its editor is the panel's Kuva row with Palvelut open."
+    ),
+    ("palvelut", "image_alt"): (
+        "the services band's picture describes itself through this string,"
+        " and it does so as an alt attribute on V2 — never as a text node,"
+        " so there is nothing for direct-edit.js to make contenteditable."
+        " The band emits no <img> at all until the picture is set, so on the"
+        " seeded store the attribute does not exist. Labelled in the panel"
+        " (Kuvan tekstivastine), which is what makes the generated form its"
+        " one and only editor."
+    ),
+    ("palvelut", "image_shape"): (
+        "not content — it decides whether the services band's picture is cut"
+        " to a circle or a square, and that answer reaches the page as a"
+        " class name rather than as anything a visitor reads. The stored"
+        " value is resolved before it is rendered (app/shapes.py), so what"
+        " the document carries is the resolver's answer and not the field,"
+        " and binding a field to a resolved value is the read/write identity"
+        " break USR-COP-4's notice_text row describes. Unlabelled on"
+        " purpose, so the generated form never offers a free-text crop; the"
+        " panel's Kuvan muoto row is its editor."
+    ),
+    ("vastaanottoajat", "image"): (
+        "not text — it names the picture that can run beside the opening"
+        " hours. On V2 the band draws it only when the reference is real,"
+        " and then only as an <img> src attribute; on V1 the hours render as"
+        " day rows with no picture column anywhere near them. So there is no"
+        " element on either page whose TEXT this is, in any data state. No"
+        " FIELD_LABELS entry, so the panel form never draws it; the Kuva row"
+        " with Vastaanottoajat open uploads and clears it."
+    ),
+    ("vastaanottoajat", "image_alt"): (
+        "the description of the picture beside the opening hours, rendered"
+        " into that <img>'s alt attribute on V2 and nowhere on V1. An"
+        " attribute is not a text node, so direct-edit.js could not make it"
+        " editable in place even on the skin that draws it. It carries a"
+        " FIELD_LABELS entry (Kuvan tekstivastine) precisely because of"
+        " that: with no bindable element, the generated form has to be its"
+        " editor or the field would have none."
+    ),
+    ("vastaanottoajat", "image_shape"): (
+        "not content — it is the crop of that picture, circle or square, and"
+        " it lands in a class attribute after app/shapes.py has resolved it."
+        " There is no element whose text it is on either skin, and the value"
+        " the page carries is the resolved one rather than the stored one,"
+        " so an in-place editor would be writing into a value it cannot read"
+        " back. It has no FIELD_LABELS entry, which is what keeps the"
+        " vocabulary closed: the panel's Kuvan muoto row offers the two"
+        " crops that render and no third."
+    ),
+    ("sijainti", "image"): (
+        "not text — it names the picture the location band may show beside"
+        " its address. The band's one piece of content is that address"
+        " paragraph, which IS bound; this field is not, because on V2 it"
+        " becomes an <img> src attribute only when a reference is stored,"
+        " and on V1 the location band has no picture design to put it in."
+        " Unlabelled, so the schema-driven form skips it; the panel's Kuva"
+        " row is where a file is uploaded and where the reference is"
+        " cleared again."
+    ),
+    ("sijainti", "image_alt"): (
+        "what a visitor who cannot see the location band's picture is told"
+        " instead — an alt attribute on V2, absent entirely on V1 and absent"
+        " on V2 too until the picture exists. direct-edit.js binds text"
+        " nodes, and this reaches no text node in any state, so it is"
+        " excluded here and labelled in FIELD_LABELS (Kuvan tekstivastine)"
+        " so the generated form can be the editor it would otherwise not"
+        " have."
+    ),
+    ("sijainti", "image_shape"): (
+        "not content — the location picture's crop. It is one of two words"
+        " (app/shapes.py), it is resolved before it is rendered, and it"
+        " arrives on the page inside a class attribute, so no element's text"
+        " is ever this field's value. Binding it would also mean binding a"
+        " field whose stored \"\" renders as \"circle\", which direct-edit.js"
+        " would then write back as the literal word — changing the store"
+        " without the owner having chosen anything. No FIELD_LABELS entry;"
+        " the panel's Kuvan muoto row is its only editor."
+    ),
 }
 
-# 39 scalars across the six kinds: LLM-COP-25's ten, LLM-COP-30's two,
-# USR-COP-2's two and USR-COP-4's two. EXACTLY ONE OF THE TWO COUNTS BELOW
-# MOVES — the excluded one, by USR-COP-4's two — and the bound one does not.
+# 51 scalars across the six kinds: LLM-COP-25's ten, LLM-COP-30's two,
+# USR-COP-2's two, USR-COP-4's two and LLM-COP-28's twelve. EXACTLY ONE OF
+# THE TWO COUNTS BELOW MOVES — the excluded one — and the bound one does not.
 #
 # USR-COP-1 moved four scalars out of the deleted on-page form and into
 # contact_dialog.html, and V1's served bytes DID change there — but all four
@@ -621,8 +783,25 @@ EXCLUDED_SCALARS = {
 # The rename of yhteydenotto.send_label's default moves neither count: it
 # changes a stored word, not a binding. It does cost the assertion at the
 # top of Decision D some of its discriminating power — see the note there.
+#
+# LLM-COP-28 gave the four editorial kinds a picture each — image, image_alt
+# and image_shape — and all twelve are excluded above, so again only
+# EXCLUDED_SCALAR_COUNT moves, by twelve. BOUND_SCALAR_COUNT staying at 23 is
+# the whole of that artifact's Decision 1 expressed as a number: V1 has no
+# editorial-band picture design, so no V1 markup was invented, so no
+# data-field was added to page.html — and because none was added to
+# page_v2.html either, the V1/V2 fence needed no amendment. This number is
+# the falsifier for that decision. If it had moved, a template grew a
+# binding it was not supposed to and the fix is in the template, never here.
+#
+# BOTH NUMBERS WERE MEASURED, not predicted. The unaccounted-list assertion
+# above names every scalar that is neither bound nor excused, and the two
+# counts were read off this test's own failure message with the twelve rows
+# in place and the constants still at 23/16; the len(bound) + len(excluded)
+# == scalar-count invariant at the end of the test is what checks the
+# arithmetic afterwards.
 BOUND_SCALAR_COUNT = 23
-EXCLUDED_SCALAR_COUNT = 16
+EXCLUDED_SCALAR_COUNT = 28
 
 
 def test_every_scalar_field_is_bound_or_excluded(direct_html):

@@ -257,16 +257,16 @@ V1_SURFACES = ("#faf7f2", "#ffffff")
 #   :326 .v2-section-label::after   the short rust bar — no text; it is one
 #                            of the non-text-contrast sites this change
 #                            deliberately leaves unconstrained (below)
-#   :385 .portrait           #eceff1; its placeholder text is --v2-muted
-#   :408 .portrait.has-image `background: none` — the photograph itself
-#   :441 .v2-contact-card    --v2-navy; its one <a>, .gdpr-open, is
-#                            overridden to #c3d5e3 at :494, and its result
+#   :403 .portrait           #eceff1; its placeholder text is --v2-muted
+#   :426 .portrait.has-image `background: none` — the photograph itself
+#   :468 .v2-contact-card    --v2-navy; its one <a>, .gdpr-open, is
+#                            overridden to #c3d5e3 at :538, and its result
 #                            and error lines to #eaf2f8 / #ffb4a2
-#   :481 .v2-contact-form input/textarea  rgba(255,255,255,0.07); the field
+#   :519 .v2-contact-form input/textarea  rgba(255,255,255,0.07); the field
 #                            text is #eaf2f8
-#   :526 .v2-footer          --v2-navy-deep; its link is #b8cbdb at :531
-#   :598 .v2-contact-band    `background: none` inside the phone breakpoint
-#   :619 .dialog-backdrop    the scrim — no text
+#   :569 .v2-footer          --v2-navy-deep; its link is #b8cbdb at :589
+#   :662 .v2-contact-band    `background: none` inside the phone breakpoint
+#   :680 .dialog-backdrop    the scrim — no text
 #
 # So the rust colour renders as text on --v2-page, --v2-card and --v2-tint,
 # and on nothing else.

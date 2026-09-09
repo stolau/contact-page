@@ -107,16 +107,60 @@ FIELDS = {
         # The section kicker becomes the owner's (LLM-COP-25). Appended last,
         # here and on every other kind that grew one.
         "section_label": {"type": "plain"},
+        # Every editorial band gets its own picture (LLM-COP-28): the
+        # reference, its alt text and how it is cropped. The same three keys,
+        # in the same order, on tietoa, palvelut, vastaanottoajat and
+        # sijainti — one row in the panel and one macro parameter serve all
+        # four because the names are uniform.
+        #
+        # tietoa.image is the one the V2 portrait band draws, and since this
+        # artifact it draws THIS key rather than hero.portrait: the band that
+        # draws a picture is the section that stores it, the principle
+        # hero.background already established. _migration_14 copies
+        # hero.portrait into it once, so an upgraded V2 install keeps the
+        # picture it was showing; hero.portrait is not cleared, because V1's
+        # hero card still draws it.
+        #
+        # Appended, by the ordering rule the hero states above — a mid-dict
+        # key rewrites every stored tietoa payload on the owner's first save
+        # and flips its badge. The price is paid in the panel again: the
+        # generated form draws in this order, so Kuvan tekstivastine renders
+        # as the LAST row of each of these four panels, under Osion otsikko
+        # and away from the picture row that owns the picture.
+        #
+        # image and image_shape carry no FIELD_LABELS entry, the hero.portrait
+        # and hero.style precedent: image names an image slot rather than
+        # text, and image_shape is a constrained vocabulary app/shapes.py
+        # resolves — a text box an owner can type "pyöreä" into is exactly the
+        # value that resolver would then have to refuse. Their editors are the
+        # panel's own Kuva and Kuvan muoto rows. image_alt IS labelled, the
+        # hero.portrait_alt precedent: it renders as an <img>'s alt attribute,
+        # so there is nothing on the page for the in-place editor to make
+        # contenteditable and the generated form is its only editor.
+        "image": {"type": "plain"},
+        "image_alt": {"type": "plain"},
+        "image_shape": {"type": "plain"},
     },
     "palvelut": {
         "services": {"type": "list", "item": "plain"},
         "more_label": {"type": "plain"},
         "section_label": {"type": "plain"},
+        # The band's own picture (LLM-COP-28) — see tietoa above for the
+        # whole reasoning; these three are that kind's three, appended by the
+        # same rule. Backfilled with "" rather than a copy: this band drew no
+        # picture before the upgrade, so "" is the value that reproduces it.
+        "image": {"type": "plain"},
+        "image_alt": {"type": "plain"},
+        "image_shape": {"type": "plain"},
     },
     "vastaanottoajat": {
         "days": {"type": "list", "item": {"label": "plain", "hours": "plain"}},
         "booking_note": {"type": "plain"},
         "section_label": {"type": "plain"},
+        # The band's own picture (LLM-COP-28) — see tietoa.
+        "image": {"type": "plain"},
+        "image_alt": {"type": "plain"},
+        "image_shape": {"type": "plain"},
     },
     "yhteydenotto": {
         "name_label": {"type": "plain"},
@@ -150,6 +194,10 @@ FIELDS = {
     "sijainti": {
         "address": {"type": "plain"},
         "section_label": {"type": "plain"},
+        # The band's own picture (LLM-COP-28) — see tietoa.
+        "image": {"type": "plain"},
+        "image_alt": {"type": "plain"},
+        "image_shape": {"type": "plain"},
     },
 }
 
@@ -202,11 +250,22 @@ FIELD_LABELS = {
         "facts.label": "Otsikko",
         "facts.value": "Teksti",
         "section_label": "Osion otsikko",
+        # The section picture's alt text (LLM-COP-28). Labelled, unlike the
+        # image and image_shape declared beside it in FIELDS, for
+        # hero.portrait_alt's reason: it renders as an <img>'s alt attribute,
+        # so there is nothing on the page for the in-place editor to make
+        # contenteditable and the generated form is its only editor.
+        # "Kuvan", not "Muotokuvan": each of these four kinds has exactly one
+        # picture, so there is nothing to tell apart the way the hero's two
+        # rows have to be. The same entry, with the same reason, on all four
+        # kinds that grew a picture.
+        "image_alt": "Kuvan tekstivastine",
     },
     "palvelut": {
         "services": "Palvelut",
         "more_label": "Linkkiteksti",
         "section_label": "Osion otsikko",
+        "image_alt": "Kuvan tekstivastine",
     },
     "vastaanottoajat": {
         "days": "Vastaanottoajat",
@@ -214,6 +273,7 @@ FIELD_LABELS = {
         "days.hours": "Ajat",
         "booking_note": "Varausohje",
         "section_label": "Osion otsikko",
+        "image_alt": "Kuvan tekstivastine",
     },
     "yhteydenotto": {
         "name_label": "Nimikentän otsikko",
@@ -238,6 +298,7 @@ FIELD_LABELS = {
     "sijainti": {
         "address": "Osoite",
         "section_label": "Osion otsikko",
+        "image_alt": "Kuvan tekstivastine",
     },
 }
 

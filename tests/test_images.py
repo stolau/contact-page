@@ -1146,45 +1146,69 @@ def test_the_portrait_survives_upload_publish_render_and_removal(
     assert ref not in digests_in_store(app)
 
 
-def test_an_uploaded_portrait_carries_its_alt_text_into_both_skins(
+def test_each_skin_pairs_its_own_picture_with_its_own_alt_text(
     app, client, logged_in_admin
 ):
-    """LLM-COP-25's group-1 claim, through the real routes: the picture and
-    the words that describe it reach BOTH public templates together.
+    """LLM-COP-25's group-1 claim, through the real routes — and since
+    LLM-COP-28 "BOTH SKINS" NO LONGER MEANS "THE SAME REFERENCE".
 
-    The portrait shipped alt="" before this change, and page.html's own
-    comment said why — no alt-text field existed — so a photograph of a
-    person gave a screen reader nothing. The alt string here is checked to
-    appear nowhere in app/ first, so a template that hard-coded any
-    description would fail rather than look right.
+    That sentence is the whole point of this test and it is why the name
+    changed. Until this artifact V1 and V2 drew ONE stored picture,
+    hero.portrait, and this test asserted that the same digest and the same
+    alt string reached both documents. They now draw different pictures from
+    different sections:
+
+      * V1 pairs hero.portrait with hero.portrait_alt, in its hero card, and
+        that is the only picture V1 has any design for at all;
+      * V2 pairs hero.background with hero.background_alt in its hero, and
+        tietoa.image with tietoa.image_alt in the portrait band — the band
+        that draws a picture is now the section that stores it, and the
+        hoist that used to carry hero.portrait across the section boundary
+        is gone;
+      * AND EACH SKIN'S REFERENCE IS ABSENT FROM THE OTHER. hero.portrait
+        appears nowhere in the V2 document; tietoa.image and the background
+        appear nowhere in the V1 one.
+
+    That last clause is what makes this one test the pin for both of the
+    artifact's decisions at once, and it is strictly stronger than what this
+    function asserted before.
+
+      * DECISION 1 — the three new section fields are unbound and V1 invents
+        no markup for them. A build that grew a V1 editorial-band picture to
+        "keep the skins consistent" puts section_ref into v1 and fails.
+      * DECISION 3 — hero.portrait becomes a V1-only rendering. A build that
+        kept the page_v2.html hoist, or re-added it, puts portrait_ref into
+        v2 and fails.
+
+    Neither claim is provable from a template diff, because both are claims
+    about what the SERVED DOCUMENT contains in a data state where all three
+    references are set — which is exactly the state arranged here, through
+    upload, save and publish, with no fixture standing in for any of it.
+
+    THREE PICTURES, three digests, three alt strings, and each alt string is
+    checked to appear nowhere in app/ first, so a template that hard-coded
+    any description would fail rather than look right.
 
     THE ATTRIBUTE IS ASSERTED NEXT TO THE src, not as a bare substring of
     the document. An alt attribute with no image behind it is not the
     feature: the pairing is the claim, and the last block is the other half
     of it — the digest in that src really serves the bytes that were
-    uploaded. tests/browser/ asks the same question of a real Chrome, where
+    uploaded. Each src is asserted next to its OWN alt, which is what makes
+    three references distinguishable at all: a build that fed one slot from
+    another's field would put a src beside the wrong alt and fail the
+    `== 1` for both.
+
+    tests/browser/ asks the same question of a real Chrome, where
     naturalWidth can say the picture decoded; this asks it of the markup
     both skins actually emit, which no browser test covers for V1 and V2 in
     one place.
-
-    THREE <img> SITES, and the count is the point — but the count is no
-    longer of ONE reference. Until LLM-COP-30 V2 drew the same stored
-    portrait twice, and this test asserted `== 2` to say so. It now draws two
-    DIFFERENT pictures: hero.background is the full-bleed photograph, read
-    inside the hero macro, and hero.portrait is the person, hoisted out of
-    the hero row by the namespace pass at the bottom of page_v2.html for the
-    tietoa band's circle. So each pair appears exactly once on V2, and V1 —
-    which renders neither background key — still draws the portrait alone.
-
-    Each src is asserted NEXT TO its own alt, which is what makes the two
-    references distinguishable at all: a build that fed the hero from
-    portrait again would put the portrait's src beside the portrait's alt
-    twice and fail both `== 1`s below.
     """
     alt = "Hymyilevä henkilö ikkunan ääressä, mustavalkoinen valokuva"
     background_alt = "Vastaanottohuone aamuvalossa, leveä maisemakuva"
+    section_alt = "Työpöytä ja muistikirja, lähikuva ylhäältä"
     assert_absent_from_app(alt)
     assert_absent_from_app(background_alt)
+    assert_absent_from_app(section_alt)
 
     picture = _png(48, 48)
     response = upload(logged_in_admin, picture, filename="muotokuva.png")
@@ -1200,7 +1224,18 @@ def test_an_uploaded_portrait_carries_its_alt_text_into_both_skins(
     )
     assert response.status_code == 200, response.get_data(as_text=True)
     background_ref = response.get_json()["ref"]
-    assert background_ref != ref
+
+    # And a third size for the same reason, because this test's whole claim
+    # is that three references stay apart: two of them colliding into one
+    # digest would make every count below agree with a build that had merged
+    # the fields.
+    section_picture = _png(56, 44)
+    response = upload(
+        logged_in_admin, section_picture, filename="osiokuva.png"
+    )
+    assert response.status_code == 200, response.get_data(as_text=True)
+    section_ref = response.get_json()["ref"]
+    assert len({ref, background_ref, section_ref}) == 3
 
     save_draft(
         logged_in_admin,
@@ -1211,23 +1246,49 @@ def test_an_uploaded_portrait_carries_its_alt_text_into_both_skins(
         background=background_ref,
         background_alt=background_alt,
     )
+    # The third pair goes on the SECTION that draws it, which is the change
+    # this test exists to describe: tietoa stores its own picture now.
+    save_draft(
+        logged_in_admin,
+        app,
+        "tietoa",
+        image=section_ref,
+        image_alt=section_alt,
+    )
     publish_all(logged_in_admin)
 
     v1 = render_public(app, V1_TEMPLATE)
     v2 = render_public(app, V2_TEMPLATE)
-    assert f'src="/kuvat/{ref}" alt="{alt}"' in v1
-    # V1 renders neither background key, so the second picture must not
-    # appear on it at all — this is the "V1's served bytes do not move" claim
-    # asked of the rendered document rather than of the template's diff.
-    assert background_ref not in v1
-    assert background_alt not in v1
 
-    assert v2.count(f'src="/kuvat/{ref}" alt="{alt}"') == 1, v2.count(
+    # --- V1: its own picture, and neither of the other two ---------------
+    assert v1.count(f'src="/kuvat/{ref}" alt="{alt}"') == 1, v1.count(
         f'alt="{alt}"'
     )
+    # V1 renders neither background key, so the hero photograph must not
+    # appear on it at all — the "V1's served bytes do not move" claim asked
+    # of the rendered document rather than of the template's diff.
+    assert background_ref not in v1
+    assert background_alt not in v1
+    # And V1 has no editorial-band picture design, so tietoa's picture must
+    # not appear either. This is Decision 1 as an assertion: the field is
+    # stored and editable on V1 precisely so that switching skins finds it
+    # already there, and V1 draws none of it.
+    assert section_ref not in v1
+    assert section_alt not in v1
+
+    # --- V2: its own two, and not the hero portrait ----------------------
     assert v2.count(
         f'src="/kuvat/{background_ref}" alt="{background_alt}"'
     ) == 1, v2.count(f'alt="{background_alt}"')
+    assert v2.count(
+        f'src="/kuvat/{section_ref}" alt="{section_alt}"'
+    ) == 1, v2.count(f'alt="{section_alt}"')
+    # Decision 3, as an assertion rather than as prose: hero.portrait is a V1
+    # field from here. The digest is stored, the panel still edits it, and V2
+    # draws it nowhere. A build that kept the hoist fails on the first line;
+    # one that hoisted the alt text alone fails on the second.
+    assert ref not in v2
+    assert alt not in v2
     # No empty alt is left behind on either skin: an <img> still carrying
     # alt="" would be the half-done edit this counts against.
     assert 'alt=""' not in v1
@@ -1242,6 +1303,11 @@ def test_an_uploaded_portrait_carries_its_alt_text_into_both_skins(
     served = fetch(app, background_ref)
     assert served.status_code == 200
     assert served.get_data() == background_picture
+    assert served.headers["Content-Type"] == "image/png"
+
+    served = fetch(app, section_ref)
+    assert served.status_code == 200
+    assert served.get_data() == section_picture
     assert served.headers["Content-Type"] == "image/png"
 
 
@@ -1673,6 +1739,205 @@ def test_a_background_survives_publish_and_the_previous_version(
         assert surviving in digests_in_store(app), surviving
         assert os.path.isfile(stored_path(app, surviving)), surviving
         assert fetch(app, surviving).status_code == 200, surviving
+
+
+def test_a_digest_named_only_by_a_section_image_survives_collection(
+    app, logged_in_admin
+):
+    """LLM-COP-28's inherited regression guard, and LLM-COP-30 named it as
+    this artifact's debt in as many words when it wrote the sibling above:
+    "a field-specific extractor would under-count silently the day a second
+    image field exists, and that deletes a live picture."
+
+    That day has arrived a second time, and much wider. There are now six
+    image reference FIELDS a store can hold — hero.portrait, hero.background,
+    and an `image` on each of tietoa, palvelut, vastaanottoajat and sijainti
+    — across three columns each, and NOTHING in app/images.py was changed to
+    teach the count about any of them. The extractor scans the raw stored
+    text of every column of every row and knows nothing about FIELDS or about
+    which kinds have pictures. This test is what turns "no change was needed"
+    from an argument into a fact.
+
+    The picture is named ONLY by tietoa.image. Both hero fields are asserted
+    empty first, so an extractor that had been "generalised" to the hero's
+    two keys — the plausible half-fix, and the one that would look like it
+    covered this artifact — finds nothing, collects the row and the file, and
+    the owner's bio picture disappears from a page that is still asking for
+    it. It is the only test in the suite that would go red against that.
+
+    An aged orphan is collected in the same call, so "the picture survived"
+    cannot be true of a collector that did nothing at all. Both digests are
+    aged, per this section's convention, so the difference between them is
+    the COUNT and never the retention floor.
+    """
+    kept = upload(logged_in_admin, PICTURE_X).get_json()["ref"]
+    save_draft(logged_in_admin, app, "tietoa", image=kept)
+    orphan = upload(logged_in_admin, PICTURE_Y).get_json()["ref"]
+    age(app, kept)
+    age(app, orphan)
+
+    # The precondition, per column and per kind: the ONLY thing that names
+    # this digest anywhere in the store is tietoa.image. The two hero keys
+    # are named explicitly as well as swept, because THEY are the fields a
+    # half-generalised extractor would know about, and their being empty is
+    # what makes the sweep's verdict mean something.
+    hero = json.loads(section_row(app, "hero")["draft"])
+    assert hero["portrait"] == ""
+    assert hero["background"] == ""
+    tietoa = json.loads(section_row(app, "tietoa")["draft"])
+    assert tietoa["image"] == kept
+    for row in section_rows(app):
+        for column in ("draft", "published", "previous_published"):
+            here = kept in (row[column] or "")
+            expected = row["kind"] == "tietoa" and column == "draft"
+            assert here is expected, f"{row['kind']}.{column} names it: {here}"
+    assert kept in referenced_now(app)
+    assert orphan not in referenced_now(app)
+
+    assert collect(app) == [orphan]
+
+    # The row, the file and the served bytes — three separate ways for a
+    # collection to have happened, and the picture has to survive all three.
+    assert kept in digests_in_store(app)
+    assert os.path.isfile(stored_path(app, kept))
+    assert fetch(app, kept).status_code == 200
+    # ...and the collector really did run.
+    assert orphan not in digests_in_store(app)
+    assert not os.path.isfile(stored_path(app, orphan))
+
+
+def test_a_section_image_survives_publish_and_the_previous_version(
+    app, logged_in_admin
+):
+    """The second half of the same claim, across the two columns a draft
+    assertion cannot reach.
+
+    The shape portrait_pushed_into_previous_published already uses, driven on
+    tietoa.image instead: X goes in and is published, Y replaces it and is
+    published, so tietoa ends at draft = published = Y with X surviving only
+    in previous_published. Palauta edellinen versio restores from that
+    column, so X is still reachable and must still be on disk — and every
+    route that saves or publishes sweeps the collector on its way out, so
+    each of those calls is a chance for a field-aware count to have destroyed
+    it silently.
+
+    It is asked of a SECTION row rather than of the hero for the reason the
+    whole artifact exists: previous_published is a column of every section,
+    and a collector that happened to read the hero's three columns and the
+    other kinds' drafts alone would pass every draft-level test in this file
+    and still eat a rolled-back band's picture.
+
+    Both digests are aged the moment they are uploaded, so every verdict here
+    is the count's doing and none of it is the retention floor's.
+    """
+    x = upload_aged(app, logged_in_admin, PICTURE_X)
+    save_draft(logged_in_admin, app, "tietoa", image=x)
+    publish_all(logged_in_admin)
+
+    y = upload_aged(app, logged_in_admin, PICTURE_Y)
+    save_draft(logged_in_admin, app, "tietoa", image=y)
+    publish_all(logged_in_admin)
+
+    tietoa = section_row(app, "tietoa")
+    assert x not in tietoa["draft"]
+    assert x not in tietoa["published"]
+    assert x in tietoa["previous_published"]
+    assert json.loads(tietoa["published"])["image"] == y
+
+    assert collect(app) == []
+    for surviving in (x, y):
+        assert surviving in referenced_now(app), surviving
+        assert surviving in digests_in_store(app), surviving
+        assert os.path.isfile(stored_path(app, surviving)), surviving
+        assert fetch(app, surviving).status_code == 200, surviving
+
+
+def test_a_shared_digest_survives_either_of_its_two_fields_clearing_it(
+    app, logged_in_admin
+):
+    """The sharing hazard in the exact shape _migration_14 creates it.
+
+    Identical bytes are ONE file and ONE row, so two fields naming the same
+    digest name the same blob — and after migration 14 EVERY upgraded install
+    is in precisely that state, because the migration copies hero.portrait
+    into tietoa.image and deliberately does not clear the hero's. So the two
+    keys hold one digest on every store that existed before this change, and
+    the first thing an owner may do is clear one of them.
+
+    Here the hero lets go of it entirely — draft, published AND
+    previous_published, asserted per column so a future change that makes the
+    hero pin the digest again fails HERE rather than quietly making the rest
+    vacuous — and tietoa still names it. The picture must stay: it is the one
+    the V2 band is drawing.
+
+    The mirror direction matters as much and is asserted second: clearing
+    tietoa's copy while the hero still holds it must not take V1's portrait
+    away either. Both directions are the same property — the count is over
+    digests and never over fields — but asserting only one would leave the
+    other to luck, and the two fields now belong to different sections, which
+    is exactly the case a per-section count would get wrong.
+    """
+    x = upload_aged(app, logged_in_admin, PICTURE_X)
+    save_draft(logged_in_admin, app, "hero", portrait=x)
+    save_draft(logged_in_admin, app, "tietoa", image=x)
+    publish_all(logged_in_admin)
+
+    save_draft(logged_in_admin, app, "hero", portrait="")
+    publish_all(logged_in_admin)  # hero: previous_published names X, published does not
+
+    save_draft(logged_in_admin, app, "hero", title="Uusi otsikko")
+    publish_all(logged_in_admin)  # hero: previous_published no longer names X
+
+    hero = section_row(app, "hero")
+    assert x not in hero["draft"], "hero.draft still names X"
+    assert x not in hero["published"], "hero.published still names X"
+    assert x not in (
+        hero["previous_published"] or ""
+    ), "hero.previous_published still names X"
+    tietoa = section_row(app, "tietoa")
+    assert x in tietoa["draft"], "the surviving reference should be tietoa's"
+    assert x in tietoa["published"]
+
+    # X survives — and by the assertions above, only tietoa's contribution to
+    # the union can be keeping it. An extractor that scanned the hero row
+    # alone, or the hero's two image keys alone, fails right here.
+    assert x in digests_in_store(app)
+    assert os.path.isfile(stored_path(app, x))
+    assert fetch(app, x).status_code == 200
+
+    # The negative control, in one observation: the collector demonstrably
+    # ran, demonstrably deletes, and demonstrably left X alone. W is aged, or
+    # the floor would retain it and the control would fail for a reason that
+    # has nothing to do with the collector.
+    w = upload_aged(app, logged_in_admin, PICTURE_W)
+    save_draft(logged_in_admin, app, "hero", title="Vielä uudempi otsikko")
+    assert w not in digests_in_store(app)
+    assert not os.path.isfile(stored_path(app, w))
+    assert fetch(app, w).status_code == 404
+    assert fetch(app, x).status_code == 200
+
+    # The mirror: now tietoa lets go and the hero keeps it. Same digest, same
+    # file, and the same count has to keep it alive from the other side.
+    z = upload_aged(app, logged_in_admin, PICTURE_Z)
+    save_draft(logged_in_admin, app, "hero", portrait=z)
+    save_draft(logged_in_admin, app, "tietoa", image=z)
+    publish_all(logged_in_admin)
+    save_draft(logged_in_admin, app, "tietoa", image="")
+    publish_all(logged_in_admin)
+    save_draft(logged_in_admin, app, "tietoa", nostolause="Uusi nostolause")
+    publish_all(logged_in_admin)
+
+    tietoa = section_row(app, "tietoa")
+    assert z not in tietoa["draft"], "tietoa.draft still names Z"
+    assert z not in tietoa["published"], "tietoa.published still names Z"
+    assert z not in (
+        tietoa["previous_published"] or ""
+    ), "tietoa.previous_published still names Z"
+    assert z in section_row(app, "hero")["draft"]
+
+    assert z in digests_in_store(app)
+    assert os.path.isfile(stored_path(app, z))
+    assert fetch(app, z).status_code == 200
 
 
 def test_two_sections_sharing_a_digest_survive_one_removing_it(
