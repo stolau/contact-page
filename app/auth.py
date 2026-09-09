@@ -14,6 +14,13 @@ need it: TRUSTED_PROXY is read per request, and with it unset the
 X-Forwarded-For header is ignored entirely, so a spoofed header cannot mint a
 fresh window on either route.
 
+The optional TOTP second factor (app/totp.py) adds a second seam beside
+that one: mint_pending/current_pending_login answer the HALF-authenticated
+state between the password and the code. It is a separate table and a
+separate cookie name from sessions, so a pending token cannot reach an
+admin route by any route that forgets a filter — the row it would need is
+not in the table current_admin_session reads.
+
 Failed admin logins are counted per client key in the login_attempts table
 (app/db.py migration 10) rather than in a process dict, so the count is shared
 by every worker and thread and survives a restart — the property the audit_log
@@ -23,11 +30,13 @@ _rate_windows does not.
 
 import hashlib
 import os
+import re
 import secrets
 import time
 from functools import wraps
 
 from flask import current_app, jsonify, redirect, request, url_for
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from . import db as database
 
@@ -37,6 +46,21 @@ REMEMBER_LIFETIME = 30 * 24 * 60 * 60  # remember-me: 30 days absolute
 AUDIT_KEEP = 1000  # the audit log keeps only the newest rows (trim on write)
 LOGIN_FAILURE_WINDOW = 15 * 60
 LOGIN_FAILURE_THRESHOLD = 5
+
+# The half-authenticated state between the password and the code. Its own
+# cookie NAME, not just its own row: the pending token is never presented
+# under the name current_admin_session reads, so there are two independent
+# reasons a partial login cannot reach an admin route — the wrong table and
+# the wrong cookie.
+PENDING_COOKIE = "admin_pending"
+PENDING_LIFETIME = 5 * 60
+
+RECOVERY_CODE_COUNT = 10
+# No i, l, o, 0 or 1: these are read off a screen and typed back by hand.
+RECOVERY_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
+RECOVERY_GROUPS = 4
+RECOVERY_GROUP_LEN = 5
+RECOVERY_PATTERN = re.compile(r"^[a-z2-9]{5}(-[a-z2-9]{5}){3}$")
 
 
 def _now():
@@ -239,6 +263,143 @@ def clear_all_login_attempts(conn):
     return cursor.rowcount
 
 
+def mint_pending(conn, user_id, remember):
+    """Insert a pending-login row and return the raw token for the cookie.
+
+    A pending row authorises exactly one thing — the code step — and it is
+    NOT a session: current_admin_session reads the sessions table, and
+    nothing here writes to it.
+
+    The user's existing pending rows are deleted FIRST, so one live pending
+    row per account is an invariant rather than a hope. GET /yllapito still
+    renders the password step even mid-flow, so an owner who reloads and
+    re-posts their password would otherwise mint a second row, and only
+    current_pending_login ever deletes one — and only the one it read. The
+    older token stops validating the moment a newer one is minted.
+
+    Only sha256(token) is stored, the discipline mint_session keeps.
+    """
+    conn.execute("DELETE FROM pending_logins WHERE user_id = ?", (user_id,))
+    token = secrets.token_urlsafe(32)
+    now = _now()
+    conn.execute(
+        "INSERT INTO pending_logins"
+        " (token_hash, user_id, remember, created_at, expires_at)"
+        " VALUES (?, ?, ?, ?, ?)",
+        (
+            _hash_token(token),
+            user_id,
+            1 if remember else 0,
+            now,
+            now + PENDING_LIFETIME,
+        ),
+    )
+    conn.commit()
+    return token
+
+
+def current_pending_login(conn):
+    """The valid pending-login row for the request's cookie, or None.
+
+    An expired row is DELETED here rather than merely refused, the
+    discipline current_admin_session keeps: the token can never validate
+    again, not just fail cosmetically on this request.
+    """
+    token = request.cookies.get(PENDING_COOKIE)
+    if not token:
+        return None
+    row = conn.execute(
+        "SELECT * FROM pending_logins WHERE token_hash = ?",
+        (_hash_token(token),),
+    ).fetchone()
+    if row is None:
+        return None
+    if _now() > row["expires_at"]:
+        delete_pending(conn, row["id"])
+        return None
+    return row
+
+
+def delete_pending(conn, pending_id):
+    conn.execute("DELETE FROM pending_logins WHERE id = ?", (pending_id,))
+    conn.commit()
+
+
+def delete_pending_for_user(conn, user_id):
+    """Drop every pending login for one account — the CLI disable path.
+
+    Disabling the factor must not leave a half-authenticated token behind
+    that could still be redeemed at the code step.
+    """
+    conn.execute("DELETE FROM pending_logins WHERE user_id = ?", (user_id,))
+    conn.commit()
+
+
+def _recovery_code():
+    return "-".join(
+        "".join(
+            secrets.choice(RECOVERY_ALPHABET)
+            for _ in range(RECOVERY_GROUP_LEN)
+        )
+        for _ in range(RECOVERY_GROUPS)
+    )
+
+
+def issue_recovery_codes(conn, user_id):
+    """Replace the account's recovery codes and answer the new plaintexts.
+
+    The plaintext is returned to the caller ONCE, for the operator's
+    terminal, and never stored: the rows hold generate_password_hash of
+    each code, the same primitive as the password.
+
+    The FORMAT is load-bearing, not cosmetic. A code is four hyphenated
+    groups of five characters from RECOVERY_ALPHABET — 23 characters
+    containing three hyphens — so it can NEVER be six ASCII digits. The
+    login route only tries the recovery path when the input does not look
+    like a TOTP code, and this format is what makes that test structurally
+    safe rather than probabilistically safe. Entropy is 31**20 (about
+    2**99), and the codes sit behind the same admit_login_attempt gate as
+    everything else on the login routes.
+    """
+    conn.execute("DELETE FROM recovery_codes WHERE user_id = ?", (user_id,))
+    now = _now()
+    codes = [_recovery_code() for _ in range(RECOVERY_CODE_COUNT)]
+    for code in codes:
+        conn.execute(
+            "INSERT INTO recovery_codes (user_id, code_hash, created_at)"
+            " VALUES (?, ?, ?)",
+            (user_id, generate_password_hash(code), now),
+        )
+    conn.commit()
+    return codes
+
+
+def consume_recovery_code(conn, user_id, code):
+    """Spend one unused recovery code, or answer False.
+
+    Single use: the matching row is stamped with used_at and is never
+    accepted again. Codes are compared case-insensitively because
+    RECOVERY_ALPHABET is lowercase and a code is typed back by hand.
+    """
+    candidate = code.strip().lower()
+    if not candidate:
+        return False
+    rows = conn.execute(
+        "SELECT id, code_hash FROM recovery_codes"
+        " WHERE user_id = ? AND used_at IS NULL",
+        (user_id,),
+    ).fetchall()
+    for row in rows:
+        if check_password_hash(row["code_hash"], candidate):
+            conn.execute(
+                "UPDATE recovery_codes SET used_at = ? WHERE id = ?",
+                (_now(), row["id"]),
+            )
+            conn.commit()
+            return True
+    return False
+
+
 def _prefers_json():
     accepts = request.accept_mimetypes
     return accepts["application/json"] > accepts["text/html"]
@@ -262,4 +423,10 @@ def require_admin(view):
             return redirect(url_for("yllapito"))
         return view(*args, **kwargs)
 
+    # A marker, not a heuristic: the second factor's proof sweeps
+    # app.url_map for every gated rule and asserts a half-authenticated
+    # token reaches none of them. Reading __wrapped__ would also match any
+    # other functools.wraps decorator; this attribute means exactly one
+    # thing, so a route added later is covered without anyone remembering.
+    wrapped.__admin_gated__ = True
     return wrapped

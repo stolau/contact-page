@@ -668,6 +668,76 @@ def _migration_12(conn):
             )
 
 
+def _migration_13(conn):
+    # The opt-in TOTP second factor (LLM-COP-39). Three columns on
+    # admin_user and two tables, and nothing else.
+    #
+    # totp_enabled defaults to 0, so every existing account — and every
+    # account tests/conftest.py creates by naming (username, password_hash)
+    # — logs in in one step exactly as before. The factor is opt-in; that
+    # default is what makes it so.
+    #
+    # totp_last_step is the replay guard: the step a code was last accepted
+    # at, so the same six digits cannot be used twice inside their 30-second
+    # window (app/totp.py: accepted_step).
+    #
+    # pending_logins holds the state BETWEEN the password and the code. It
+    # is a separate table rather than a flag on sessions on purpose:
+    # current_admin_session selects from sessions, so a partial login simply
+    # is not there and no query can forget a `WHERE pending = 0` filter.
+    # Only sha256(token) is stored, the discipline sessions already keeps.
+    #
+    # recovery_codes holds werkzeug hashes, never plaintext; used_at stamps
+    # the single use.
+    #
+    # THIS MIGRATION READS NO sections ROW and writes no payload, so the
+    # frozen-literal splice that proves migrations 4-9
+    # (tests/test_prechange_upgrade.py) has nothing to splice here — the
+    # same thing _migration_10 says of itself.
+    #
+    # SQLite has no ALTER TABLE ... ADD COLUMN IF NOT EXISTS, so the guard
+    # is a PRAGMA table_info read — giving this migration the re-runnable
+    # property _migration_6 and _migration_10 get from IF NOT EXISTS, for
+    # the same rebase reason.
+    existing = {
+        row[1] for row in conn.execute("PRAGMA table_info(admin_user)")
+    }
+    if "totp_secret" not in existing:
+        conn.execute("ALTER TABLE admin_user ADD COLUMN totp_secret TEXT")
+    if "totp_enabled" not in existing:
+        conn.execute(
+            "ALTER TABLE admin_user ADD COLUMN totp_enabled"
+            " INTEGER NOT NULL DEFAULT 0"
+        )
+    if "totp_last_step" not in existing:
+        conn.execute(
+            "ALTER TABLE admin_user ADD COLUMN totp_last_step INTEGER"
+        )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS pending_logins (
+            id         INTEGER PRIMARY KEY,
+            token_hash TEXT    NOT NULL UNIQUE,
+            user_id    INTEGER NOT NULL,
+            remember   INTEGER NOT NULL,
+            created_at INTEGER NOT NULL,
+            expires_at INTEGER NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS recovery_codes (
+            id         INTEGER PRIMARY KEY,
+            user_id    INTEGER NOT NULL,
+            code_hash  TEXT    NOT NULL,
+            created_at INTEGER NOT NULL,
+            used_at    INTEGER
+        )
+        """
+    )
+
+
 MIGRATIONS = [
     _migration_1,
     _migration_2,
@@ -681,6 +751,7 @@ MIGRATIONS = [
     _migration_10,
     _migration_11,
     _migration_12,
+    _migration_13,
 ]
 
 
