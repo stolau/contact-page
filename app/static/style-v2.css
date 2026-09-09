@@ -361,17 +361,35 @@ h1, h2 { font-family: var(--v2-serif); color: var(--v2-ink); font-weight: 400; }
 .v2-fact-line-value { color: var(--v2-body); }
 
 /* Portrait + bio (v2-cp-section-portrait): the image column on the left,
-   the copy on the right, the small-caps label under the image. */
-.v2-band-media-left {
+   the copy on the right, the small-caps label under the image.
+
+   TWO VARIANTS SINCE LLM-COP-28, because every band can carry a picture now
+   and the designs say the side alternates down the page — "Starting from left
+   side, then right side". Which one a band gets is decided in page_v2.html,
+   positionally; this file only draws them.
+
+   THE DOM IS IDENTICAL IN BOTH — media, then label, then copy — and only the
+   grid placement differs. That is deliberate: the reading order stays the
+   picture's band, its label and its copy whichever way it is drawn, so the
+   phone breakpoint's `display: block` stacks both correctly and no
+   screen-reader order changes with the side. */
+.v2-band-media-left,
+.v2-band-media-right {
   display: grid;
-  grid-template-columns: minmax(0, 21rem) minmax(0, 1fr);
   grid-template-rows: auto auto;
   column-gap: 3.5rem;
   align-items: start;
 }
-.v2-band-media { grid-column: 1; grid-row: 1; }
+.v2-band-media-left { grid-template-columns: minmax(0, 21rem) minmax(0, 1fr); }
+.v2-band-media-right { grid-template-columns: minmax(0, 1fr) minmax(0, 21rem); }
+/* Scoped, not bare: an unscoped `.v2-band-media { grid-column: 1 }` would
+   leak into the right variant and put the picture back on the left. */
+.v2-band-media-left > .v2-band-media { grid-column: 1; grid-row: 1; }
 .v2-band-media-left > .v2-section-label { grid-column: 1; grid-row: 2; margin-top: 1.2rem; }
 .v2-band-media-left > .v2-band-copy { grid-column: 2; grid-row: 1 / span 2; }
+.v2-band-media-right > .v2-band-media { grid-column: 2; grid-row: 1; }
+.v2-band-media-right > .v2-section-label { grid-column: 2; grid-row: 2; margin-top: 1.2rem; }
+.v2-band-media-right > .v2-band-copy { grid-column: 1; grid-row: 1 / span 2; }
 
 /* The portrait itself: a circle with a dashed inner outline and a white
    ring. The placeholder is what shows when the owner has given no image —
@@ -408,6 +426,26 @@ h1, h2 { font-family: var(--v2-serif); color: var(--v2-ink); font-weight: 400; }
 .portrait.has-image { border-color: #fff; background: none; }
 .portrait.has-image::before { content: none; }
 .portrait-image { width: 100%; height: 100%; object-fit: cover; }
+
+/* The square crop (LLM-COP-28). The band's stored image_shape resolves to
+   `circle` or `square` (app/shapes.py) and page_v2.html puts the answer in
+   the class, so the circle above stays the default and needs no class of its
+   own.
+
+   THAT DOES NOT KEEP THE DOCUMENT BYTE-IDENTICAL, and an earlier draft of
+   this comment claimed it did. portrait_slot now emits `class="portrait
+   circle …"` where it emitted `class="portrait …"`, so every V2 document's
+   bytes moved and tests/test_page_v2.py asserts the new string. What is
+   preserved is the RENDERING: no `.portrait.circle` rule exists, the radius
+   still lives on bare `.portrait`, so a stored "" or "circle" paints exactly
+   what it painted before.
+
+   0, not a soft radius: the designs say "Square", and an invented corner
+   radius would be an invented design. The dashed inner ring follows the
+   outer edge, or it reads as a circle inside a square. Nothing here touches
+   app/static/style.css's .portrait — that is V1's hero portrait, which this
+   artifact does not change. */
+.portrait.square, .portrait.square::before { border-radius: 0; }
 
 /* The prose band (v2-cp-section-prose), which is also the neutral V2
    default LLM-COP-18 answer 4 asks for: the copy runs in the left column
@@ -611,10 +649,15 @@ h1, h2 { font-family: var(--v2-serif); color: var(--v2-ink); font-weight: 400; }
 
   .v2-band { padding: 2.2rem 1.4rem; }
 
-  /* Stacked, not side by side: image, then the label, then the copy. */
-  .v2-band-media-left { display: block; }
-  .v2-band-media-left > .v2-section-label { margin: 1.2rem 0 0.7rem; }
-  .v2-band-media-left .v2-section-label::after { content: none; }
+  /* Stacked, not side by side: image, then the label, then the copy. BOTH
+     variants (LLM-COP-28) — the DOM order is the same in each, so one
+     `display: block` stacks either correctly, but all three rules have to
+     name both or a right-side band keeps its desktop grid on a phone. */
+  .v2-band-media-left, .v2-band-media-right { display: block; }
+  .v2-band-media-left > .v2-section-label,
+  .v2-band-media-right > .v2-section-label { margin: 1.2rem 0 0.7rem; }
+  .v2-band-media-left .v2-section-label::after,
+  .v2-band-media-right .v2-section-label::after { content: none; }
   .portrait { width: 10.5rem; height: 10.5rem; font-size: 0.8rem; border-width: 6px; }
   .portrait::before { inset: 0.6rem; }
   .portrait-icon { font-size: 1.2rem; }

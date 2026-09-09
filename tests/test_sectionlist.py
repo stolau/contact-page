@@ -677,6 +677,103 @@ def test_the_full_order_reversed_reorders_the_screen_and_the_public_page(
     assert nav.index("Sijainti") < nav.index("Vastaanotto") < nav.index("Tietoa")
 
 
+
+# --- LLM-COP-28: the reorder decides which side each picture sits on --------
+
+
+def put_whole_draft(admin, app, kind, **changes):
+    """Read a section's stored draft, change the named keys, PUT the WHOLE
+    payload back — the real save the panel makes.
+
+    Whole, because validate_payload takes whole payloads and 400s on a
+    missing declared key; the read-modify-write is what keeps the literal
+    from having to be retyped every time a kind grows a field.
+    """
+    row = next(r for r in section_rows(app) if r["kind"] == kind)
+    payload = json.loads(row["draft"])
+    payload.update(changes)
+    response = admin.put(
+        f"/api/sections/{row['id']}/draft", json=payload, headers=JSON_ACCEPT
+    )
+    assert response.status_code == 200, response.get_data(as_text=True)
+    return response
+
+
+def test_reordering_moves_which_side_each_bands_picture_is_drawn_on(
+    logged_in_admin, app
+):
+    """LLM-COP-28's alternation, driven end to end through the owner's own
+    routes and read off the page the public route actually serves.
+
+    The design says the image side alternates down the page — "Starting from
+    left side, then right side" — so the side is POSITIONAL and there is no
+    stored field for it. That makes this endpoint load-bearing for a rendering
+    decision, which it was not before: PUT /api/sections/order rewrites
+    `position` for the whole list under one commit, visible_sections orders by
+    it, and page_v2.html counts media bands down that order.
+
+    Until this artifact the tietoa band carried `class="v2-band
+    v2-band-media-left"` as a literal, so an owner who moved a picture-carrying
+    palvelut above it got two consecutive left-hand pictures — the exact thing
+    the alternation exists to prevent, reachable through a shipped endpoint.
+    This test is that scenario as an owner reaches it.
+
+    NOTHING HERE IS ARRANGED IN THE STORE. The two pictures go in through PUT
+    /api/sections/<id>/draft, the publish through POST /api/publish, the skin
+    through the hero's own style field, and the order through PUT
+    /api/sections/order. The document read at the end is what GET / served.
+    tests/test_page_v2.py asks the same question of the template directly, over
+    more orders than one test should drive through six requests; this is the
+    one that says the owner can actually get there.
+    """
+    digests = {"tietoa": "d" * 64, "palvelut": "e" * 64}
+    put_whole_draft(logged_in_admin, app, "tietoa", image=digests["tietoa"])
+    put_whole_draft(logged_in_admin, app, "palvelut", image=digests["palvelut"])
+    # The V2 skin, chosen the way the Ulkoasu tab chooses it: hero.style is a
+    # declared field and this is the same whole-payload save the panel makes.
+    put_whole_draft(logged_in_admin, app, "hero", style="v2")
+    assert publish(logged_in_admin).status_code == 200
+
+    def band_class(html, kind):
+        match = re.search(
+            r'<section id="[^"]*" class="v2-band ([^"]+)"'
+            rf' data-section="\d+" data-kind="{kind}"',
+            html,
+        )
+        assert match is not None, f"no {kind} band in the served document"
+        return match.group(1)
+
+    # In the shipped order tietoa is the first band with a picture, so it is
+    # on the left and palvelut is on the right. Asserted BEFORE the reorder,
+    # so the reorder's effect is a change this test observed rather than a
+    # state it was handed.
+    before = public_html(app)
+    assert band_class(before, "tietoa") == "v2-band-media-left"
+    assert band_class(before, "palvelut") == "v2-band-media-right"
+
+    # Now the owner moves palvelut above tietoa, through the real endpoint.
+    ids = [r["id"] for r in section_rows(app)]
+    by_kind = {r["kind"]: r["id"] for r in section_rows(app)}
+    moved = [by_kind["palvelut"]] + [
+        i for i in ids if i != by_kind["palvelut"]
+    ]
+    assert put_order(logged_in_admin, moved).status_code == 200
+    assert kinds_in_position_order(app)[0] == "palvelut"
+
+    after = public_html(app)
+    # The document really did move, so the class assertions below are about
+    # the new order and not about a request that quietly did nothing.
+    kinds = re.findall(r'data-kind="([a-z]+)"', after)
+    assert kinds.index("palvelut") < kinds.index("tietoa")
+
+    assert band_class(after, "palvelut") == "v2-band-media-left"
+    assert band_class(after, "tietoa") == "v2-band-media-right"
+    # And each band is still drawing its OWN picture: the sides swapped, the
+    # references did not.
+    assert after.count(f'/kuvat/{digests["palvelut"]}') == 1
+    assert after.count(f'/kuvat/{digests["tietoa"]}') == 1
+
+
 # --- Step 3: add, hide/show, restore -----------------------------------------
 
 
@@ -853,9 +950,22 @@ def test_a_section_reaches_the_public_page_once_it_has_real_content(
     # missing declared key, so when LLM-COP-25 gave sijainti a second field
     # this literal had to grow one. The fix is always to extend the literal,
     # never to relax the validator.
+    #
+    # LLM-COP-28 gave it three more — image, image_alt and image_shape — and
+    # the literal grew again, by the same rule and for the same reason. All
+    # three are "" here because this test is about a section reaching the
+    # page once it has content, not about a picture: "" is what the seed
+    # writes and what the migration backfills, and app/shapes.py resolves the
+    # empty shape to the circle.
     assert logged_in_admin.put(
         f"/api/sections/{section_id}/draft",
-        json={"address": "Kauppakatu 1, Turku", "section_label": "SIJAINTI"},
+        json={
+            "address": "Kauppakatu 1, Turku",
+            "section_label": "SIJAINTI",
+            "image": "",
+            "image_alt": "",
+            "image_shape": "",
+        },
         headers=JSON_ACCEPT,
     ).status_code == 200
     assert publish(logged_in_admin).status_code == 200

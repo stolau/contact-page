@@ -547,6 +547,12 @@ V2_PORTRAIT_ALT = "Ikkunan edessä seisova henkilö, otettu sivusta, päivänval
 # variant of the first: the test below asserts each alt lands on ITS OWN
 # image, so two strings that shared a prefix could pass a mixed-up build.
 V2_BACKGROUND_ALT = "Valoisa vastaanottotila ylhäältä kuvattuna, leveä rajaus"
+# LLM-COP-28's third, and it belongs to the field V2 STOPPED drawing:
+# hero.portrait. A third distinct subject for the same reason the second is
+# not a variant of the first — the test below asserts this string is ABSENT
+# from the served V2 document, and an absence claim over a string that shares
+# a prefix with a present one is worth nothing.
+V2_HERO_PORTRAIT_ALT = "Kasvokuva kirjahyllyn edessä, tumma tausta"
 V2_RENAMED_KICKER = "NÄIN AUTAN SINUA ETEENPÄIN"
 
 
@@ -588,14 +594,22 @@ def test_the_two_v2_images_render_their_own_reference_and_alt_text(
     """Gate item 3 for the second skin: uploaded images render with their
     alt text under V2 as well as V1.
 
-    V2 draws TWO stored references since LLM-COP-30 — hero.background in the
-    full-bleed hero photograph, read inside the hero macro, and hero.portrait
-    in the tietoa band's portrait circle, fed by the shared-portrait
-    namespace at the bottom of page_v2.html rather than by the section that
-    stores the value. Until LLM-COP-30 this test asserted the SAME ref and
-    the SAME alt on both selectors, because there was one reference painted
-    twice; it now asserts a different pair on each, which is the defect
-    turned into its fix.
+    V2 draws TWO stored references, AND THEY COME FROM TWO SECTIONS.
+
+    LLM-COP-30 split them: until then this test asserted the SAME ref and the
+    SAME alt on both selectors, because there was one reference painted
+    twice. It then asserted a different pair on each — hero.background in the
+    full-bleed photograph and hero.portrait in the tietoa band's circle —
+    which was the defect turned into its fix, but both values still came out
+    of the HERO row, hoisted across the section boundary by a namespace pass
+    at the bottom of page_v2.html.
+
+    LLM-COP-28 deletes that hoist. The band that draws a picture is the
+    section that STORES it, so the circle reads tietoa.image and
+    tietoa.image_alt, and hero.portrait reaches this document nowhere at all.
+    Two sections are drafted below where one was, and the last block asserts
+    the absence: the hero portrait is planted with a real digest and must not
+    appear.
 
     Each is asserted as a TRIPLE: src, alt AND naturalWidth. src and alt
     together are what make the two references distinguishable — a build that
@@ -620,6 +634,7 @@ def test_the_two_v2_images_render_their_own_reference_and_alt_text(
     """
     assert_absent_from_app(V2_PORTRAIT_ALT)
     assert_absent_from_app(V2_BACKGROUND_ALT)
+    assert_absent_from_app(V2_HERO_PORTRAIT_ALT)
     base = live_app.base_url
 
     def upload_png(name, width, height):
@@ -644,13 +659,28 @@ def test_the_two_v2_images_render_their_own_reference_and_alt_text(
     background_ref = upload_png("taustakuva.png", 72, 48)
     assert background_ref != ref
 
-    sid = section_id(live_app, "hero")
-    payload = drafts(live_app)[str(sid)]
-    payload["portrait"] = ref
-    payload["portrait_alt"] = V2_PORTRAIT_ALT
+    # A third upload for the hero's own portrait. It goes in so that the
+    # absence assertion at the end is about a field that HOLDS something: a
+    # `not in` over an empty portrait would hold whatever the template did.
+    hero_portrait_ref = upload_png("hero-muotokuva.png", 64, 40)
+    assert len({ref, background_ref, hero_portrait_ref}) == 3
+
+    hero_sid = section_id(live_app, "hero")
+    payload = drafts(live_app)[str(hero_sid)]
+    payload["portrait"] = hero_portrait_ref
+    payload["portrait_alt"] = V2_HERO_PORTRAIT_ALT
     payload["background"] = background_ref
     payload["background_alt"] = V2_BACKGROUND_ALT
-    put_draft(v2_page, base, sid, payload)
+    put_draft(v2_page, base, hero_sid, payload)
+
+    # The circle's picture belongs to TIETOA now, so it is drafted on that
+    # section rather than on the hero — which is the whole of LLM-COP-28 in
+    # one extra PUT.
+    tietoa_sid = section_id(live_app, "tietoa")
+    payload = drafts(live_app)[str(tietoa_sid)]
+    payload["image"] = ref
+    payload["image_alt"] = V2_PORTRAIT_ALT
+    put_draft(v2_page, base, tietoa_sid, payload)
     publish(v2_page, base)
 
     # The public page, which that publish has just made V2: the drafted style
@@ -676,6 +706,15 @@ def test_the_two_v2_images_render_their_own_reference_and_alt_text(
             arg=selector,
         )
         assert image.get_attribute("src") == f"/kuvat/{expected_ref}", selector
+
+    # And the hero's own portrait — stored, published and still drawn by V1's
+    # hero card — reaches this document nowhere. That is LLM-COP-28's
+    # Decision 3 asserted in a real browser rather than argued in prose: a
+    # build that kept the namespace hoist fails on the first line, one that
+    # hoisted only the alt text fails on the second.
+    served = public.content()
+    assert hero_portrait_ref not in served
+    assert V2_HERO_PORTRAIT_ALT not in served
     public.close()
 
 

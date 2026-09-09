@@ -12,6 +12,7 @@ fires by accident, and advanced explicitly where a timer is the subject.
 """
 
 import json
+import re
 
 from tests.browser.conftest import (
     V2_STYLESHEET,
@@ -591,6 +592,26 @@ def test_the_owner_uploads_a_portrait_types_its_alt_text_and_both_go_public(
 # had to have come from what was typed.
 BACKGROUND_ALT = "Vastaanottohuone aamuvalossa, leveä näkymä ikkunasta"
 
+# The third (LLM-COP-28), belonging to the Tietoa band's OWN picture rather
+# than to either hero field. A third distinct subject for the same reason the
+# second is a landscape: three strings that could be swapped without reading
+# as nonsense would let a build pair the right alt with the wrong src and
+# still pass.
+SECTION_ALT = "Työpöytä ja avoin muistikirja, kuvattu ylhäältä"
+
+
+def section_draft(app, kind):
+    """One section's DRAFT payload from the live app's own store.
+
+    hero_draft's sibling for the kinds that are not the hero. LLM-COP-28 put
+    a picture on four of them, so "which payload did the row write into" is a
+    question this layer now has to be able to ask of a section other than the
+    hero — and asking it of the store rather than of the panel is what makes
+    the answer independent of the code that wrote it.
+    """
+    row = next(r for r in section_rows(app) if r["kind"] == kind)
+    return json.loads(row["draft"])
+
 
 def test_the_owner_sets_two_different_hero_pictures_and_both_go_public(
     page, expect, live_app, tmp_path
@@ -633,11 +654,27 @@ def test_the_owner_sets_two_different_hero_pictures_and_both_go_public(
     """
     assert_absent_from_app(PORTRAIT_ALT)
     assert_absent_from_app(BACKGROUND_ALT)
+    assert_absent_from_app(SECTION_ALT)
     portrait_file = tmp_path / "muotokuva.png"
     portrait_file.write_bytes(png_bytes(64, 64, (0x2E, 0x6F, 0x9E)))
     background_file = tmp_path / "taustakuva.png"
     background_file.write_bytes(png_bytes(96, 48, (0xC8, 0x78, 0x3C)))
-    assert portrait_file.read_bytes() != background_file.read_bytes()
+    # A third, for the Tietoa band's own picture (LLM-COP-28). A third size
+    # AND a third colour, because /api/kuvat dedupes by content: two
+    # identical PNGs answer one ref, and this test's whole arithmetic is that
+    # three uploads give three digests.
+    section_file = tmp_path / "osiokuva.png"
+    section_file.write_bytes(png_bytes(72, 56, (0x4C, 0x8B, 0x5A)))
+    assert (
+        len(
+            {
+                portrait_file.read_bytes(),
+                background_file.read_bytes(),
+                section_file.read_bytes(),
+            }
+        )
+        == 3
+    )
 
     page.goto(f"{live_app.base_url}/muokkaa")
     freeze_clock(page)
@@ -656,6 +693,15 @@ def test_the_owner_sets_two_different_hero_pictures_and_both_go_public(
     # is not mistaken for "it is wired".
     portrait_row = page.locator('.kuva-row[data-field="portrait"]')
     background_row = page.locator('.kuva-row[data-field="background"]')
+    # KEPT, AND LOAD-BEARING FOR A DECISION SINCE LLM-COP-28. V2 is the open
+    # skin here, chosen through the real control above, and page_v2.html no
+    # longer draws hero.portrait at all — the tietoa band reads its own
+    # tietoa.image now. The Muotokuva row stays visible on that skin anyway,
+    # deliberately: DEFAULT_STYLE is "v1", so an owner who switches back
+    # tomorrow must find their photograph already there, and a hidden row
+    # would leave a stored digest REFERENCED (app/images.py counts it) with
+    # no control anywhere in the product able to clear it. This line is where
+    # that decision is falsifiable.
     expect(portrait_row).to_be_visible()
     expect(background_row).to_be_visible()
     expect(background_row.locator(".poista-button")).to_be_hidden()
@@ -668,10 +714,18 @@ def test_the_owner_sets_two_different_hero_pictures_and_both_go_public(
     # asserted still ATTACHED as well as not visible: to_be_hidden passes
     # for an element that is not in the document at all, so the count is
     # what makes "hidden" mean hidden rather than "never rendered".
+    #
+    # THREE rows since LLM-COP-28, not two, and this number is a deliberate
+    # load-bearing edit rather than a re-baseline: the generic section
+    # picture row (.osiokuva-row) is the third, and it is exactly the row
+    # that must be VISIBLE on Tietoa while these two are hidden. Bumping the
+    # count without asserting that would have turned this line from a guard
+    # into a tally.
     open_a_section_that_is_not_the_hero(page, expect)
-    expect(page.locator(".kuva-row")).to_have_count(2)
+    expect(page.locator(".kuva-row")).to_have_count(3)
     expect(portrait_row).to_be_hidden()
     expect(background_row).to_be_hidden()
+    expect(page.locator(".osiokuva-row")).to_be_visible()
 
     # Muut osiot lists every section except the open one, in order, so with
     # Tietoa open the hero is its FIRST row.
@@ -735,6 +789,37 @@ def test_the_owner_sets_two_different_hero_pictures_and_both_go_public(
         path=str(tmp_path / "cop30-paneeli-kaksi-riviä.png"), full_page=True
     )
 
+    # --- the band's own picture (LLM-COP-28) ------------------------------
+    #
+    # A THIRD picture, and it is what the V2 circle draws now. Until this
+    # artifact that circle was fed hero.portrait, hoisted across the section
+    # boundary by the template; the band that draws a picture is the section
+    # that STORES it now, so the picture goes in through the generic
+    # .osiokuva-row with TIETOA open — a different section's panel, a
+    # different row, a different payload.
+    #
+    # Scoped to the row for the reason the two above are, and one step
+    # sharper: .vaihda-input matches THREE times in this document now.
+    open_a_section_that_is_not_the_hero(page, expect)
+    expect(page.locator(".osiokuva-row")).to_be_visible()
+    with page.expect_response("**/api/sections/*/draft"):
+        page.set_input_files(".osiokuva-row .vaihda-input", str(section_file))
+    expect(page.locator(".osiokuva-row .osiokuva-error")).to_be_hidden()
+
+    panel_input(page, "Kuvan tekstivastine").fill(SECTION_ALT)
+    with page.expect_response("**/api/sections/*/draft"):
+        page.clock.fast_forward("00:03")
+
+    tietoa = section_draft(live_app, "tietoa")
+    section_ref = tietoa["image"]
+    assert len(section_ref) == 64, f"image is not a digest: {section_ref!r}"
+    assert set(section_ref) <= set("0123456789abcdef"), section_ref
+    assert tietoa["image_alt"] == SECTION_ALT
+    # THREE references, all different, across TWO sections. The hero row
+    # still wrote the hero's own field — that is Decision 3's evidence that
+    # the control still works on the skin that no longer draws it.
+    assert len({portrait_ref, background_ref, section_ref}) == 3
+
     with page.expect_response("**/api/publish"):
         page.click(".julkaise-button")
 
@@ -743,9 +828,15 @@ def test_the_owner_sets_two_different_hero_pictures_and_both_go_public(
     # The skin first, or nothing below is about V2.
     expect(public.locator(V2_STYLESHEET)).to_have_count(1)
 
+    # The circle is fed by tietoa.image since LLM-COP-28, NOT by
+    # hero.portrait. The locator stays strict — expect() fails on two
+    # matches rather than taking the first — and it resolves to one element
+    # because exactly one band carries a picture in this scenario: tietoa.
+    # Any future scenario here that wants two media bands has to scope by
+    # section[data-kind="…"] first.
     expected = {
         "img.v2-hero-image": (background_ref, BACKGROUND_ALT),
-        ".v2-band-media img.portrait-image": (portrait_ref, PORTRAIT_ALT),
+        ".v2-band-media img.portrait-image": (section_ref, SECTION_ALT),
     }
     rendered = {}
     for selector, (expected_ref, expected_alt) in expected.items():
@@ -757,6 +848,13 @@ def test_the_owner_sets_two_different_hero_pictures_and_both_go_public(
 
     # The author's sentence, executable: two pictures, not one drawn twice.
     assert len(set(rendered.values())) == 2, rendered
+
+    # And the hero portrait — stored, still edited from a row that is
+    # visible on this skin — reaches this document nowhere. Decision 3 as an
+    # assertion in a real browser rather than as prose.
+    served = public.content()
+    assert portrait_ref not in served
+    assert PORTRAIT_ALT not in served
 
     public.screenshot(
         path=str(tmp_path / "cop30-julkinen-v2.png"), full_page=True
@@ -967,3 +1065,193 @@ def test_peruuta_puts_the_notice_box_back_to_what_is_stored(page, expect, live_a
     assert yhteydenotto_draft(live_app)["notice_on"] == "on"
     page.click(".peruuta-button")
     expect(page.locator(".ilmoitus-toggle")).to_be_checked()
+
+
+# --- the section picture row and its shape (LLM-COP-28) --------------------
+
+
+def computed(locator, prop, pseudo=None):
+    """One CSS property as the BROWSER computed it, not as a file declares it.
+
+    The whole reason this test is in this directory. A server test can read a
+    stylesheet and a rendered class attribute and still be wrong about both
+    of the things that matter here: whether a row with [hidden] is actually
+    drawn, and what border-radius a .portrait ends up with once the cascade
+    has run. Four incidents in this project have been exactly that collision
+    — an author-origin `display` beating the UA sheet's [hidden] rule — and
+    none of them was findable from markup.
+    """
+    return locator.evaluate(
+        "(el, a) => getComputedStyle(el, a.pseudo).getPropertyValue(a.name)",
+        {"name": prop, "pseudo": pseudo},
+    )
+
+
+def test_the_section_picture_and_shape_rows_belong_to_the_kinds_that_declare_them(
+    page, expect, live_app, tmp_path
+):
+    """The panel's newest two rows, asked of a real browser: which sections
+    show them, and what the shape they store actually does to the page.
+
+    FIVE CLAIMS, and each fails on its own line.
+
+    1. VISIBILITY IS PER-FIELD NOW, not per-section. Until this artifact
+       edit.js applied ONE boolean to every picture row — `section.kind !==
+       "hero"` — which was right only while the hero was the only kind with a
+       picture. It asks the SCHEMA now: does the open section's kind declare
+       this row's field? So on the hero the two hero rows show and the
+       section row does not, and on Tietoa the reverse. Both directions are
+       asserted, in one rendering each, because a rule that showed everything
+       would satisfy either half alone.
+
+    2. HIDDEN MEANS HIDDEN, NOT ABSENT. `expect(...).to_be_hidden()` passes
+       for an element that is not in the document at all, so the row count is
+       what makes the claim mean something: three .kuva-rows exist on both
+       sections and their visibility is what changes. This is the assertion
+       that would have caught the shipped defect .kuva-row had once — edit.js
+       set `hidden` while an author-origin `display: flex` beat the UA
+       sheet's `[hidden] { display: none }` by origin, so the row was drawn on
+       every section and no server test could see it.
+
+    3. THE SHAPE ROW IS NOT A .kuva-row and gets the same treatment anyway.
+       It has no uploader and no error element, and .kuva-row is both
+       edit.js's picture-row loop and this suite's scoping handle, so it
+       carries its own classes and its own toggle — and therefore its own
+       `[hidden]` rule, which is the line that has been forgotten four times.
+
+    4. THE CLICK IS THE WRITE. Neliö saves at once rather than on the
+       debounce, so the stored draft is read straight after the response
+       without advancing the clock. The neighbouring keys are asserted
+       untouched, and so is the WHOLE HERO PAYLOAD: the row belongs to the
+       section it is visible for, so a write that reached the hero would be
+       the "which section is open" bug this design exists to avoid.
+
+    5. THE SHAPE REACHES THE PAGE, and this is asserted from COMPUTED STYLE
+       in the preview frame rather than from the class attribute. A class
+       named `square` with no rule behind it is a picture that is still
+       round, and markup cannot tell the two apart.
+
+       The comparison is TEMPORAL — 50% before the click, 0px after, the same
+       element — rather than two .portrait elements side by side. That is
+       deliberate: a second band carrying a picture would give
+       `.v2-band-media img.portrait-image` two matches, and Playwright's
+       expect() is STRICT, so the sibling test in this file that reads that
+       locator would break for a reason having nothing to do with its
+       subject. One element observed twice needs no second band at all.
+
+    V2 is chosen through the real Ulkoasu control first, because the band
+    that draws this picture exists only on that skin.
+    """
+    section_file = tmp_path / "osiokuva.png"
+    section_file.write_bytes(png_bytes(72, 56, (0x4C, 0x8B, 0x5A)))
+
+    page.goto(f"{live_app.base_url}/muokkaa")
+    freeze_clock(page)
+
+    page.click('.panel-tab[data-tab="ulkoasu"]')
+    with page.expect_response("**/api/sections/*/draft"):
+        page.click('.tyyli-option[data-style="v2"]')
+    page.click('.panel-tab[data-tab="sisalto"]')
+    expect(
+        page.frame_locator(".preview").locator(V2_STYLESHEET)
+    ).to_have_count(1)
+
+    portrait_row = page.locator(".muotokuva-row")
+    background_row = page.locator(".taustakuva-row")
+    section_row = page.locator(".osiokuva-row")
+    shape_row = page.locator(".muoto-row")
+
+    # --- claim 1a and 2: the hero -----------------------------------------
+    expect(page.locator(".kuva-row")).to_have_count(3)
+    expect(shape_row).to_have_count(1)
+    expect(portrait_row).to_be_visible()
+    expect(background_row).to_be_visible()
+    expect(section_row).to_be_hidden()
+    expect(shape_row).to_be_hidden()
+
+    # --- claim 1b and 3: Tietoa -------------------------------------------
+    open_a_section_that_is_not_the_hero(page, expect)
+    expect(page.locator(".kuva-row")).to_have_count(3)
+    expect(portrait_row).to_be_hidden()
+    expect(background_row).to_be_hidden()
+    expect(section_row).to_be_visible()
+    expect(shape_row).to_be_visible()
+    # The row is drawn as a row, not collapsed to nothing by the [hidden]
+    # rule that was just lifted. Read from computed style for the reason
+    # `computed` gives.
+    assert computed(shape_row, "display") == "flex"
+
+    # Nothing is stored yet, and "" IS the circle — so the row marks Pyöreä
+    # rather than marking neither. The mark shows the RESOLVER's answer, not
+    # the raw stored value, which is a deliberate divergence from the Ulkoasu
+    # tab's style list (where "" is a third, meaningful state).
+    circle_option = page.locator('.muoto-option[data-shape="circle"]')
+    square_option = page.locator('.muoto-option[data-shape="square"]')
+    expect(circle_option).to_have_class(re.compile(r"\bactive\b"))
+    expect(square_option).not_to_have_class(re.compile(r"\bactive\b"))
+
+    # --- the picture, through the row's own scoped input ------------------
+    #
+    # .vaihda-input matches THREE times in this document, and page-level
+    # selector methods are not strict in Playwright, so an unscoped call
+    # would silently upload into whichever row came first in the DOM.
+    with page.expect_response("**/api/sections/*/draft"):
+        page.set_input_files(".osiokuva-row .vaihda-input", str(section_file))
+    expect(page.locator(".osiokuva-row .osiokuva-error")).to_be_hidden()
+
+    stored = section_draft(live_app, "tietoa")
+    assert len(stored["image"]) == 64, stored["image"]
+    assert set(stored["image"]) <= set("0123456789abcdef"), stored["image"]
+    assert stored["image_shape"] == ""
+
+    # --- claim 5, first half: the circle the "" shape resolves to ---------
+    portrait = page.frame_locator(".preview").locator(".portrait")
+    expect(portrait).to_have_class(re.compile(r"\bcircle\b"))
+    expect(portrait).to_have_class(re.compile(r"\bhas-image\b"))
+    before = computed(portrait, "border-radius")
+    assert "50%" in before, before
+
+    # --- claim 4: the click is the write ----------------------------------
+    with page.expect_response("**/api/sections/*/draft"):
+        square_option.click()
+    expect(square_option).to_have_class(re.compile(r"\bactive\b"))
+    expect(circle_option).not_to_have_class(re.compile(r"\bactive\b"))
+
+    after_click = section_draft(live_app, "tietoa")
+    assert after_click["image_shape"] == "square"
+    # The neighbours are untouched: the shape write is one key.
+    assert after_click["image"] == stored["image"]
+    assert after_click["image_alt"] == stored["image_alt"] == ""
+
+    # The HERO is untouched, whole. The row belongs to the section it is
+    # visible for, so `draft` is always that section's payload and none of
+    # setHeroValue's "which section is open" branching is needed — this is
+    # where that claim is falsifiable.
+    hero = hero_draft(live_app)
+    assert hero["portrait"] == ""
+    assert hero["background"] == ""
+    for key in ("image", "image_alt", "image_shape"):
+        assert key not in hero, key
+
+    # --- claim 5, second half: the same element, now square ---------------
+    expect(portrait).to_have_class(re.compile(r"\bsquare\b"))
+    expect(portrait).not_to_have_class(re.compile(r"\bcircle\b"))
+    after = computed(portrait, "border-radius")
+    assert after == "0px", after
+    assert after != before
+
+    # 0, not a soft radius: the design says "Square", and an invented corner
+    # radius would be an invented design.
+    #
+    # The dashed inner ring is the ::before pseudo-element, and it has to
+    # follow the outer edge or the picture reads as a circle inside a square.
+    # A pseudo-element has no node, so no locator and no markup assertion can
+    # reach it at all — getComputedStyle's second argument is the only way to
+    # ask, which is the sharpest example in this file of why the claim is
+    # made in a browser.
+    ring = computed(portrait, "border-radius", "::before")
+    assert ring == "0px", ring
+
+    page.screenshot(
+        path=str(tmp_path / "cop28-paneeli-kuvan-muoto.png"), full_page=True
+    )

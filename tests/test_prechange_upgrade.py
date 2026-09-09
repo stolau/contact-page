@@ -334,12 +334,115 @@ MIGRATED_12_YHTEYDENOTTO_WITH_AN_OWNERS_LABEL = (
 )
 
 
-def frozen_v6_store(path):
+# --- LLM-COP-28's migration 14: every editorial band gets its own picture ---
+#
+# The same discipline the whole module keeps, applied to the newest link:
+# every expectation below is a SPLICE over a frozen literal, never a round
+# trip through the json.dumps the migration itself calls. ensure_ascii=True,
+# sort_keys=True and a changed separator each show up as a diff here and none
+# of them would be visible to an expectation built the way the code builds it.
+
+# What _migration_8 leaves in the tietoa row's two columns. Named once so the
+# splices below read as the arithmetic they are, and asserted rather than
+# trusted in the tests that use them: FROZEN_V6_ROWS[1] is the tietoa row,
+# [3] its draft and [4] its published text, and the two DIFFER — this row is
+# the fixture's deliberately dirty one.
+TIETOA_DRAFT_AFTER_8 = FROZEN_V6_ROWS[1][3][:-1] + MIGRATION_8_SUFFIXES["tietoa"]
+TIETOA_PUBLISHED_AFTER_8 = (
+    FROZEN_V6_ROWS[1][4][:-1] + MIGRATION_8_SUFFIXES["tietoa"]
+)
+
+# What _migration_14 appends to a row it has nothing to copy into: three keys,
+# all empty, in FIELDS declaration order.
+#
+# THE FILE'S STANDARD BLIND-SPOT NOTE APPLIES, and it applies harder here than
+# to any predecessor, so it is written out rather than assumed carried down
+# the file. Against the frozen fixture the hero's portrait and portrait_alt
+# are BOTH "" — FROZEN_V6_ROWS' hero draft carries `"portrait": ""` and
+# migration 8's splice adds `"portrait_alt": ""` — so the tietoa row receives
+# the same three empty strings the other three kinds receive by constant. This
+# suffix therefore pins the serialiser, the separators and the key order, and
+# NOTHING WHATEVER about the copy that is the whole design decision. The copy
+# is a separate claim and needs a row where the constant and the copy
+# disagree; that is MIGRATED_14_TIETOA_WITH_A_PLANTED_PICTURE below, exactly
+# as MIGRATED_9_HERO_DRAFT needed HERO_DRAFT_WITH_A_PLANTED_PICTURE.
+MIGRATION_14_BLANK_SUFFIX = (
+    ', "image": "", "image_alt": "", "image_shape": ""}'
+)
+
+# The four kinds migration 14 touches, and the two it does not. Written out
+# rather than derived from FIELDS, the rule this module holds everywhere: a
+# derived list would agree with the schema whatever the schema said, and
+# "hero and yhteydenotto are left entirely alone" is a claim about the
+# MIGRATION rather than about the schema.
+MIGRATION_14_KINDS = ("tietoa", "palvelut", "vastaanottoajat", "sijainti")
+MIGRATION_14_UNTOUCHED_KINDS = ("hero", "yhteydenotto")
+
+# DERIVED, not captured — and deliberately NOT named FROZEN_*, for the reason
+# HERO_DRAFT_WITH_A_PLANTED_PICTURE gives above: no real install held these
+# bytes.
+#
+# This is what migration 14 must write into a tietoa row when the hero it
+# reads really is carrying a picture. PLANTED_DIGEST and PLANTED_ALT are the
+# same two planted values migration 9's copy test uses, and PLANTED_ALT is a
+# sentence of ordinary Finnish that appears nowhere in app/ (asserted in the
+# test, not claimed here), so a migration that copied the wrong key — or
+# copied nothing — cannot produce it by accident.
+#
+# image_shape stays "" even here: the shape has no per-row source to copy
+# from, and "" is app/shapes.py's circle, which is the crop the shipped
+# stylesheet already drew. That is _migration_8's rule — every default is the
+# value that reproduces the page the install rendered a moment before the
+# upgrade — and it is why the copy is two keys and not three.
+MIGRATED_14_TIETOA_WITH_A_PLANTED_PICTURE = (
+    TIETOA_DRAFT_AFTER_8[:-1]
+    + f', "image": "{PLANTED_DIGEST}", "image_alt": "{PLANTED_ALT}",'
+    ' "image_shape": ""}'
+)
+
+# The second planted digest, and the whole point of the badge discriminator
+# below: DIFFERENT from PLANTED_DIGEST, one per hero column.
+PLANTED_DIGEST_PUBLISHED = "b" * 64
+
+# DERIVED, not captured — and deliberately NOT named FROZEN_*, for the reason
+# HERO_DRAFT_WITH_A_PLANTED_PICTURE gives above.
+#
+# WHY THE FROZEN tietoa ROW CANNOT BE USED FOR THE BADGE TEST. FROZEN_V6_ROWS[1]
+# is deliberately dirty — its draft nostolause says "Muokattu luonnos, ei
+# julkaistu" where its published one says the seeded sentence — and
+# FROZEN_BADGES["tietoa"] is therefore "Luonnos". Against a row that is
+# ALREADY dirty, a column-wise migration and a constant-suffix migration both
+# leave the badge at Luonnos: the first appends two different values to an
+# already-unequal pair, the second appends the same value to an
+# already-unequal pair, and badge() answers Luonnos either way. A test built
+# on that row agrees with both implementations and discriminates nothing.
+#
+# This row is the frozen row's PUBLISHED text in BOTH columns — one
+# substitution, no round trip — so draft == published byte for byte before
+# the migration runs and badge() answers Julkaistu. That is the only starting
+# state in which the two implementations give different answers.
+CLEAN_TIETOA_ROW = (
+    'tietoa',
+    2,
+    'published',
+    FROZEN_V6_ROWS[1][4],  # draft = the frozen PUBLISHED text
+    FROZEN_V6_ROWS[1][4],  # published = the same bytes
+    None,
+)
+
+def frozen_v6_store(path, rows=FROZEN_V6_ROWS):
     """The frozen install rebuilt: a database stopped at user_version 6 with
     the six literal rows in it.
 
     MIGRATIONS[:6] and an explicit PRAGMA — the idiom tests/test_db.py uses —
     so _migration_7 really is the only thing that has not run yet.
+
+    `rows` defaults to the captured artifact and every test but one passes
+    nothing. The one exception is LLM-COP-28's badge discriminator, which
+    swaps a CLEAN tietoa row in for the deliberately dirty captured one —
+    CLEAN_TIETOA_ROW's own comment says at length why it has to, and the
+    parameter exists so that substitution is visible at the call site rather
+    than done by a second UPDATE afterwards.
     """
     conn = database.connect(str(path))
     for migration in database.MIGRATIONS[:6]:
@@ -348,9 +451,32 @@ def frozen_v6_store(path):
     conn.executemany(
         "INSERT INTO sections (kind, position, state, draft, published,"
         " previous_published) VALUES (?, ?, ?, ?, ?, ?)",
-        FROZEN_V6_ROWS,
+        rows,
     )
     conn.commit()
+    return conn
+
+
+def upgraded_to_13(path, rows=FROZEN_V6_ROWS):
+    """The frozen install brought to the state migration 14 finds it in.
+
+    MIGRATIONS[6:13] — migrations 7 through 13 — called directly and in
+    order, so _migration_14 is the only thing that has not run yet. That is
+    the same scoping test_migration_8_appends_its_keys... uses when it calls
+    _migration_7 then _migration_8: a migration's byte-for-byte test has to
+    be handed the real input a real install would give it, and it has to be
+    the last thing that touches the store.
+
+    Of those seven, only 8 (all six kinds), 9 and 11 (hero) and 12
+    (yhteydenotto) write a payload at all; 7 is the hero's style, and 10 and
+    13 add tables and say so in their own comments. So the four kinds
+    migration 14 rewrites arrive here in exactly the state migration 8 left
+    them, which is what makes TIETOA_DRAFT_AFTER_8 and its siblings the right
+    literals to splice from.
+    """
+    conn = frozen_v6_store(path, rows)
+    for migration in database.MIGRATIONS[6:13]:
+        migration(conn)
     return conn
 
 
@@ -528,7 +654,7 @@ def test_the_frozen_v6_install_upgrades_with_every_badge_unchanged(tmp_path):
     database.migrate(conn)
 
     (version,) = conn.execute("PRAGMA user_version").fetchone()
-    assert version == len(database.MIGRATIONS) == 13
+    assert version == len(database.MIGRATIONS) == 14
     stored = rows_by_kind(conn)
     for kind, row in stored.items():
         assert badge(row["state"], row["draft"], row["published"]) == (
@@ -565,6 +691,20 @@ def test_the_frozen_v6_install_upgrades_with_every_badge_unchanged(tmp_path):
     assert json.loads(stored["yhteydenotto"]["draft"])["send_label"] == (
         "Ota yhteyttä"
     )
+    # And once more for LLM-COP-28's migration 14, the newest link, for the
+    # reason every line above exists: without it "no badge moved" would be
+    # true of a chain that stopped at migration 12. sijainti is asked rather
+    # than tietoa on purpose — tietoa is the one kind whose backfill is a
+    # COPY, so its value depends on the hero row and would make this line a
+    # claim about two rows instead of one. image_shape is "" for every kind
+    # including tietoa, which is what makes it the right key to read here.
+    #
+    # This line pins that the migration RAN. It pins nothing about the copy;
+    # against this fixture the hero's portrait is "" and the copy and a
+    # constant are byte-identical, which is what
+    # test_migration_14_copies_the_heros_portrait_into_tietoa exists for.
+    assert json.loads(stored["sijainti"]["draft"])["image_shape"] == ""
+    assert json.loads(stored["sijainti"]["draft"])["image"] == ""
     conn.close()
 
 
@@ -657,6 +797,15 @@ def test_migration_8_appends_its_keys_to_every_frozen_row_byte_for_byte(
     # USR-COP-4's migration 12 appended notice_text and notice_on, so the
     # schema's yhteydenotto tail is two keys past what migration 8 leaves in
     # this store. Same idiom, same asserted trim.
+    #
+    # And LLM-COP-28 makes it FOUR MORE KINDS at once, which is the first
+    # time this block has needed more than two entries. Migration 14 appended
+    # image, image_alt and image_shape to tietoa, palvelut, vastaanottoajat
+    # and sijainti, so each of those four is now read three keys short. The
+    # trim is spelled as an assertion on the declared tail rather than as a
+    # slice alone, exactly as the two above are: that is what keeps the
+    # expectation derived from the schema while still failing if the schema's
+    # order changes, instead of quietly agreeing with any tail at all.
     for kind, row in stored.items():
         declared = list(FIELDS[kind])
         if kind == "hero":
@@ -670,6 +819,9 @@ def test_migration_8_appends_its_keys_to_every_frozen_row_byte_for_byte(
         if kind == "yhteydenotto":
             assert declared[-2:] == ["notice_text", "notice_on"]
             declared = declared[:-2]
+        if kind in MIGRATION_14_KINDS:
+            assert declared[-3:] == ["image", "image_alt", "image_shape"], kind
+            declared = declared[:-3]
         assert list(json.loads(row["draft"]))[-1] == declared[-1], kind
         assert list(json.loads(row["draft"])) == declared, kind
 
@@ -1292,6 +1444,409 @@ def test_migration_9_is_idempotent(tmp_path):
     assert survived["background"] == "b" * 64
     assert survived["background_alt"] == "Vastaanottohuone aamuvalossa"
     assert survived["portrait"] == PLANTED_DIGEST
+    conn.close()
+
+
+
+def plant_hero_portrait(conn, draft_digest, published_digest, alt):
+    """Put a picture in the hero's two columns, one digest per column.
+
+    A json round trip, and that is fine here because this is an ARRANGEMENT
+    rather than an expectation: the module's splice discipline exists so that
+    what a test EXPECTS is built independently of the code under test, and
+    nothing about the bytes written here is ever asserted. The shape is
+    test_migration_9_is_idempotent's, which plants an owner's chosen
+    background the same way.
+
+    The two digests are asserted different before anything is written, so a
+    caller that passed one value twice gets a failure here rather than a
+    green test that discriminated nothing.
+    """
+    assert draft_digest != published_digest
+    row = conn.execute(
+        "SELECT id, draft, published FROM sections WHERE kind = 'hero'"
+    ).fetchone()
+    for column, digest in (
+        ("draft", draft_digest),
+        ("published", published_digest),
+    ):
+        payload = json.loads(row[column])
+        payload["portrait"] = digest
+        payload["portrait_alt"] = alt
+        conn.execute(
+            f"UPDATE sections SET {column} = ? WHERE id = ?",
+            (json.dumps(payload, ensure_ascii=False), row["id"]),
+        )
+    conn.commit()
+
+
+def test_migration_14_appends_its_keys_to_every_frozen_row_byte_for_byte(
+    tmp_path,
+):
+    """_migration_14 ALONE, over the real stored text of the four kinds it
+    touches.
+
+    The sibling of test_migration_8_appends_its_keys..., scoped the same way
+    and for the same reason: every expectation is a SPLICE of a frozen
+    literal, never a round trip through the json.dumps the migration itself
+    calls. ensure_ascii=True would turn this fixture's ä and – into escapes,
+    sort_keys=True would move image_shape out of last place, and a changed
+    separator would write ',"image"' — each is a diff here and none is
+    visible to an expectation built the way the code builds it.
+
+    Run after migrations 7 through 13 rather than instead of them, because
+    that is the order a real install upgrades in and the four expectations
+    are splices ON TOP of migration 8's own spliced results.
+
+    THE FILE'S STANDARD BLIND-SPOT NOTE. Against this fixture the hero's
+    portrait and portrait_alt are both "", so the tietoa row receives the
+    same three empty strings the other three receive by constant. These
+    bytes therefore pin the serialiser and the key order and NOTHING WHATEVER
+    about the copy — which is the whole design decision, and which
+    test_migration_14_copies_the_heros_portrait_into_tietoa closes with a
+    planted row where the constant and the copy disagree.
+
+    previous_published is NULL on every row of this artifact, so the third
+    column cannot be exercised here; it is asserted to have STAYED NULL,
+    which is the strongest thing this fixture can say about it, and
+    tests/test_db.py carries the non-NULL case.
+    """
+    conn = upgraded_to_13(tmp_path / "fourteen.sqlite3")
+
+    # The precondition, asserted rather than assumed: the four rows really
+    # are at migration 8's output, so the expectations below differ from what
+    # is there by exactly the appended suffix and nothing else.
+    before = rows_by_kind(conn)
+    assert before["tietoa"]["draft"] == TIETOA_DRAFT_AFTER_8
+    assert before["tietoa"]["published"] == TIETOA_PUBLISHED_AFTER_8
+
+    database._migration_14(conn)
+
+    stored = rows_by_kind(conn)
+    for kind, _position, _state, draft, published, previous in FROZEN_V6_ROWS:
+        if kind not in MIGRATION_14_KINDS:
+            continue
+        eight = MIGRATION_8_SUFFIXES[kind]
+        expected_draft = draft[:-1] + eight
+        expected_published = published[:-1] + eight
+        assert stored[kind]["draft"] == (
+            expected_draft[:-1] + MIGRATION_14_BLANK_SUFFIX
+        ), kind
+        assert stored[kind]["published"] == (
+            expected_published[:-1] + MIGRATION_14_BLANK_SUFFIX
+        ), kind
+        assert stored[kind]["previous_published"] is previous, kind
+
+    # Appended LAST for every kind it touched, which is what keeps the stored
+    # key order equal to the schema's declaration order and the owner's first
+    # save a no-op. This one expectation IS read from the live schema on
+    # purpose, the same way the migration-8 test reads it: a different claim
+    # from the byte splices above — not "these are the bytes" but "the bytes
+    # agree with what app/fields.py declares".
+    for kind in MIGRATION_14_KINDS:
+        keys = list(json.loads(stored[kind]["draft"]))
+        assert keys[-3:] == ["image", "image_alt", "image_shape"], kind
+        assert keys == list(FIELDS[kind]), kind
+
+    # tietoa's two columns differed before the upgrade (the artifact is
+    # deliberately dirty there) and must still differ afterwards, by exactly
+    # the same suffix on each — a migration that collapsed them would turn
+    # that row's Luonnos into Julkaistu.
+    assert stored["tietoa"]["draft"] != stored["tietoa"]["published"]
+    assert len(stored["tietoa"]["draft"]) - len(TIETOA_DRAFT_AFTER_8) == (
+        len(stored["tietoa"]["published"]) - len(TIETOA_PUBLISHED_AFTER_8)
+    )
+    for kind, row in stored.items():
+        assert badge(row["state"], row["draft"], row["published"]) == (
+            FROZEN_BADGES[kind]
+        ), kind
+    conn.close()
+
+
+def test_migration_14_leaves_the_hero_and_yhteydenotto_rows_byte_untouched(
+    tmp_path,
+):
+    """The kinds NOT in the map are left entirely alone — and one of them is
+    Decision 3's migration-side pin.
+
+    hero and yhteydenotto declare no picture. hero is excluded because it
+    already carries two image references with designs of their own;
+    yhteydenotto because v2-cp-section-contact draws a designed card with no
+    image slot, and adding one would contradict a design that exists, which
+    is worse than being silent where none does.
+
+    THE HERO HALF IS THE LOAD-BEARING ONE. Migration 14 READS hero.portrait
+    and copies it into tietoa.image, and the copy is deliberately ONE-WAY:
+    the hero's own field is not cleared afterwards. V1's hero card still
+    draws it and DEFAULT_STYLE is "v1", so a migration that "tidied up" after
+    the copy would blank the portrait of every V1 install on deploy. This
+    test is where that claim is falsifiable, and it is asked with a REAL
+    PICTURE in the field — a byte comparison against a row whose portrait is
+    "" could not tell a clearing migration from a non-clearing one.
+
+    The expectations are the store's own bytes read immediately before the
+    migration, which is the right instrument for "unchanged" and the wrong
+    one for "changed to X": nothing here claims what the hero's text should
+    be, only that migration 14 did not touch it.
+    """
+    conn = upgraded_to_13(tmp_path / "untouched14.sqlite3")
+    plant_hero_portrait(
+        conn, PLANTED_DIGEST, PLANTED_DIGEST_PUBLISHED, PLANTED_ALT
+    )
+    before = {
+        kind: tuple(row)
+        for kind, row in rows_by_kind(conn).items()
+        if kind in MIGRATION_14_UNTOUCHED_KINDS
+    }
+    # The fixture really does carry a picture, or "not cleared" would be
+    # true of a row that never held one.
+    assert json.loads(before["hero"][3])["portrait"] == PLANTED_DIGEST
+    assert json.loads(before["hero"][4])["portrait"] == PLANTED_DIGEST_PUBLISHED
+
+    database._migration_14(conn)
+
+    after = rows_by_kind(conn)
+    for kind in MIGRATION_14_UNTOUCHED_KINDS:
+        assert tuple(after[kind]) == before[kind], kind
+        payload = json.loads(after[kind]["draft"])
+        for key in ("image", "image_alt", "image_shape"):
+            assert key not in payload, (kind, key)
+    # Said again in terms of the decision, so the failure message names it
+    # rather than showing an 900-character diff: the copy is one-way.
+    assert json.loads(after["hero"]["draft"])["portrait"] == PLANTED_DIGEST, (
+        "migration 14 cleared hero.portrait after copying it — V1's hero card"
+        " draws that field and DEFAULT_STYLE is v1"
+    )
+    assert json.loads(after["hero"]["draft"])["portrait_alt"] == PLANTED_ALT
+    conn.close()
+
+
+def test_migration_14_copies_the_heros_portrait_into_tietoa(tmp_path):
+    """THE DESIGN DECISION, and the only test in the suite that can see it.
+
+    A V2 install rendered the tietoa band's circle FROM hero.portrait — the
+    template hoisted it across the section boundary — and after this change
+    that band reads tietoa.image. So the value that reproduces the page the
+    install rendered a moment before the upgrade is the HERO'S portrait, not
+    "". Backfilling a constant would blank the bio picture of every deployed
+    V2 site on the day this ships, which is exactly the harm migration 9
+    refused for the hero photograph.
+
+    Every other migration-14 assertion in this suite is BLIND to that. The
+    captured install's hero carries `"portrait": ""`, so on it a copying
+    migration and a constant-"" migration write byte-identical text; the
+    byte-for-byte test above passes against both. This one plants a row where
+    they disagree — the same blind spot migration 9's copy test closes for
+    its own key.
+
+    PLANTED_ALT is a sentence of ordinary Finnish that appears NOWHERE in
+    app/, asserted here rather than claimed, so a migration that copied the
+    wrong key or copied nothing cannot produce it by accident. A default the
+    product could have written would make this test agree with a constant.
+
+    THE PUBLISHED COLUMN IS THE SOURCE, and this test pins that too: the two
+    hero columns carry DIFFERENT digests and the value that lands in tietoa
+    is the published one. That is `hero[0] or hero[1]` — published first,
+    draft only if the row was never published — and it is the honest trade:
+    the copied picture is the one the public page is actually showing, so an
+    owner with an unpublished new portrait finds the published one in the
+    band, including in their draft preview.
+    """
+    assert_absent_from_app(PLANTED_ALT)
+    # The fixture's own provenance, before anything is built on it.
+    assert TIETOA_DRAFT_AFTER_8.count('"image"') == 0
+    assert MIGRATED_14_TIETOA_WITH_A_PLANTED_PICTURE.count(PLANTED_DIGEST) == 1
+    assert MIGRATED_14_TIETOA_WITH_A_PLANTED_PICTURE.count(PLANTED_ALT) == 1
+    assert PLANTED_DIGEST != PLANTED_DIGEST_PUBLISHED
+
+    conn = upgraded_to_13(tmp_path / "copy14.sqlite3")
+    # The precondition, asserted rather than assumed: the tietoa row really
+    # is at migration 8's output, so the expectation below differs from what
+    # is there by exactly the appended three keys and nothing else.
+    assert rows_by_kind(conn)["tietoa"]["draft"] == TIETOA_DRAFT_AFTER_8
+    plant_hero_portrait(
+        conn, PLANTED_DIGEST_PUBLISHED, PLANTED_DIGEST, PLANTED_ALT
+    )
+
+    database._migration_14(conn)
+
+    tietoa = rows_by_kind(conn)["tietoa"]
+    assert tietoa["draft"] == MIGRATED_14_TIETOA_WITH_A_PLANTED_PICTURE
+    # Said again in terms of the values, so the failure message names the
+    # decision rather than a diff.
+    upgraded = json.loads(tietoa["draft"])
+    assert upgraded["image"] == PLANTED_DIGEST, (
+        "migration 14 blanked the bio picture instead of copying it"
+    )
+    assert upgraded["image_alt"] == PLANTED_ALT
+    # The DRAFT digest was planted in the hero's PUBLISHED column above, so
+    # reading it here is what proves the read is published-first. A migration
+    # that read the draft would have written PLANTED_DIGEST_PUBLISHED.
+    assert upgraded["image"] != PLANTED_DIGEST_PUBLISHED
+    # image_shape has no per-row source and stays the empty circle.
+    assert upgraded["image_shape"] == ""
+    # And the copy did not disturb the order the byte test pins.
+    assert list(upgraded) == list(FIELDS["tietoa"])
+    # The other three kinds get the CONSTANT, not the copy: they drew no
+    # picture before the upgrade, so "" is the value that reproduces their
+    # page and a copy would invent one. Without this the test would pass
+    # against a migration that copied the hero's portrait into all four.
+    for kind in ("palvelut", "vastaanottoajat", "sijainti"):
+        payload = json.loads(rows_by_kind(conn)[kind]["draft"])
+        assert payload["image"] == "", kind
+        assert payload["image_alt"] == "", kind
+    conn.close()
+
+
+def test_migration_14_is_idempotent(tmp_path):
+    """_migration_14 called DIRECTLY a second time moves not one byte.
+
+    Directly, not migrate() twice: migrate() twice is a no-op by PRAGMA
+    user_version alone, so it says nothing about what this migration does to
+    a row it has already rewritten — the branch that matters when a store is
+    migrated on a newer build's data.
+
+    The last block is what byte-stability alone cannot show, and it is
+    test_migration_8_is_idempotent's lesson applied to the newest keys. On a
+    row whose image still holds whatever the migration itself would write, an
+    ASSIGNMENT produces the same bytes as a setdefault and the two are
+    indistinguishable. So plant a picture and a shape the OWNER chose —
+    a different digest from the hero's, and the square crop, which is the
+    entire point of this artifact — and re-run: setdefault leaves them, an
+    assignment silently reverts the owner's band picture to a copy of their
+    portrait and their square back to a circle on the next upgrade.
+    """
+    conn = upgraded_to_13(tmp_path / "twice14.sqlite3")
+    plant_hero_portrait(
+        conn, PLANTED_DIGEST, PLANTED_DIGEST_PUBLISHED, PLANTED_ALT
+    )
+    database._migration_14(conn)
+    first = {kind: tuple(row) for kind, row in rows_by_kind(conn).items()}
+    # The first pass really did change the rows — otherwise a second pass
+    # matching it would be true of a migration that does nothing at all.
+    assert json.loads(first["tietoa"][3])["image"] == PLANTED_DIGEST_PUBLISHED
+    assert json.loads(first["palvelut"][3])["image_shape"] == ""
+
+    database._migration_14(conn)
+
+    assert {kind: tuple(row) for kind, row in rows_by_kind(conn).items()} == first
+
+    chosen = dict(
+        json.loads(first["tietoa"][3]),
+        image="c" * 64,
+        image_alt="Työhuone iltavalossa",
+        image_shape="square",
+    )
+    assert chosen["image"] != PLANTED_DIGEST
+    assert chosen["image"] != PLANTED_DIGEST_PUBLISHED
+    conn.execute(
+        "UPDATE sections SET draft = ? WHERE kind = 'tietoa'",
+        (json.dumps(chosen, ensure_ascii=False),),
+    )
+    conn.commit()
+
+    database._migration_14(conn)
+
+    survived = json.loads(rows_by_kind(conn)["tietoa"]["draft"])
+    assert survived["image"] == "c" * 64
+    assert survived["image_alt"] == "Työhuone iltavalossa"
+    assert survived["image_shape"] == "square"
+    conn.close()
+
+
+def test_migration_14_does_not_flip_a_clean_tietoa_badge_when_the_heros_draft_and_published_portraits_differ(
+    tmp_path,
+):
+    """The alternative this migration REFUSED, and the only test with the
+    power to tell the two apart.
+
+    A column-wise copy — tietoa.draft.image from hero.draft.portrait,
+    tietoa.published.image from hero.published.portrait — is more faithful
+    per column, and it is refused. On any install whose hero draft and
+    published portraits differ it writes two DIFFERENT values into the two
+    tietoa columns, so a row that was byte-equal becomes unequal, and
+    badge() — which compares the raw stored text of draft against published —
+    turns Julkaistu into Luonnos on deploy. That is the headline hazard this
+    whole file exists for: an upgrade that marks the owner's site dirty and
+    invites a publish nobody asked for.
+
+    What ships instead is a CONSTANT suffix: the hero is read ONCE, before
+    the loop, and all three columns of every row get the same value. So the
+    map is "the input plus a fixed appended suffix", draft == published
+    before implies it after, and no badge can move.
+
+    WHY THE FROZEN tietoa ROW CANNOT BE USED HERE, in one sentence and at
+    length in CLEAN_TIETOA_ROW's own comment above: FROZEN_V6_ROWS' tietoa
+    row is deliberately DIRTY and its badge is already Luonnos, so against it
+    a column-wise migration and a constant one both leave the badge at
+    Luonnos and the test would agree with either implementation. This store
+    swaps in a clean row — the frozen row's published text in both columns,
+    one substitution and no round trip — so draft == published byte for byte
+    and badge() answers Julkaistu before the migration runs. That is the only
+    starting state in which the two implementations differ.
+
+    A column-wise implementation fails the byte comparison AND the badge AND
+    the two value assertions at the end, which say the PUBLISHED digest
+    landed in both columns.
+    """
+    conn = upgraded_to_13(
+        tmp_path / "badge14.sqlite3",
+        rows=FROZEN_V6_ROWS[:1] + (CLEAN_TIETOA_ROW,) + FROZEN_V6_ROWS[2:],
+    )
+    plant_hero_portrait(
+        conn, PLANTED_DIGEST, PLANTED_DIGEST_PUBLISHED, PLANTED_ALT
+    )
+
+    # The precondition, asserted so the fixture cannot silently degenerate
+    # into the very state it was built to avoid.
+    before = rows_by_kind(conn)["tietoa"]
+    assert before["draft"] == before["published"]
+    assert before["draft"] == TIETOA_PUBLISHED_AFTER_8
+    assert badge(before["state"], before["draft"], before["published"]) == (
+        "Julkaistu"
+    )
+    hero = rows_by_kind(conn)["hero"]
+    assert json.loads(hero["draft"])["portrait"] == PLANTED_DIGEST
+    assert json.loads(hero["published"])["portrait"] == PLANTED_DIGEST_PUBLISHED
+
+    # Every badge as it stands a moment before the migration, read from THIS
+    # store rather than from FROZEN_BADGES — this store is not the frozen
+    # install: its tietoa row was swapped for a clean one and its hero's two
+    # columns were deliberately made to disagree, which is exactly the state
+    # the migration has to survive. So the hero's own badge is Luonnos here,
+    # and that is the premise rather than a defect. Captured BEFORE and
+    # compared AFTER is the right instrument for "the migration moved no
+    # badge": the thing under test runs between the two reads.
+    before_badges = {
+        kind: badge(row["state"], row["draft"], row["published"])
+        for kind, row in rows_by_kind(conn).items()
+    }
+    assert before_badges["tietoa"] == "Julkaistu"
+    assert before_badges["hero"] == "Luonnos"
+
+    database._migration_14(conn)
+
+    after = rows_by_kind(conn)["tietoa"]
+    assert after["draft"] == after["published"], (
+        "migration 14 wrote different values into tietoa's two columns —"
+        " a column-wise copy, which flips a Julkaistu badge to Luonnos"
+    )
+    assert badge(after["state"], after["draft"], after["published"]) == (
+        "Julkaistu"
+    )
+    # And the value is the PUBLISHED one in BOTH columns, which pins
+    # "published first, draft only if never published" as well as the badge.
+    for column in ("draft", "published"):
+        assert json.loads(after[column])["image"] == (
+            PLANTED_DIGEST_PUBLISHED
+        ), column
+
+    # And no other badge moved either, against the reading taken a moment
+    # before the migration ran.
+    for kind, row in rows_by_kind(conn).items():
+        assert badge(row["state"], row["draft"], row["published"]) == (
+            before_badges[kind]
+        ), kind
     conn.close()
 
 

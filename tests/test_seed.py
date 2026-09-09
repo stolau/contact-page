@@ -218,6 +218,56 @@ def test_every_seeded_payload_carries_every_declared_key_in_order(conn):
         assert list(json.loads(draft)) == list(FIELDS[kind]), kind
 
 
+def test_every_editorial_band_seeds_its_picture_empty(conn):
+    """LLM-COP-28's twelve keys, all of them "", asserted one by one.
+
+    The test above already derives from FIELDS, so it would go green on a
+    seed that shipped a digest, a description and the word "circle". These
+    twelve lines are the deliberate edits, written the way LLM-COP-30's pair
+    was written into the hero's own test above rather than left to a
+    derivation that agrees with whatever the seed says.
+
+    Each key is "" for its own reason.
+
+    `image`: the seed ships no picture at all — hero.portrait is "" for the
+    same reason — so there is no reference to store. A seeded one would also
+    be a reference to a file no install has, which app/images.py would count
+    as referenced and never collect.
+
+    `image_alt`: alt text for a picture that does not exist would be an
+    invented description, verbatim the reason portrait_alt is seeded empty.
+
+    `image_shape`: "" rather than the literal "circle", and that is
+    mechanical rather than tidy. app/sectionlist.py compares a published
+    payload to blank_payload(kind) BY VALUE and blank_payload gives "" for
+    every plain field, so a real literal here would quietly drop the
+    BLANK_PUBLISHED refusal from a blank section's Näytä osio — the hazard
+    hero.style and the two colours are seeded empty to avoid. app/shapes.py
+    resolves "" to the circle, which is the crop the shipped stylesheet
+    already drew, so the seeded page is unchanged either way.
+    """
+    seed_if_empty(conn)
+    for kind in ("tietoa", "palvelut", "vastaanottoajat", "sijainti"):
+        (published, draft) = conn.execute(
+            "SELECT published, draft FROM sections WHERE kind = ?", (kind,)
+        ).fetchone()
+        for column, text in (("published", published), ("draft", draft)):
+            payload = json.loads(text)
+            assert payload["image"] == "", (kind, column)
+            assert payload["image_alt"] == "", (kind, column)
+            assert payload["image_shape"] == "", (kind, column)
+        # And the three are the kind's LAST three keys, in this order. Said
+        # here as well as in tests/test_fields.py because that file pins the
+        # DECLARATION and this one pins what was actually written to the
+        # store: a seed that carried them in another order would rewrite the
+        # row and flip the badge on the owner's first save.
+        assert list(json.loads(published))[-3:] == [
+            "image",
+            "image_alt",
+            "image_shape",
+        ], kind
+
+
 def test_no_identity_string_survives_anywhere_in_the_seed(conn):
     """The standing guard for LLM-COP-10. This is a GENERIC contact page, so
     the shipped seed must name no person, practice, registration or register.

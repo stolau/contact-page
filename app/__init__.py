@@ -27,6 +27,7 @@ from .sanitize import sanitize_rich
 from .sectionlist import bp as sectionlist_bp
 from .sections import contact_dialog_copy, site_chrome, visible_sections
 from .seed import seed_if_empty
+from .shapes import resolve_shape
 from .styles import template_for
 from .wizard import bp as wizard_bp
 from .wizard import login_target
@@ -199,6 +200,16 @@ def create_app(instance_path=None):
     # (app/edit.py) and direct edit (app/direct_edit.py) all render through
     # template_for, so there is one filter registry between them.
     app.add_template_filter(contact_notice, "contact_notice")
+
+    # How a section's own picture is cropped (LLM-COP-28), resolved from the
+    # stored value and never trusted raw (app/shapes.py). Registered here for
+    # the reason contact_notice's registration gives directly above: one
+    # filter registry covers the public page, the draft preview and direct
+    # edit, because all three render through template_for. Named image_shape
+    # after the FIELD it resolves, not after resolve_shape, so a template
+    # reads `p.image_shape|image_shape` — the field's raw value in, the
+    # renderable one out.
+    app.add_template_filter(resolve_shape, "image_shape")
 
     @app.template_filter("render_rich")
     def render_rich(value):

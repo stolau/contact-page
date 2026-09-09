@@ -60,6 +60,42 @@ DIGEST = "b" * 64
 # the one this artifact exists to fix.
 BACKGROUND_DIGEST = "c" * 64
 
+# LLM-COP-28's four: one per editorial kind, each a DIFFERENT digest, for
+# the reason BACKGROUND_DIGEST is different from DIGEST. Every band now
+# stores its own picture, so "each band draws its own" is only falsifiable if
+# no two bands could be drawing the same one by accident. A single shared
+# constant would let a template that fed all four from one payload pass every
+# count below.
+SECTION_DIGESTS = {
+    "tietoa": "d" * 64,
+    "palvelut": "e" * 64,
+    "vastaanottoajat": "f" * 64,
+    "sijainti": "a" * 64,
+}
+
+# The band's <section> class, which is where the alternation is visible. It
+# is read with a regex over data-kind rather than by splitting the document,
+# because the class and the kind are attributes of the same element and
+# asserting them apart would let a build put the right classes on the wrong
+# bands.
+BAND = re.compile(
+    r'<section id="[^"]*" class="v2-band ([^"]+)"'
+    r' data-section="\d+" data-kind="([^"]+)"'
+)
+
+
+def band_classes(html):
+    """The layout class of every rendered band, keyed by kind.
+
+    `v2-band-media-left`, `v2-band-media-right` or `v2-band-prose` — the
+    three the template can emit. The hero and the contact card carry their
+    own classes and appear here too; the tests below name the kinds they
+    care about rather than asserting the whole map, so a band gaining a class
+    does not break a test about a different band.
+    """
+    return {kind: cls for cls, kind in BAND.findall(html)}
+
+
 BINDING = re.compile(r'data-section="(\d+)"\s+data-field="([^"]+)"')
 KIND = re.compile(r'data-kind="([^"]+)"')
 
@@ -238,22 +274,37 @@ def test_admin_link_says_yllapito(v2_html):
 # --- the uploaded image, and the fallback when there is none ----------------
 
 
-def test_the_hero_photo_and_the_portrait_are_two_different_pictures(app):
-    """The two V2 image sites read two DIFFERENT stored references
-    (LLM-COP-30): the full-bleed hero photograph (v2-cp-hero.hero-photo)
-    from hero.background, the portrait circle
-    (v2-cp-section-portrait.portrait-section.portrait) from hero.portrait.
+def test_the_hero_photo_and_the_band_picture_come_from_two_sections(app):
+    """The two V2 image sites read two DIFFERENT stored references from two
+    DIFFERENT sections — and the second half of that sentence is
+    LLM-COP-28's, where the first half was LLM-COP-30's.
 
-    This test is the defect written down and then the fix written down. It
-    used to be called ..._reaches_both_the_hero_photo_and_the_portrait and
-    asserted `count(one digest) == 2`, because there was one reference and
-    V2 painted it in both places — the owner could not put a photograph
-    behind the hero card without also making it their profile picture. Two
-    digests each appearing EXACTLY ONCE is the same question with the
-    answer the product now gives.
+    The history is worth keeping, because this one test has now been the
+    written-down form of two separate defects.
+
+      * Before LLM-COP-30 there was ONE reference and V2 painted it in both
+        places: the owner could not put a photograph behind the hero card
+        without also making it their profile picture. This test was called
+        ..._reaches_both_the_hero_photo_and_the_portrait and asserted
+        `count(one digest) == 2` to say so.
+      * LLM-COP-30 split the references and it became
+        ..._are_two_different_pictures: hero.background in the hero,
+        hero.portrait in the tietoa circle, each digest exactly once. But
+        BOTH still came out of the hero row, hoisted across the section
+        boundary by a namespace pass at the bottom of the template.
+      * LLM-COP-28 deletes that hoist. The band that draws a picture is now
+        the section that STORES it, so the circle reads tietoa.image and
+        hero.portrait reaches this document nowhere at all.
+
+    So the claim is now three-part: hero.background is in the hero,
+    tietoa.image is in the tietoa band, and hero.portrait is NOWHERE. The
+    third part is the one that goes red against a build that kept the hoist,
+    and it is asserted on a digest that is deliberately set to a valid
+    64-hex value — a `not in` over an empty field would hold whatever the
+    template did.
 
     Exactly once matters in both directions. `>= 1` would pass a build that
-    still fed the hero from portrait as well; `== 1` on one digest alone
+    fed the hero from the band's picture as well; `== 1` on one digest alone
     would pass a build that dropped the other picture entirely.
     """
     edit_published_payload(
@@ -261,34 +312,67 @@ def test_the_hero_photo_and_the_portrait_are_two_different_pictures(app):
         "hero",
         lambda p: p.update(portrait=DIGEST, background=BACKGROUND_DIGEST),
     )
+    edit_published_payload(
+        app, "tietoa", lambda p: p.update(image=SECTION_DIGESTS["tietoa"])
+    )
     html = render_public(app, V2_TEMPLATE)
 
-    assert html.count(f"/kuvat/{DIGEST}") == 1, html.count(f"/kuvat/{DIGEST}")
+    band = SECTION_DIGESTS["tietoa"]
+    assert html.count(f"/kuvat/{band}") == 1, html.count(f"/kuvat/{band}")
     assert html.count(f"/kuvat/{BACKGROUND_DIGEST}") == 1, html.count(
         f"/kuvat/{BACKGROUND_DIGEST}"
     )
     # And each is in ITS OWN site, not merely somewhere on the page: a build
     # that swapped the two would satisfy both counts above.
     assert f'<img class="v2-hero-image" src="/kuvat/{BACKGROUND_DIGEST}"' in html
-    assert f'src="/kuvat/{DIGEST}"' in html
-    assert f'<img class="v2-hero-image" src="/kuvat/{DIGEST}"' not in html
+    assert f'src="/kuvat/{band}"' in html
+    assert f'<img class="v2-hero-image" src="/kuvat/{band}"' not in html
+
+    # LLM-COP-28's Decision 3, in the template's own terms: hero.portrait is
+    # a V1 field from here. It is SET to a valid digest above, and the hoist
+    # that used to carry it here is gone, so this line is the one that fails
+    # if it comes back.
+    assert f"/kuvat/{DIGEST}" not in html
+    assert DIGEST not in html
 
     assert "has-image" in html
     assert "Muotokuva" not in html
     assert "browse files" not in html
 
 
-def test_a_non_digest_portrait_falls_back_to_the_placeholder(app):
+def test_a_non_digest_section_image_falls_back_to_the_placeholder(app):
     """image_url answers None for anything that is not a 64-hex digest, so
     junk in the payload must not become a URL and must not blank the
-    placeholder either."""
+    placeholder either.
+
+    Re-pointed at tietoa.image by LLM-COP-28, because that is the field the
+    circle reads now — and HARDENED at the same time, because in its old
+    shape it had quietly become vacuous. Both of its assertions ("etc/passwd
+    not in html", "Muotokuva in html") would have held with the image_url
+    filter deleted entirely, once V2 stopped reading hero.portrait: an
+    unrendered field cannot leak a path and cannot fill a placeholder.
+
+    The third assertion is what fixes that. hero.portrait is planted with a
+    VALID digest at the same time, so:
+
+      * a build that still reads hero.portrait for the circle renders a real
+        URL and fails on the third line;
+      * a build that stopped type-guarding the filter renders the traversal
+        path and fails on the first;
+      * a build that filled the slot anyway fails on the second.
+
+    Three assertions, three different failures, and no pair of them can be
+    satisfied by the same mistake.
+    """
     edit_published_payload(
-        app, "hero", lambda p: p.update(portrait="../../etc/passwd")
+        app, "tietoa", lambda p: p.update(image="../../etc/passwd")
     )
+    edit_published_payload(app, "hero", lambda p: p.update(portrait=DIGEST))
     html = render_public(app, V2_TEMPLATE)
 
     assert "etc/passwd" not in html
     assert "Muotokuva" in html
+    assert f"/kuvat/{DIGEST}" not in html
 
 
 def test_a_non_digest_background_draws_no_hero_image(app):
@@ -312,6 +396,266 @@ def test_a_non_digest_background_draws_no_hero_image(app):
     assert "v2-hero-image" not in html
     assert "has-image" not in html
     assert 'class="v2-hero-photo"' in html
+
+
+# --- LLM-COP-28: every editorial band draws its own picture -----------------
+#
+# Four kinds, three new fields each, and the claims divide cleanly: WHICH
+# picture a band draws (its own), HOW it is cropped (its own image_shape),
+# and WHICH SIDE it sits on (positional, computed down the page). Each has
+# its own test below, and the side one has three, because the alternation is
+# a property of the SEQUENCE and a single rendering can only ever show one
+# point of it.
+
+
+def set_positions(app, order):
+    """Rewrite the page order, the way PUT /api/sections/order does.
+
+    A direct write to the store rather than a route call, and that is on
+    purpose here: these are TEMPLATE tests, and the question they ask is what
+    page_v2.html renders from a given stored order. The owner's real route to
+    that order is proved once, in tests/test_sectionlist.py, where the same
+    reordering is driven through PUT /api/sections/order and the resulting
+    document's band classes are read — that is the test that makes this one
+    more than a fixture.
+
+    `order` is a list of kinds; every kind not named keeps a position after
+    them, in its existing relative order, so a caller only has to say what it
+    cares about.
+    """
+    conn = database.connect(app.config["DATABASE"])
+    try:
+        rows = conn.execute(
+            "SELECT id, kind FROM sections ORDER BY position"
+        ).fetchall()
+        named = [r for kind in order for r in rows if r["kind"] == kind]
+        rest = [r for r in rows if r["kind"] not in order]
+        for position, row in enumerate(named + rest, start=1):
+            conn.execute(
+                "UPDATE sections SET position = ? WHERE id = ?",
+                (position, row["id"]),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_each_editorial_band_draws_its_own_stored_picture(app):
+    """The heart of the artifact: four kinds, four different digests, and
+    each one exactly once and inside its own band.
+
+    Exactly once is what tells "each band reads its own field" apart from
+    the arrangement this change replaced, where one hoisted reference was
+    handed to whichever band wanted it. A build that fed every band from
+    tietoa.image would put one digest on the page four times and the other
+    three not at all; a build that kept feeding the circle from
+    hero.portrait would leave the tietoa digest at zero.
+
+    IN ITS OWN BAND, not merely somewhere on the page, and that is asserted
+    by slicing the document at the <section> boundaries rather than by
+    counting. Four counts of one can all be satisfied by four pictures in
+    the wrong four bands.
+
+    hero.portrait is planted with a valid digest too, and asserted absent, so
+    this test also carries Decision 3 in the state where it is hardest: with
+    every band drawing something, a stray hero portrait would be easy to miss
+    in a count.
+    """
+    for kind, digest in SECTION_DIGESTS.items():
+        edit_published_payload(app, kind, lambda p, d=digest: p.update(image=d))
+    edit_published_payload(app, "hero", lambda p: p.update(portrait=DIGEST))
+    html = render_public(app, V2_TEMPLATE)
+
+    for kind, digest in SECTION_DIGESTS.items():
+        assert html.count(f"/kuvat/{digest}") == 1, (kind, digest)
+
+    # And each inside the band that stores it. The document is cut at the
+    # section that OPENS each band, so "inside" means between this band's
+    # opening tag and the next one's — the same read a person does.
+    for kind, digest in SECTION_DIGESTS.items():
+        assert f"/kuvat/{digest}" in band_markup(html, kind), kind
+
+    assert f"/kuvat/{DIGEST}" not in html
+    assert DIGEST not in html
+
+
+def band_markup(html, kind):
+    """The markup of one band: from its <section> tag to the next one.
+
+    Written as a slice over the served document rather than with a parser,
+    the way every other structural assertion in this file is: the tests here
+    are about the bytes the template emits, and a parser would quietly
+    forgive a malformed one.
+    """
+    start = html.index(f'data-kind="{kind}"')
+    start = html.rindex("<section", 0, start)
+    following = html.find("<section", start + 1)
+    return html[start:] if following == -1 else html[start:following]
+
+
+@pytest.mark.parametrize(
+    "kind", ["tietoa", "palvelut", "vastaanottoajat", "sijainti"]
+)
+def test_a_square_shape_puts_the_square_class_on_that_bands_picture(app, kind):
+    """image_shape "square" reaches the page as one word in the .portrait
+    element's class list, and "" does not.
+
+    Asked of every kind, because the shape is passed through a different
+    macro path for tietoa (which always renders its slot) than for the three
+    prose bands (which render one only when a picture is set), and a build
+    that wired the parameter through one path and not the other would pass a
+    tietoa-only test.
+
+    BOTH DIRECTIONS IN ONE TEST. The square band is asserted to carry the
+    class and the circle band asserted not to, in the same rendering, so the
+    assertion cannot be satisfied by a template that puts `square` on every
+    picture — which is exactly what an unconditional class would do, and
+    exactly what would look right in the one screenshot anyone checks.
+
+    "circle" is the class an unset shape resolves to, and it is asserted
+    positively: app/shapes.py answers `circle` for "", so the element carries
+    a shape word either way and a MISSING word means the filter did not run.
+    """
+    other = next(k for k in SECTION_DIGESTS if k != kind)
+    edit_published_payload(
+        app,
+        kind,
+        lambda p: p.update(image=SECTION_DIGESTS[kind], image_shape="square"),
+    )
+    edit_published_payload(
+        app,
+        other,
+        lambda p: p.update(image=SECTION_DIGESTS[other], image_shape=""),
+    )
+    html = render_public(app, V2_TEMPLATE)
+
+    square = band_markup(html, kind)
+    circle = band_markup(html, other)
+    assert 'class="portrait square has-image"' in square, kind
+    assert "square" not in circle, other
+    assert 'class="portrait circle has-image"' in circle, other
+
+
+def test_an_unknown_shape_draws_the_circle_rather_than_its_own_word(app):
+    """The resolver reaches the page, not the stored value.
+
+    A band whose image_shape holds a word app/shapes.py does not know must
+    render as a circle — and must not render that word into the class
+    attribute, which is what a template writing `{{ p.image_shape }}` raw
+    would do. That is not merely untidy: an unrecognised class is a picture
+    with no border-radius rule at all, so the page would draw a square that
+    nobody chose.
+    """
+    edit_published_payload(
+        app,
+        "tietoa",
+        lambda p: p.update(
+            image=SECTION_DIGESTS["tietoa"], image_shape="pyöreä"
+        ),
+    )
+    html = render_public(app, V2_TEMPLATE)
+
+    band = band_markup(html, "tietoa")
+    assert 'class="portrait circle has-image"' in band
+    assert "pyöreä" not in html
+
+
+def test_a_prose_band_with_no_picture_keeps_its_prose_layout(app):
+    """v2-cp-section-prose's own note, both halves of it.
+
+    "Each section would have option for image" is the test above; "This
+    section is rendered with no image, so the text runs in the left column
+    and the right column is empty" is this one. A band with nothing stored
+    renders v2-band-prose and emits no media column at all — not an empty
+    one, which would take the copy out of the left column and leave a hole.
+
+    tietoa is deliberately excluded from the claim and asserted the other
+    way in the same rendering: its design has an asserted placeholder
+    criterion (`when: no portrait image has been uploaded`), so it renders
+    its slot whether or not a picture exists. That asymmetry is the designs'
+    rather than a preference, and stating it here is what stops a later
+    reader "fixing" one of the two macros to match the other.
+    """
+    html = render_public(app, V2_TEMPLATE)  # the seeded store: no pictures
+
+    classes = band_classes(html)
+    for kind in ("palvelut", "vastaanottoajat", "sijainti"):
+        assert classes[kind] == "v2-band-prose", kind
+        assert "v2-band-media" not in band_markup(html, kind), kind
+
+    # tietoa keeps its media column and its placeholder.
+    assert classes["tietoa"] == "v2-band-media-left"
+    assert 'class="v2-band-media"' in band_markup(html, "tietoa")
+    assert "Muotokuva" in band_markup(html, "tietoa")
+
+
+def test_the_picture_side_alternates_down_the_page_in_stored_order(app):
+    """"Starting from left side, then right side" — the design's own words,
+    asked of three media bands at once.
+
+    One rendering can only show one point of an alternation, so this test
+    sets THREE pictures and reads all three classes: left, right, left. Two
+    bands would agree with a template that simply alternated every band, and
+    one band would agree with a hardcoded class — which is precisely what
+    this template had before, `v2-band-media-left` written into the tietoa
+    macro.
+
+    The band WITHOUT a picture is the second half of the claim and it is why
+    vastaanottoajat is left empty here: it must not consume a turn. A
+    counter that incremented for every band rather than for every band with
+    a picture would put sijainti back on the left, and the page would show
+    two left-hand pictures in a row — the exact defect the alternation
+    exists to prevent.
+    """
+    for kind in ("tietoa", "palvelut", "sijainti"):
+        edit_published_payload(
+            app, kind, lambda p, k=kind: p.update(image=SECTION_DIGESTS[k])
+        )
+    html = render_public(app, V2_TEMPLATE)
+
+    classes = band_classes(html)
+    assert classes["tietoa"] == "v2-band-media-left"
+    assert classes["palvelut"] == "v2-band-media-right"
+    assert classes["vastaanottoajat"] == "v2-band-prose"
+    assert classes["sijainti"] == "v2-band-media-left"
+
+
+def test_a_reordered_store_alternates_by_position_and_not_by_kind(app):
+    """The case a hardcoded class could not render, and the reason `side`
+    became a parameter of the tietoa macro like every other band's.
+
+    PUT /api/sections/order rewrites `position` for the whole list and
+    visible_sections orders by it, so "tietoa is the first band with a
+    picture" is an owner-editable fact rather than an invariant. Move a
+    palvelut that carries a picture above it and the alternation must follow
+    the new order: palvelut left, tietoa right.
+
+    Before this change the tietoa band carried `class="v2-band
+    v2-band-media-left"` as a literal, so this rendering would have painted
+    two consecutive left-hand pictures — defeating the design note the whole
+    feature claims to meet. This is the assertion that says so.
+
+    No spec criterion changes verdict under this order.
+    v2-cp-section-portrait's portrait-section has exactly one asserted
+    criterion, `is-visible`, which holds on either side; "the section renders
+    its image on the left" is a note, in the same sentence that says the
+    sections alternate.
+    """
+    for kind in ("tietoa", "palvelut"):
+        edit_published_payload(
+            app, kind, lambda p, k=kind: p.update(image=SECTION_DIGESTS[k])
+        )
+    set_positions(app, ["hero", "palvelut", "tietoa"])
+    html = render_public(app, V2_TEMPLATE)
+
+    # The order really moved — asserted before the classes are read, so the
+    # test cannot pass by rendering the order it was trying to change.
+    kinds = KIND.findall(html)
+    assert kinds.index("palvelut") < kinds.index("tietoa")
+
+    classes = band_classes(html)
+    assert classes["palvelut"] == "v2-band-media-left"
+    assert classes["tietoa"] == "v2-band-media-right"
 
 
 # --- the section labels and the contact card are the owner's now ------------

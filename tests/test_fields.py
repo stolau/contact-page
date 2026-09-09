@@ -58,6 +58,28 @@ def test_style_carries_no_field_label():
     # bespoke control. Labelling it would draw a text input the owner could
     # type a digest into by hand.
     assert FIELD_LABELS["hero"].get("background") is None
+
+    # LLM-COP-28's eight. Every editorial kind declares image and
+    # image_shape, and neither carries a label on any of them.
+    #
+    # image is hero.portrait's shape: it names an image slot, so the panel's
+    # generic Kuva row is its editor, and a text input would invite a
+    # hand-typed digest. image_shape is hero.style's and
+    # yhteydenotto.notice_on's: a constrained vocabulary app/shapes.py
+    # resolves, where a free-text box is exactly the value that resolver
+    # would then have to refuse. Their sibling image_alt IS labelled on all
+    # four kinds — asserted in test_every_new_key_is_a_labelled_plain_field
+    # — and each of the three keys is declared on all four, so this block and
+    # that parametrize together account for all twelve.
+    #
+    # The kinds are named in a literal tuple rather than derived from FIELDS,
+    # the rule NEW_FIELD_TAILS below states for itself: a derived list would
+    # agree with the schema whatever the schema said.
+    for kind in ("tietoa", "palvelut", "vastaanottoajat", "sijainti"):
+        assert FIELDS[kind]["image"] == {"type": "plain"}, kind
+        assert FIELD_LABELS[kind].get("image") is None, kind
+        assert FIELDS[kind]["image_shape"] == {"type": "plain"}, kind
+        assert FIELD_LABELS[kind].get("image_shape") is None, kind
     # And USR-COP-2's two colours, the same shape a third time. Labelling
     # either would draw a plain text input the owner could type "red" — or a
     # closing </style> — into, which is exactly the value app/palette.py's
@@ -121,9 +143,52 @@ NEW_FIELD_TAILS = {
         "color_main",
         "color_accent",
     ],
-    "tietoa": ["nostolause", "leipäteksti", "facts", "section_label"],
-    "palvelut": ["services", "more_label", "section_label"],
-    "vastaanottoajat": ["days", "booking_note", "section_label"],
+    "tietoa": [
+        "nostolause",
+        "leipäteksti",
+        "facts",
+        "section_label",
+        # LLM-COP-28: every editorial band's own picture — the reference,
+        # its alt text and its crop — appended after LLM-COP-25's kicker for
+        # the reason every tail in this table is appended. The three are
+        # written out in their declared order rather than as a set, because
+        # the order is what app/sanitize.py rebuilds a payload in and what
+        # _migration_14's setdefault appends in; those two agreeing is what
+        # keeps a backfilled row byte-identical to a re-saved one.
+        "image",
+        "image_alt",
+        "image_shape",
+    ],
+    "palvelut": [
+        "services",
+        "more_label",
+        "section_label",
+        # LLM-COP-28: every editorial band's own picture — the reference,
+        # its alt text and its crop — appended after LLM-COP-25's kicker for
+        # the reason every tail in this table is appended. The three are
+        # written out in their declared order rather than as a set, because
+        # the order is what app/sanitize.py rebuilds a payload in and what
+        # _migration_14's setdefault appends in; those two agreeing is what
+        # keeps a backfilled row byte-identical to a re-saved one.
+        "image",
+        "image_alt",
+        "image_shape",
+    ],
+    "vastaanottoajat": [
+        "days",
+        "booking_note",
+        "section_label",
+        # LLM-COP-28: every editorial band's own picture — the reference,
+        # its alt text and its crop — appended after LLM-COP-25's kicker for
+        # the reason every tail in this table is appended. The three are
+        # written out in their declared order rather than as a set, because
+        # the order is what app/sanitize.py rebuilds a payload in and what
+        # _migration_14's setdefault appends in; those two agreeing is what
+        # keeps a backfilled row byte-identical to a re-saved one.
+        "image",
+        "image_alt",
+        "image_shape",
+    ],
     "yhteydenotto": [
         "name_label",
         "email_label",
@@ -143,7 +208,20 @@ NEW_FIELD_TAILS = {
         "notice_text",
         "notice_on",
     ],
-    "sijainti": ["address", "section_label"],
+    "sijainti": [
+        "address",
+        "section_label",
+        # LLM-COP-28: every editorial band's own picture — the reference,
+        # its alt text and its crop — appended after LLM-COP-25's kicker for
+        # the reason every tail in this table is appended. The three are
+        # written out in their declared order rather than as a set, because
+        # the order is what app/sanitize.py rebuilds a payload in and what
+        # _migration_14's setdefault appends in; those two agreeing is what
+        # keeps a backfilled row byte-identical to a re-saved one.
+        "image",
+        "image_alt",
+        "image_shape",
+    ],
 }
 
 
@@ -175,6 +253,16 @@ def test_the_new_keys_are_declared_last_in_their_kind(kind):
         # test_style_carries_no_field_label instead.
         ("yhteydenotto", "notice_text"),
         ("sijainti", "section_label"),
+        # LLM-COP-28's four. One per editorial kind, and only the alt text:
+        # its two siblings image and image_shape are deliberately NOT here
+        # for the same reason hero.background and yhteydenotto.notice_on are
+        # not — one names an image slot and the other a crop, neither is
+        # text, and neither carries a label. That is asserted in
+        # test_style_carries_no_field_label instead.
+        ("tietoa", "image_alt"),
+        ("palvelut", "image_alt"),
+        ("vastaanottoajat", "image_alt"),
+        ("sijainti", "image_alt"),
     ],
 )
 def test_every_new_key_is_a_labelled_plain_field(kind, name):

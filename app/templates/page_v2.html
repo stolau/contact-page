@@ -82,21 +82,27 @@
 </ul>
 {%- endmacro %}
 
-{# The portrait slot. V1 puts this in the hero; V2's designs put it in the
-   editorial band (v2-cp-section-portrait.portrait-section.portrait), so
+{# The picture slot. V1 puts this in the hero; V2's designs put it in the
+   editorial bands (v2-cp-section-portrait.portrait-section.portrait), so
    that is where it goes — same classes, same placeholder strings, so
    direct-edit.js still finds .portrait and the two asserted strings
    ("Muotokuva", "browse files") are still the ones the criteria name.
-   The source is hero.portrait — the PERSON, and since LLM-COP-30 only one
-   of the two stored image references. The hero band draws the other one
-   (hero.background) inside the hero macro and does not call this slot at
-   all, so this macro now has exactly one caller: the tietoa band. alt is
-   hero.portrait_alt, that picture's own description; the background
-   carries hero.background_alt and the two are never shared. image_url
-   answers a URL only for a real digest, so anything else falls through to
-   the placeholder. #}
-{% macro portrait_slot(src, alt='') -%}
-<div class="portrait{% if src %} has-image{% endif %}">
+
+   Its source is now the CALLING BAND'S OWN image (LLM-COP-28): tietoa.image,
+   palvelut.image, and so on. It was hero.portrait, hoisted across the section
+   boundary; the band that draws a picture is the section that stores it, and
+   that principle now holds for every band. The hero band draws
+   hero.background inside the hero macro and does not call this slot at all.
+   alt is the same band's image_alt, that picture's own description, and no
+   two bands ever share one.
+
+   image_url answers a URL only for a real digest, so anything else falls
+   through to the placeholder; image_shape resolves the crop (app/shapes.py),
+   and "" — what the seed and _migration_14 store — is the circle the
+   stylesheet already drew. Both filters type-guard, so an Undefined from a
+   kind that declares neither key is safe. #}
+{% macro portrait_slot(src, alt='', shape='') -%}
+<div class="portrait {{ shape|image_shape }}{% if src %} has-image{% endif %}">
   {%- if src %}
   <img class="portrait-image" src="{{ src }}" alt="{{ alt }}">
   {%- else %}
@@ -151,10 +157,27 @@
    the phone, with the small-caps section label under the image on desktop
    and between image and copy on the phone — one DOM, two grid placements.
    The label is tietoa.section_label since LLM-COP-25: it was product chrome
-   in both skins, and it is the owner's in both skins now. #}
-{% macro tietoa(p, sid='', portrait_src=None, portrait_alt='') -%}
-<section id="{{ anchors['tietoa'] }}" class="v2-band v2-band-media-left" data-section="{{ sid }}" data-kind="tietoa">
-  <div class="v2-band-media">{{ portrait_slot(portrait_src, portrait_alt) }}</div>
+   in both skins, and it is the owner's in both skins now.
+
+   The picture is tietoa's OWN since LLM-COP-28 — p.image, p.image_alt,
+   p.image_shape — where it used to be hero.portrait handed in from the
+   dispatch loop.
+
+   IT RENDERS THE SLOT UNCONDITIONALLY, image or not, and the prose bands
+   below do not. That asymmetry is the designs', not a preference:
+   v2-cp-section-portrait.portrait-section.portrait.portrait-empty asserts the
+   placeholder `when: no portrait image has been uploaded`, while
+   v2-cp-section-prose.prose-section's note says a band with no image runs its
+   text in the left column with the right column empty. So the placeholder's
+   word "Muotokuva" is only ever reachable on this band.
+
+   `side` is a parameter like every other band's, NOT the hardcoded
+   v2-band-media-left it used to be: PUT /api/sections/order (app/sectionlist.py)
+   rewrites position for the whole list, so "tietoa is the first band with a
+   picture" is an owner-editable fact. See the dispatch loop below. #}
+{% macro tietoa(p, sid='', side='left') -%}
+<section id="{{ anchors['tietoa'] }}" class="v2-band v2-band-media-{{ side }}" data-section="{{ sid }}" data-kind="tietoa">
+  <div class="v2-band-media">{{ portrait_slot(p.image|image_url, p.image_alt, p.image_shape) }}</div>
   <p class="section-kicker v2-section-label about-kicker" data-section="{{ sid }}" data-field="section_label">{{ p.section_label }}</p>
   <div class="v2-band-copy">
     <h2 class="v2-band-heading" data-section="{{ sid }}" data-field="nostolause">{{ p.nostolause }}</h2>
@@ -171,16 +194,32 @@
    V2's palette and type, and are explicitly NOT hidden. This is that
    default: palvelut, vastaanottoajat and sijainti each render as one prose
    band carrying their own fields, so no published content disappears when
-   the skin changes. #}
-{% macro prose_band(kind, label, sid) -%}
-<section id="{{ anchors[kind] }}" class="v2-band v2-band-prose" data-section="{{ sid }}" data-kind="{{ kind }}">
+   the skin changes.
+
+   Since LLM-COP-28 it takes an OPTIONAL media column: v2-cp-section-prose's
+   own note says "Each section would have option for image. Starting from
+   left side, then right side. Image could be Circle or Square." A band whose
+   image is set renders the same media/label/copy grid the portrait band
+   does, on the `side` the dispatch loop computed; a band with none keeps
+   v2-band-prose exactly as before, which is the second half of that same
+   note ("This section is rendered with no image, so the text runs in the left
+   column and the right column is empty").
+
+   The media column is CONDITIONAL here and unconditional on tietoa, and the
+   two are not in conflict — see the tietoa macro above for the designs that
+   say so. Nothing here is bound: image, image_alt and image_shape carry no
+   data-field on either skin, so the V1/V2 binding fence is satisfied by
+   construction in every data state. #}
+{% macro prose_band(kind, label, sid, media_src=None, media_alt='', shape='', side='left') -%}
+<section id="{{ anchors[kind] }}" class="v2-band {% if media_src %}v2-band-media-{{ side }}{% else %}v2-band-prose{% endif %}" data-section="{{ sid }}" data-kind="{{ kind }}">
+  {% if media_src %}<div class="v2-band-media">{{ portrait_slot(media_src, media_alt, shape) }}</div>{% endif %}
   <p class="section-kicker v2-section-label" data-section="{{ sid }}" data-field="section_label">{{ label }}</p>
   <div class="v2-band-copy">{{ caller() }}</div>
 </section>
 {%- endmacro %}
 
-{% macro palvelut(p, sid='') -%}
-{% call prose_band('palvelut', p.section_label, sid) %}
+{% macro palvelut(p, sid='', side='left') -%}
+{% call prose_band('palvelut', p.section_label, sid, p.image|image_url, p.image_alt, p.image_shape, side) %}
   <ul class="v2-service-list">
     {% for name in p.services %}<li class="v2-service-item">{{ name }}</li>{% endfor %}
   </ul>
@@ -188,8 +227,8 @@
 {% endcall %}
 {%- endmacro %}
 
-{% macro vastaanottoajat(p, sid='') -%}
-{% call prose_band('vastaanottoajat', p.section_label, sid) %}
+{% macro vastaanottoajat(p, sid='', side='left') -%}
+{% call prose_band('vastaanottoajat', p.section_label, sid, p.image|image_url, p.image_alt, p.image_shape, side) %}
   {# Its own item class, not v2-fact-line: opening hours are not the fact
      row the prose and portrait bands draw, and one class for both would
      make either one uncountable on its own. #}
@@ -205,8 +244,8 @@
 {% endcall %}
 {%- endmacro %}
 
-{% macro sijainti(p, sid='') -%}
-{% call prose_band('sijainti', p.section_label, sid) %}
+{% macro sijainti(p, sid='', side='left') -%}
+{% call prose_band('sijainti', p.section_label, sid, p.image|image_url, p.image_alt, p.image_shape, side) %}
   <p class="v2-band-note v2-address" data-section="{{ sid }}" data-field="address">{{ p.address }}</p>
 {% endcall %}
 {%- endmacro %}
@@ -279,26 +318,51 @@
   <button type="button" class="menu-toggle phone-only" aria-label="Valikko">&#9776;</button>
 </header>
 
-{# Two stored image references now, not one (LLM-COP-30). hero.background is
-   the full-bleed photograph and is read INSIDE the hero macro above, because
-   the band that draws it is the section that stores it. hero.portrait is the
-   person — the portrait design's own note, "Here image is used as profile
-   picture" — and it is hoisted here, before the loop, because the band that
-   draws IT (tietoa's circle) is not the section that stores it. Its alt text
-   rides alongside for the same reason. The second half of that note, "should
-   be same generic possibility than for other sections", is still unmet and
-   is LLM-COP-28's. #}
-{% set shared = namespace(portrait=None, portrait_alt='') %}
-{% for section in sections %}{% if section.kind == 'hero' %}{% set shared.portrait = section.payload.portrait|image_url %}{% set shared.portrait_alt = section.payload.portrait_alt %}{% endif %}{% endfor %}
+{# NOTHING IS HOISTED HERE ANY MORE (LLM-COP-28). Until this artifact
+   hero.portrait was read before the loop and handed to the tietoa band,
+   because the band that drew it was not the section that stored it. Every
+   band now stores its own picture, so the principle hero.background already
+   kept holds everywhere: THE BAND THAT DRAWS A PICTURE IS THE SECTION THAT
+   STORES IT, and every macro below reads its own payload and nothing else.
+   That is what the portrait design's note asked for — "should be same
+   generic possibility than for other sections".
 
+   hero.portrait IS STILL STORED AND STILL EDITED, and from here it is a V1
+   FIELD: page.html's hero card draws it, this template does not, and
+   DEFAULT_STYLE is "v1" so that is the default skin's picture. The panel
+   keeps its Muotokuva row visible on both skins deliberately — an owner who
+   switches skins tomorrow must find their photograph already there, and a
+   hidden row would leave a stored digest referenced (app/images.py counts it)
+   with no control anywhere able to clear it. _migration_14 copied it into
+   tietoa.image once and did not clear it, for the same reason.
+
+   THE IMAGE SIDE ALTERNATES DOWN THE PAGE, in STORED ORDER: the first band
+   carrying a picture puts it on the left, the second on the right, and so on
+   — v2-cp-section-prose's "Starting from left side, then right side" and
+   v2-cp-section-portrait's "the design says sections alternate the image
+   side". It is POSITIONAL, so there is no stored field for it: the owner
+   reorders sections through PUT /api/sections/order (app/sectionlist.py),
+   which rewrites every position under one commit, and a stored side would go
+   stale the moment they did. In the shipped order tietoa is the first band
+   with a picture, so it is `left` and these bytes are what they always were.
+
+   tietoa counts as a media band whether or not its image is set, because it
+   draws its slot either way (see its macro); a prose band counts only when it
+   has a picture. section.payload.image is safe on hero and yhteydenotto,
+   which declare no such key: Jinja answers Undefined and image_url
+   type-guards before it pattern-matches (app/images.py). #}
 <main class="v2-main">
+  {% set band = namespace(media=0) %}
   {% for section in sections %}
+    {% set has_media = section.kind == 'tietoa' or (section.payload.image|image_url) %}
+    {% if has_media %}{% set band.media = band.media + 1 %}{% endif %}
+    {% set side = 'left' if band.media % 2 == 1 else 'right' %}
     {% if section.kind == 'hero' %}{{ hero(section.payload, section.id) }}
-    {% elif section.kind == 'tietoa' %}{{ tietoa(section.payload, section.id, shared.portrait, shared.portrait_alt) }}
-    {% elif section.kind == 'palvelut' %}{{ palvelut(section.payload, section.id) }}
-    {% elif section.kind == 'vastaanottoajat' %}{{ vastaanottoajat(section.payload, section.id) }}
+    {% elif section.kind == 'tietoa' %}{{ tietoa(section.payload, section.id, side) }}
+    {% elif section.kind == 'palvelut' %}{{ palvelut(section.payload, section.id, side) }}
+    {% elif section.kind == 'vastaanottoajat' %}{{ vastaanottoajat(section.payload, section.id, side) }}
     {% elif section.kind == 'yhteydenotto' %}{{ yhteydenotto(section.payload, section.id) }}
-    {% elif section.kind == 'sijainti' %}{{ sijainti(section.payload, section.id) }}
+    {% elif section.kind == 'sijainti' %}{{ sijainti(section.payload, section.id, side) }}
     {% endif %}
   {% endfor %}
 </main>

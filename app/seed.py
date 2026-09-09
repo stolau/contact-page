@@ -117,6 +117,23 @@ SEED_SECTIONS = [
             # LLM-COP-25: the kicker page.html used to own. Seeded with the
             # literal it rendered, so a fresh install looks unchanged.
             "section_label": "NÄIN TYÖSKENTELEN",
+            # The band's own picture (LLM-COP-28), and all three empty. The
+            # seed ships no picture — hero.portrait is "" above and this is
+            # the same answer for the same reason — so there is nothing to
+            # describe, and alt text for a picture that does not exist would
+            # be an invented description.
+            #
+            # image_shape is "" rather than "circle", and that is MECHANICAL
+            # rather than tidy, the same point style and the two colours make
+            # above: app/sectionlist.py compares a published payload to
+            # blank_payload(kind) BY VALUE and blank_payload gives "" for
+            # every plain field, so seeding the real literal would quietly
+            # drop the BLANK_PUBLISHED refusal from a blank section's Näytä
+            # osio. app/shapes.py resolves "" to the circle, which is the
+            # crop the shipped stylesheet already drew.
+            "image": "",
+            "image_alt": "",
+            "image_shape": "",
         },
     ),
     (
@@ -131,6 +148,11 @@ SEED_SECTIONS = [
             # a seed that ships three. Same defect class as LLM-COP-8.
             "more_label": "Kaikki palvelut",
             "section_label": "PALVELUT",
+            # The band's own picture (LLM-COP-28) — see tietoa above for the
+            # reasoning; all three empty on every kind that grew one.
+            "image": "",
+            "image_alt": "",
+            "image_shape": "",
         },
     ),
     (
@@ -145,6 +167,10 @@ SEED_SECTIONS = [
                 "kerro lomakkeella, mitä etsit."
             ),
             "section_label": "VASTAANOTTOAJAT",
+            # The band's own picture (LLM-COP-28) — see tietoa.
+            "image": "",
+            "image_alt": "",
+            "image_shape": "",
         },
     ),
     (
@@ -187,6 +213,10 @@ SEED_SECTIONS = [
         {
             "address": "Lisää käyntiosoite ja saapumisohjeet tähän.",
             "section_label": "SIJAINTI",
+            # The band's own picture (LLM-COP-28) — see tietoa.
+            "image": "",
+            "image_alt": "",
+            "image_shape": "",
         },
     ),
 ]
