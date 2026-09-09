@@ -33,6 +33,35 @@ PERSONA_PATTERN = (
 )
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _no_ambient_data_paths():
+    """The suite is not at the mercy of the developer's shell.
+
+    create_app now reads DATABASE and UPLOAD_DIR from the process
+    environment (LLM-COP-34), so a developer or CI runner with either
+    exported would point every test in this suite at that one database —
+    and the mutating majority of them write to it. Exporting the author's
+    real database is exactly what produced the artifact this fixture comes
+    with, so the read ships with the guard.
+
+    Session-scoped, and that is not a style choice: page_html below is
+    scope="session" and calls create_app itself, and higher-scoped
+    fixtures are set up first, so a function-scoped guard would run after
+    page_html had already built its app. It covers tests/browser/ too (a
+    parent conftest's autouse fixtures apply to the whole subtree, and
+    that layer builds its server in-process) and the subprocess children
+    in test_auth.py, which copy os.environ at call time — delenv mutates
+    the real os.environ, so a child inherits it already cleaned.
+
+    A test that needs one of the two set uses the ordinary function-scoped
+    monkeypatch.setenv on top; that is undone after each test.
+    """
+    with pytest.MonkeyPatch.context() as patch:
+        patch.delenv("DATABASE", raising=False)
+        patch.delenv("UPLOAD_DIR", raising=False)
+        yield
+
+
 @pytest.fixture
 def conn(tmp_path):
     """A migrated, empty connection to a real temp-file DB (not :memory:)."""
