@@ -10,13 +10,17 @@ WHAT THIS MODULE IS FOR. A chosen colour cannot simply be dropped into the
 stylesheet's --accent and --header-bg and left there: the accent is a button
 BACKGROUND at two sites, a button LABEL's ground at two more, and plain TEXT
 at eleven others, and the main colour is the ground the header's brand, links
-and button sit on. So five of the eight values the override writes are
+and button sit on. So seven of the nine values the override writes are
 DERIVED here, in Python, from the two the owner picked — the hover shade, the
-two button label inks, the header's link-hover colour and the accent as
-readable body text. Deriving them in CSS with color-mix() was not an option
-worth taking: the derivations that matter are contrast decisions, and a
-contrast decision that cannot be swept in a test is a decision nobody has
-checked.
+two button label inks, the header's own ink, the header's link-hover colour,
+the accent as readable body text and the accent as a visible EDGE
+(LLM-COP-40, the ninth token, at SC 1.4.11's 3:1 rather than 1.4.3's 4.5).
+Only --accent/--v2-rust and --header-bg/--v2-header are written through
+unchanged; the count said "six" before this change and omitted the header
+ink, which on_color derives exactly as it derives the two label inks. Deriving them in CSS with
+color-mix() was not an option worth taking: the derivations that matter are
+contrast decisions, and a contrast decision that cannot be swept in a test
+is a decision nobody has checked.
 
 THE ONE TABLE, IN THE ONE PLACE. ROLE_TOKENS below is the whole mapping from
 the two owner roles to the two skins' token vocabularies. Neither template
@@ -184,6 +188,13 @@ def readable_on(color, backgrounds, ratio=4.5):
     frozen all-light surface sets (where black clears every member) — so
     the raise is a fence around a future surface set, not a live path. It is
     covered by a test all the same, because an uncovered raise is a comment.
+
+    THE FROZEN SETS ARE NOW PASSED AT TWO RATIOS, 4.5 here and 3.0 through
+    visible_on (LLM-COP-40), and black clears every member of both at 3.0 by
+    a wider margin than it does at 4.5 — 19.6513/21.0000 for V1_SURFACES,
+    20.0347/21.0000/17.9252 for V2_SURFACES. So the second caller cannot
+    reach the raise the first one already cannot, and nothing about this
+    function's behaviour at its default 4.5 changed to admit it.
     """
     if all(contrast(color, background) >= ratio for background in backgrounds):
         return color
@@ -231,10 +242,57 @@ def _step(color, endpoint):
     )
 
 
+# WCAG 2.1 SC 1.4.11 (Non-text Contrast). 3:1, and it is a DIFFERENT number
+# against a DIFFERENT claim from the 4.5 above — not a relaxation of it. 4.5
+# is SC 1.4.3, about reading glyphs; 3.0 is about perceiving that a boundary
+# is there at all. Two claims, two constants, and the day somebody folds them
+# into one the tests below go red.
+NON_TEXT_RATIO = 3.0
+
+
+def visible_on(color, backgrounds):
+    """`color` itself, or walked until it reaches 3:1 on every background.
+
+    THE THIRD DERIVATION, and deliberately not a fourth mechanism. It
+    delegates to readable_on rather than reimplementing the walk, so there
+    is one linear scan, one identity case and one raise in this module, not
+    two of each. What it adds is the CONSTANT and the claim attached to it:
+    the accent drawn as a line or an edge, which SC 1.4.11 asks for 3:1 at.
+
+    NO ratio parameter, and that is the point of having a name. A caller
+    that could pass its own number could pass 1.2, and the SC citation would
+    then live at the call site rather than here. readable_on keeps its ratio
+    argument because it genuinely has two callers at two ratios; this one
+    has one claim.
+
+    IT IS NOT readable_on's default with a smaller number, and the tests are
+    written as an inequality — visible_on(c, S) != readable_on(c, S) — so
+    that aliasing the two goes red rather than quietly shipping edges walked
+    to 4.5 and text walked to 3.
+
+    IDENTITY ON BOTH SHIPPED ACCENTS: #1f6f5c clears V1_SURFACES at 5.6363
+    and #a8431c clears V2_SURFACES at 5.1441, both far above 3.0, so a site
+    that has chosen no colour renders exactly what it rendered before.
+
+    It raises under exactly readable_on's condition, and that branch stays
+    dead for the same reason: the only call site passes tokens["surfaces"],
+    the frozen all-light sets, where black clears every member at
+    19.6513/21.0000 (v1) and 20.0347/21.0000/17.9252 (v2) — a WIDER margin
+    than the existing 4.5 call already relies on.
+    """
+    return readable_on(color, backgrounds, NON_TEXT_RATIO)
+
+
 # THE SURFACES THE ACCENT RENDERS AS TEXT ON, per skin — frozen literals,
 # fenced against drift by tests/test_palette.py, which reads each
 # stylesheet's own :root and asserts every literal here is still one of its
 # token values.
+#
+# Since LLM-COP-40 these are also the surfaces the accent is drawn as an
+# EDGE on, and the same tuple is passed at both ratios rather than a fourth
+# frozen literal being invented. The eliminations below were run for text
+# and hold for edges unchanged: every retargeted edge site's ground is a
+# member of its skin's tuple, re-verified rule by rule in that change.
 #
 # V1: --paper and --card. Enumerated by elimination, not by assumption —
 # `grep -n background app/static/style.css`, minus every `var(--card)` and
@@ -297,28 +355,84 @@ V2_SURFACES = ("#f7fafc", "#ffffff", "#e6eef6")
 # is why the elimination lists above keep earning their place beside it —
 # they are how the next person re-checks the set by hand.
 
-# WHAT THIS MODULE DELIBERATELY DOES NOT CONSTRAIN: NON-TEXT CONTRAST. The
-# accent is also drawn as lines and edges, and every one of those sites keeps
-# the RAW chosen colour rather than a derived one — so a very pale pick gives
-# a readable label inside an all-but-invisible outline. WCAG 1.4.11 wants 3:1
-# there. The sites, enumerated so the boundary of this change's claim can be
-# checked rather than taken on trust:
+# WHAT IS NOW CONSTRAINED, AND WHAT STILL IS NOT: NON-TEXT CONTRAST
+# (LLM-COP-40). The accent is also drawn as lines and edges. Until this
+# change every one of those sites kept the RAW chosen colour, so a very pale
+# pick gave a readable label inside an all-but-invisible outline. WCAG 2.1
+# SC 1.4.11 wants 3:1 there, and visible_on above is that number.
 #
-#   style.css     :57  .button.secondary   border: 1px solid var(--accent)
-#                 :150 .fact-card          border-top: 3px solid var(--accent)
-#                 :199 .service-card       border-top: 3px solid var(--accent)
-#   style-v2.css  :84  .button.secondary   border: 1px solid var(--v2-rust)
-#                 :93  .button.primary:hover
-#                                     border-color: var(--v2-rust-dark)
-#                 :326 .v2-section-label::after   the short rust bar
+# FIRST, A CORRECTION TO USR-COP-2's OWN ENUMERATION, because it very nearly
+# cost this change a regression. The list here used to name style.css:57 and
+# style-v2.css:84 as `.button.secondary`. They were the BARE `.button`, which
+# both button variants inherit. `.button.secondary` declared no border
+# property at all. Retargeting the bare rule would therefore have repainted
+# every PRIMARY button's border too. The v2 primary button's grounds —
+# --v2-navy #14324a on the contact card, --v2-header #d9e8f2 in the header —
+# are in neither surface tuple; v1's hero primary sits on --paper, which IS
+# in V1_SURFACES, so the ground argument is v2's alone and the reason that
+# covers both skins is that the border is byte-identical to its own fill.
+# Measured, the v2 contact card falls from
+# 11.0249:1 to 3.7287:1 and the v2 header reaches only 2.8386:1, still short
+# of 3:1. So the border-color goes on the
+# .button.secondary rules, which are (0,2,0) and later in source and win
+# twice over, and the bare rules are left exactly as they were.
 #
-# Left unconstrained on purpose: the claim this change makes is about TEXT,
-# none of these carries any, and a token at a 3:1 ratio is a second
-# derivation and six more sites — a separate piece of work, filed rather than
-# smuggled in here.
+# THE SITES, and which claim each one rides on:
+#
+#   RETARGETED to the edge token, on SC 1.4.11 proper — a boundary a user
+#   must perceive:
+#     style.css     :77  .button.secondary   border-color: var(--accent-edge)
+#     style-v2.css  :112 .button.secondary   border-color: var(--v2-rust-edge)
+#     direct-edit.css :14 body.direct-edit [data-field]   the idle dashed
+#                          affordance, and :28 the focus/active ring — a
+#                          STATE indicator, on the one page that both
+#                          receives the override and draws its own ring.
+#
+#   RETARGETED on the weaker and separately stated ground that a line drawn
+#   in a colour nobody can see is not a line — an owner picks a colour in
+#   order to see it, and the same token costs no extra derivation:
+#     style.css     :162 .fact-card          border-top
+#                   :211 .service-card       border-top
+#     style-v2.css  :344 .v2-section-label::after   the short rust bar
+#   These three are NOT claimed as 1.4.11 cases: the cards' perceivable
+#   boundary is their 1px var(--line) frame, cards 2-4 take fixed literals by
+#   ordinal position (style.css:167-169, :215-216), and the bar is deleted
+#   outright at the phone breakpoint (style-v2.css:635, `content: none`).
+#
+#   NOT RETARGETED, deliberately, and this is a decision rather than an
+#   omission:
+#     style.css     :69  .button           border: 1px solid var(--accent)
+#     style-v2.css  :97  .button           border: 1px solid var(--v2-rust)
+#     style-v2.css  :111 .button.primary:hover  border-color: var(--v2-rust-dark)
+#   On every element these actually paint alone — the primary buttons — the
+#   border is byte-identical to the fill (style.css:75, style-v2.css:110-111),
+#   so it is not a boundary anyone perceives, and contrast(x, x) is 1.0 for
+#   every colour there is: an assertion that can never pass is proof the site
+#   is misidentified, not proof of a defect.
+#
+# THE REAL 1.4.11 CASE THIS DERIVATION CANNOT REACH, stated so nobody thinks
+# it was handled: the v2 primary button's FILL against its container —
+# --v2-navy #14324a (style-v2.css:459) and --v2-header #d9e8f2 (:32). The
+# shipped rust reaches only 2.1987:1 on the navy card. Two reasons it is not
+# here: the fill IS the owner's pick, so darkening it overrules the choice
+# and desynchronises --v2-rust-ink, which on_color derives against the raw
+# pick; and the surface tuple would have to hold both #ffffff and #14324a,
+# where contrast("#000000", "#14324a") is 1.5849 and no endpoint clears 3:1
+# against both — turning readable_on's documented-dead raise into a live 500
+# on the public page. Filed, not smuggled.
+#
+# ONE HONEST LIMIT of what IS constrained: the direct-edit outline sits at
+# outline-offset: 3px, OUTSIDE the border box, so its ground is the container
+# — and every one of the 23 [data-field] outlines in page.html lands on
+# --paper, because neither the fact_card nor the service_card macro
+# (page.html:22-33) carries a data-field, and no section between them and the
+# body declares a background. Outline-against-container is what the tuple
+# constrains. Outline-against-the-ADJACENT-FILL is not, and no tuple over
+# ancestor backgrounds can constrain it: .cta-contact is itself a
+# [data-field] whose own fill can be the raw accent.
 
 ROLE_TOKENS = {
-    # Per skin: the eight token names the override writes, the skin's own
+    # Per skin: the nine token names the override writes, the skin's own
     # frozen main and accent (needed for the CROSS TERMS — a chosen main
     # with an unset accent still has to derive the header's link-hover
     # colour from the skin's own accent, against the chosen ground), and the
@@ -340,6 +454,7 @@ ROLE_TOKENS = {
         "accent_ink": "--accent-ink",
         "accent_hover_ink": "--accent-dark-ink",
         "accent_fg": "--accent-fg",
+        "accent_edge": "--accent-edge",
     },
     "v2": {
         "default_main": "#d9e8f2",   # --v2-header
@@ -353,6 +468,7 @@ ROLE_TOKENS = {
         "accent_ink": "--v2-rust-ink",
         "accent_hover_ink": "--v2-rust-dark-ink",
         "accent_fg": "--v2-rust-fg",
+        "accent_edge": "--v2-rust-edge",
     },
 }
 
@@ -411,6 +527,10 @@ def palette_css(style, main, accent):
         (
             tokens["accent_fg"],
             readable_on(effective_accent, tokens["surfaces"]),
+        ),
+        (
+            tokens["accent_edge"],
+            visible_on(effective_accent, tokens["surfaces"]),
         ),
     )
     body = "".join(f"{name}:{value};" for name, value in declarations)

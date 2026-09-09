@@ -9,7 +9,7 @@
   --card: #ffffff;
   --line: #e4ddd3;
 
-  /* The six tokens the owner's colour override writes into (USR-COP-2).
+  /* The seven tokens the owner's colour override writes into (USR-COP-2).
      Every default below is the literal or the var() that supplied the value
      before this change, so a site that has chosen no colour renders exactly
      what it rendered before — the override is a <style> block that is
@@ -26,13 +26,25 @@
      colours, and no single black-or-white label clears 4.5:1 against both
      (the best manages 3.7680, at #e400f3). --accent-fg is the accent as
      TEXT — the same colour by default, pushed toward black or white only
-     when a chosen one would be illegible on --paper or --card. */
+     when a chosen one would be illegible on --paper or --card.
+
+     --accent-edge is the accent as a LINE (LLM-COP-40), walked until it
+     reaches WCAG 2.1 SC 1.4.11's 3:1 against --paper and --card rather than
+     SC 1.4.3's 4.5 — a different claim, not a relaxed one, so it is a ninth
+     value and not a reuse of --accent-fg. Read by .button.secondary's
+     border-color, the .fact-card and .service-card top rules, and the
+     direct-edit affordance and focus ring in direct-edit.css, which loads
+     after this file in the same document. The bare .button border below
+     deliberately KEEPS var(--accent): on a primary button it is
+     byte-identical to the fill, so it is no boundary, and on v2 that
+     button's grounds are not surfaces the derivation constrains at all. */
   --header-bg: var(--card);
   --header-ink: var(--ink);
   --header-accent: var(--accent);
   --accent-ink: #ffffff;
   --accent-dark-ink: #ffffff;
   --accent-fg: var(--accent);
+  --accent-edge: var(--accent);
 }
 
 * { box-sizing: border-box; }
@@ -62,7 +74,7 @@ a { color: var(--accent-fg); }
 }
 .button.primary { background: var(--accent); color: var(--accent-ink); }
 .button.primary:hover { background: var(--accent-dark); color: var(--accent-dark-ink); }
-.button.secondary { background: transparent; color: var(--accent-fg); }
+.button.secondary { background: transparent; color: var(--accent-fg); border-color: var(--accent-edge); }
 
 /* Header */
 .site-header {
@@ -147,7 +159,7 @@ main section { padding: 3.5rem 3rem; max-width: 1100px; margin: 0 auto; }
 .fact-card {
   background: var(--card);
   border: 1px solid var(--line);
-  border-top: 3px solid var(--accent);
+  border-top: 3px solid var(--accent-edge);
   border-radius: 0.5rem;
   padding: 0.9rem 1rem;
   text-align: left;
@@ -196,7 +208,7 @@ main section { padding: 3.5rem 3rem; max-width: 1100px; margin: 0 auto; }
   justify-content: space-between;
   background: var(--card);
   border: 1px solid var(--line);
-  border-top: 3px solid var(--accent);
+  border-top: 3px solid var(--accent-edge);
   border-radius: 0.5rem;
   padding: 0.9rem 1rem;
 }

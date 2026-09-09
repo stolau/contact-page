@@ -11,7 +11,7 @@
 /* --- the editable affordance --- */
 
 body.direct-edit [data-field] {
-  outline: 1px dashed var(--accent);
+  outline: 1px dashed var(--accent-edge);
   outline-offset: 3px;
   border-radius: 2px;
   cursor: text;
@@ -25,7 +25,7 @@ body.direct-edit [data-field] {
    every shape a bound field takes. */
 body.direct-edit [data-field].direct-active,
 body.direct-edit [data-field]:focus {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--accent-edge);
   outline-offset: 3px;
   background: rgba(31, 111, 92, 0.07);
 }

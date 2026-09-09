@@ -19,10 +19,14 @@ behind COP_COLOR_SWEEP=1 so a suspicious reader can run them without every
 run paying for them.
 
 WHAT NO TEST HERE CAN DO, said once rather than implied. These are contrast
-NUMBERS. They say nothing about whether the result is pleasant, and nothing
-about non-text contrast — the borders and rules that keep the raw chosen
-accent are deliberately outside this change's claim, and app/palette.py's own
-comment lists them. Legibility of TEXT is what is proven, and only that.
+NUMBERS. They say nothing about whether the result is pleasant. Since
+LLM-COP-40 they cover non-text contrast too — visible_on's 3:1 for the accent
+drawn as an EDGE, swept in its own section below at the same grid and in the
+same idiom — but they still say nothing about the sites app/palette.py's own
+comment records as deliberately NOT retargeted, and nothing about whether a
+colour that clears a ratio here reaches the screen. That second gap is
+tests/browser/test_browser_colors.py's, and it is the one that matters: a
+ratio computed here is a statement about this module, not about a page.
 """
 
 import os
@@ -32,6 +36,7 @@ import re
 import pytest
 
 from app.palette import (
+    NON_TEXT_RATIO,
     ROLE_TOKENS,
     V1_SURFACES,
     V2_SURFACES,
@@ -42,6 +47,7 @@ from app.palette import (
     readable_on,
     resolve_color,
     shade,
+    visible_on,
 )
 from tests.test_direct_edit_css import STATIC, _declarations, _rules
 
@@ -407,6 +413,158 @@ def test_readable_on_raises_when_no_endpoint_clears_every_background():
         assert all(contrast("#000000", s) >= 4.5 for s in surfaces)
 
 
+# --- visible_on: the accent as a line ---------------------------------------
+#
+# LLM-COP-40. The THIRD derivation, and the sweeps below are written to be
+# read beside readable_on's above: same grid, same _worst idiom, same shape of
+# claim — a different NUMBER against a different WCAG success criterion. 4.5
+# is SC 1.4.3 and it is about reading glyphs; 3.0 is SC 1.4.11 and it is about
+# perceiving that a boundary is drawn at all.
+#
+# THE WORST CASE IS TAKEN ON UNROUNDED RATIOS, and that is not pedantry. V2's
+# two closest grid colours are #dd6600 at 3.00004028 and #33aa66 at
+# 3.00004683 — they TIE at four decimal places, so a sweep that rounded before
+# taking the min would return whichever the tie-break reached first and the
+# pinned pair below would go red for a reason with nothing to do with the
+# derivation. min() over the raw float picks #dd6600 every time.
+
+
+@pytest.mark.parametrize(
+    "color,surfaces,floor",
+    (
+        (_SHIPPED[0], V1_SURFACES, 5.6363),
+        (_SHIPPED[1], V2_SURFACES, 5.1441),
+    ),
+)
+def test_visible_on_is_the_identity_on_the_shipped_accents(
+    color, surfaces, floor
+):
+    """A SITE THAT CHOSE NO COLOUR IS UNTOUCHED BY THIS DERIVATION.
+
+    Both shipped accents clear 3:1 on every surface of their own skin by a
+    wide margin, so visible_on hands them back unchanged and every edge the
+    new token paints resolves to the byte the stylesheet shipped. The margin
+    is pinned alongside the identity because "unchanged" is also true of a
+    function that has stopped checking anything — and because the day
+    somebody recolours a skin, this is where they are told a browser
+    assertion in tests/browser/test_browser_colors.py is pinned to the old
+    literal too.
+    """
+    assert visible_on(color, surfaces) == color
+    assert min(contrast(color, s) for s in surfaces) >= NON_TEXT_RATIO
+    assert round(min(contrast(color, s) for s in surfaces), 4) == floor
+
+
+@pytest.mark.parametrize(
+    "skin,surfaces,expected",
+    (("v1", V1_SURFACES, (3.0001, "#22aa55")),
+     ("v2", V2_SURFACES, (3.0, "#dd6600"))),
+)
+def test_visible_on_clears_three_to_one_on_every_surface_of_its_skin(
+    skin, surfaces, expected
+):
+    """The central claim of LLM-COP-40, per skin: for EVERY colour the picker
+    admits, the accent as an EDGE clears 3:1 on every surface it is drawn on.
+
+    Same two things at once as readable_on's sweep, and the second is again
+    the one an example could not give: the floor holds, and the walk
+    TERMINATES having cleared it for all 4096 colours rather than falling out
+    of its loop at an unproven step.
+
+    Swept set: the 4096-colour grid. Worst measured: 3.0001 at #22aa55 for V1
+    and 3.0000 at #dd6600 for V2 — the floor is 3.0 by construction and the
+    sweep shows it essentially reached, which is what makes it a floor rather
+    than a hope.
+
+    Set NON_TEXT_RATIO to 2.9 and the pinned pair goes red at
+    (2.9001, '#ff11ff') on V1. The ratio assertion above it does NOT — it is
+    stated against the constant, so it follows the constant down; the pinned
+    pair is what holds the number itself.
+    """
+    assert ROLE_TOKENS[skin]["surfaces"] == surfaces
+    ratio, color = _worst(
+        (min(contrast(visible_on(c, surfaces), s) for s in surfaces), c)
+        for c in _GRID
+    )
+    assert ratio >= NON_TEXT_RATIO, (ratio, color)
+    assert (round(ratio, 4), color) == expected
+
+
+@pytest.mark.parametrize(
+    "skin,surfaces,moved_edge,moved_text",
+    (("v1", V1_SURFACES, 1940, 2745),
+     ("v2", V2_SURFACES, 2110, 2898)),
+)
+def test_the_edge_derivation_is_not_the_text_one(
+    skin, surfaces, moved_edge, moved_text
+):
+    """THE ANTI-FOLD ASSERTION, and it is written as an INEQUALITY on purpose.
+
+    visible_on delegates to readable_on, which is one line and one linear
+    scan rather than two — the saving that made a named function worth having
+    instead of a second walk. The price of delegating is that aliasing the
+    two, or dropping the constant and letting the default stand, is a small
+    and plausible edit that would ship edges walked to 4.5 and text walked to
+    3. So the claim is stated as `visible_on(c, S) != readable_on(c, S)`,
+    which no such edit can satisfy.
+
+    THREE COLOURS, and the third is the sharp one. #cc4400 already clears 3:1
+    on both skins' surfaces, so the edge derivation is the IDENTITY on it
+    while the text derivation still has to move (#cb4300 on V1, #c33b00 on
+    V2) — a pair a "they are nearly the same anyway" reading would miss.
+
+    And the counts, over the grid: 1940 of 4096 colours move at 3.0 against
+    2745 at 4.5 for V1, 2110 against 2898 for V2. Two ratios, two populations.
+    """
+    for color in ("#ffe9a8", "#66aa88", "#cc4400"):
+        edge = visible_on(color, surfaces)
+        text = readable_on(color, surfaces)
+        assert edge != text, (skin, color, edge, text)
+        assert min(contrast(edge, s) for s in surfaces) >= NON_TEXT_RATIO
+    assert visible_on("#cc4400", surfaces) == "#cc4400"
+
+    assert sum(1 for c in _GRID if visible_on(c, surfaces) != c) == moved_edge
+    assert sum(1 for c in _GRID if readable_on(c, surfaces) != c) == moved_text
+    assert moved_edge < moved_text
+
+
+def test_visible_on_never_reaches_the_raise():
+    """The raise is readable_on's, inherited — and it stays dead here for a
+    WIDER margin than the 4.5 caller already relies on.
+
+    Mirrors test_readable_on_raises_when_no_endpoint_clears... deliberately:
+    the branch is covered, because an uncovered raise is a comment, and then
+    the reason the app cannot get there is asserted rather than stated. Black
+    clears every surface of both skins at 3.0 — 19.6513 and 21.0000 for V1,
+    20.0347, 21.0000 and 17.9252 for V2 — so an endpoint always exists for
+    the only sets palette_css passes.
+
+    THE PROBE COLOUR IS NOT #808080, AND THE REASON IS A FINDING RATHER THAN
+    A DETAIL. That is what the 4.5 test uses, and at 3.0 it does not reach
+    the endpoint search at all: mid grey measures 3.9494 against white and
+    5.3172 against black, so the IDENTITY branch returns it and the mixed
+    tuple never asks for an endpoint. A test copied across unchanged would
+    have passed for the wrong reason — the raise would go uncovered while
+    the assertion read as if it were covered. #cccccc is 1.6059 against
+    white, so it fails the identity branch and the search runs; then neither
+    endpoint clears (white is 1.0000 against white, black 1.0000 against
+    black) and the contract fires.
+    """
+    with pytest.raises(ValueError):
+        visible_on("#cccccc", ("#ffffff", "#000000"))
+    # And the colour the 4.5 test probes with is the identity here, which is
+    # why it could not be reused: a band of mid greys is a legible EDGE
+    # against both black and white even though no such colour is legible
+    # TEXT on both. The two ratios have different geometry, which is the
+    # whole reason this is a second derivation.
+    assert visible_on("#808080", ("#ffffff", "#000000")) == "#808080"
+    with pytest.raises(ValueError):
+        readable_on("#808080", ("#ffffff", "#000000"))
+
+    for surfaces in (V1_SURFACES, V2_SURFACES):
+        assert all(contrast("#000000", s) >= NON_TEXT_RATIO for s in surfaces)
+
+
 # --- ROLE_TOKENS: the table against the stylesheets it describes ------------
 
 
@@ -471,6 +629,7 @@ def test_every_token_the_override_writes_is_declared_by_its_stylesheet(skin):
         "accent_ink",
         "accent_hover_ink",
         "accent_fg",
+        "accent_edge",
     ):
         assert ROLE_TOKENS[skin][role] in declarations, (skin, role)
 
@@ -522,8 +681,8 @@ def test_every_block_it_does_write_is_inside_the_closed_alphabet(
 ):
     ruleset = palette_css(skin, main, accent)
     assert _BLOCK.fullmatch(ruleset), ruleset
-    # Eight declarations, always — one code path, never a partial block.
-    assert ruleset.count(";") == 8
+    # Nine declarations, always — one code path, never a partial block.
+    assert ruleset.count(";") == 9
 
 
 @pytest.mark.parametrize("skin", sorted(ROLE_TOKENS))
@@ -572,6 +731,20 @@ def test_the_block_it_writes_is_legible_at_every_derived_site(skin):
     # raw #ffe9a8 fails at 1.1247, which is what --accent-fg exists for.
     for surface in tokens["surfaces"]:
         assert contrast(written[tokens["accent_fg"]], surface) >= 4.5
+
+    # APPENDED BY LLM-COP-40, below the seven text assertions rather than
+    # among them: the accent AS AN EDGE is a NINTH value carrying a DIFFERENT
+    # claim, so it gets its own paragraph and its own number. Raw #ffe9a8 is
+    # 1.1247 on --paper and 1.1466 on --v2-page — a border technically drawn
+    # and practically invisible, which is what --accent-edge exists for.
+    for surface in tokens["surfaces"]:
+        assert contrast(written[tokens["accent_edge"]], surface) >= (
+            NON_TEXT_RATIO
+        ), (skin, surface, written[tokens["accent_edge"]])
+    # Wired to its OWN derivation, not to the text one. Both are present in
+    # the same block, so a token pointed at the wrong call would still be a
+    # legible colour and still pass every ratio above it.
+    assert written[tokens["accent_edge"]] != written[tokens["accent_fg"]]
 
 
 def test_a_stored_style_that_names_no_skin_still_renders_a_block():
