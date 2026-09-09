@@ -312,7 +312,7 @@ def test_the_hero_is_a_plain_card_over_a_plain_fade_at_both_widths(v2_page):
     width back out of a real browser.
 
     The viewport is moved rather than a second page opened: 1280 (the
-    fixture's own, conftest.py:38) is above the file's single
+    fixture's own, conftest.py:39) is above the file's single
     @media (max-width: 720px) and 390 is inside it, so one document is
     asked both questions.
     """

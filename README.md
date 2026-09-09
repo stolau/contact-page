@@ -150,6 +150,34 @@ rather than skips** when the package or the browser is absent — a skip would
 be false assurance — so `pip install -r requirements-dev.txt` plus a system
 Chrome is the whole story.
 
+`.venv/bin/pytest` with no arguments remains the whole gate and will stay
+that way. What the `browser` marker adds is a way to *leave tests out
+deliberately for a minute*, not a new default: `.venv/bin/pytest -m "not
+browser"` is the fast local loop, and it drops 89 tests — including the three
+preconditions in `tests/browser/test_browser_gate.py` that assert Playwright
+is installed and Chrome is resolvable. A green fast loop is therefore a
+weaker claim than a green gate, and it is the gate that decides.
+
+Nothing marks those tests by hand. `tests/browser/conftest.py`'s
+`pytest_collection_modifyitems` marks every item whose path lies under that
+directory, subdirectories included, so a new file under `tests/browser/`
+needs no `pytestmark` line added to it and cannot be forgotten out of the
+marker. The cost is that opening one of those files shows no marker; the
+mechanism is named in `pytest.ini`'s marker description and in
+`tests/test_browser_marker.py`, which fails if the marker and the directory
+ever stop meaning the same set.
+
+CI runs that same argument-free `pytest` — the whole gate, browser layer
+included — on every pull request and every push to `main`
+(`.github/workflows/ci.yml`). It also runs `ruff check .` and, in an isolated
+venv of its own, `pip-audit` against `requirements.txt`. On a CI host
+`tests/test_browser_marker.py` additionally fails when any module file under
+`tests/browser/` contributed nothing to the run, so a workflow that quietly
+grew an `-m "not browser"` is a red test rather than a green run nobody
+reads: the fast loop cannot become the only loop by accident. `playwright
+install` is not part of CI either, for the same reason it is not part of
+setup — the runner's own Google Chrome is what `executable_path` resolves to.
+
 The inner loops, without the rest of the gate in the way:
 
 ```sh

@@ -18,6 +18,7 @@ import json
 import struct
 import threading
 import zlib
+from pathlib import Path
 
 import pytest
 from werkzeug.serving import make_server
@@ -45,6 +46,25 @@ EXPECT_TIMEOUT_MS = 5000
 # The link only page_v2.html emits. The selector, not the class, because a
 # stylesheet link is what a browser would actually have to fetch.
 V2_STYLESHEET = 'link[href*="style-v2.css"]'
+
+# The directory the `browser` marker means. Compared against an item's
+# parents rather than its immediate parent, so a suite filed in a
+# subdirectory here is marked rather than sitting there looking covered —
+# the same rule tests/test_js_suite.py:22-24 states for its own rglob.
+BROWSER_DIR = Path(__file__).parent.resolve()
+
+
+def pytest_collection_modifyitems(config, items):
+    """Every test under this directory carries the `browser` marker.
+
+    By path, not by a pytestmark line per module: a marker that must be
+    remembered is a marker that will be forgotten, and the 32 tests in
+    test_browser_colors.py arrived in the base commit itself. Registered in
+    pytest.ini; tests/test_browser_marker.py fails if the two sets drift.
+    """
+    for item in items:
+        if BROWSER_DIR in Path(item.path).resolve().parents:
+            item.add_marker(pytest.mark.browser)
 
 
 @pytest.fixture(autouse=True)
