@@ -579,8 +579,13 @@ def test_muokkaa_shell_contains_text(muokkaa_html, address, expected):
 
 def test_muokkaa_shows_the_section_position_over_the_real_count(muokkaa_html):
     # cp-main-edit...section-position: the spec's own note calls the count
-    # data; six sections are seeded, so the truthful text is "Osio 1 / 6".
-    assert "Osio 1 / 6" in muokkaa_html
+    # data, and app/templates/edit.html renders it as sections|length. The
+    # count used to be typed here as 6, which is only what a fresh seed
+    # happens to hold — LLM-COP-36: seed the expectation from the seeded rows
+    # instead, so adding a section moves the test with the product rather
+    # than turning it red. "Osio" and the " / " separator are the template's
+    # own chrome, which no owner can edit, so they stay byte-exact.
+    assert f"Osio 1 / {len(SEED_SECTIONS)}" in muokkaa_html
 
 
 # --- the Ulkoasu tab (LLM-COP-22) -------------------------------------------

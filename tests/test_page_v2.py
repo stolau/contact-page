@@ -44,7 +44,7 @@ from tests.conftest import (
 # instruments are imported rather than retyped — a second copy of
 # server_cap_literals would be the very duplication it exists to forbid.
 # The precedent for importing another test module is tests/test_page.py,
-# which takes DAYS/DURATION/HOURS out of tests/test_seed.py.
+# which takes DURATION out of tests/test_seed.py.
 from tests.test_messages import class_attrs, server_cap_literals
 
 V2_TEMPLATE = "page_v2.html"

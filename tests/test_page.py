@@ -6,10 +6,11 @@ criterion region asserts several strings). The specs state no testids, so
 nothing here invents data-testid selectors — assertions are byte-exact
 substrings of the one served document, scoped to the implementation's own
 header/nav/section/footer elements where a bare substring would be
-ambiguous (short strings like "Pe" or nav labels that recur in the copy).
+ambiguous (nav labels that recur in the copy, or a stored value short enough
+to appear elsewhere by accident).
 
-Trap characters are built from the constants in test_seed (escaped-verified
-en dash U+2013 and thin space U+2009 copied from the spec JSON).
+Trap characters are built from the constants in test_seed (the escaped-
+verified en dash U+2013 copied from the spec JSON).
 """
 
 import re
@@ -25,7 +26,7 @@ from tests.conftest import (
     element_text,
     set_section_state,
 )
-from tests.test_seed import DAYS, DURATION, HOURS
+from tests.test_seed import DURATION
 
 SEED_BY_KIND = dict(SEED_SECTIONS)
 
@@ -260,19 +261,30 @@ def test_phone_menu_glyph_present(page_html):
     assert element_text(page_html, "button", cls="menu-toggle") is not None
 
 
-@pytest.mark.parametrize(
-    "address,expected",
-    [
-        pytest.param("cp-main-phone.phone-vastaanotto.phone-hours-0", DAYS, id="cp-main-phone.phone-vastaanotto.phone-hours-0"),
-        pytest.param("cp-main-phone.phone-vastaanotto.phone-hours-1", HOURS, id="cp-main-phone.phone-vastaanotto.phone-hours-1"),
-        pytest.param("cp-main-phone.phone-vastaanotto.phone-hours-2", "Pe", id="cp-main-phone.phone-vastaanotto.phone-hours-2"),
-        pytest.param("cp-main-phone.phone-vastaanotto.phone-hours-3", "Etävastaanotto", id="cp-main-phone.phone-vastaanotto.phone-hours-3"),
-    ],
-)
-def test_phone_hours(page_html, address, expected):
+def test_phone_hours(page_html):
+    """cp-main-phone.phone-vastaanotto.phone-hours — the region now asserts
+    only is-visible, so both halves are here: the hours section exists, and
+    every stored day row reaches it.
+
+    Four byte-exact cases used to pin DAYS, HOURS, "Pe" and "Etävastaanotto".
+    Those are the seeded vastaanottoajat.days rows, which the owner edits
+    from the section form's "Päivät" (days.label) and "Ajat" (days.hours) —
+    owner data, not a product promise, so LLM-COP-36 demoted them. This reads
+    the rows out of the seed instead, which covers EVERY row rather than the
+    four strings someone happened to write down, and keeps passing when the
+    owner rewrites their opening times.
+    """
     hours = element_text(page_html, "section", cls="hours-section")
-    assert hours is not None
-    assert expected in hours, f"{address}: {expected!r} not in the hours section"
+    assert hours is not None, "no section.hours-section in the served page"
+    days = SEED_BY_KIND["vastaanottoajat"]["days"]
+    assert days, "the seed has no vastaanottoajat.days rows to serve"
+    for index, day in enumerate(days):
+        for field in ("label", "hours"):
+            value = day[field]
+            assert value.strip(), f"seeded days[{index}].{field} is empty"
+            assert value in hours, (
+                f"stored days[{index}].{field} not in the hours section"
+            )
 
 
 @pytest.mark.parametrize(

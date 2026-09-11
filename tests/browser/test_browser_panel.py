@@ -14,6 +14,7 @@ fires by accident, and advanced explicitly where a timer is the subject.
 import json
 import re
 
+from app.seed import SEED_SECTIONS
 from tests.browser.conftest import (
     V2_STYLESHEET,
     hero_draft,
@@ -144,11 +145,13 @@ def test_switching_sections_flushes_the_pending_save_to_the_right_section(
 
 def test_switching_sections_shows_the_new_name_and_position(page, expect, live_app):
     """The panel is one document that repaints, so which section is open
-    is only visible in the browser. Six sections, because /muokkaa loads
-    them with include_hidden=True (app/edit.py:36).
+    is only visible in the browser. The total comes from the seeded rows,
+    because /muokkaa loads them with include_hidden=True (app/edit.py:36) —
+    it is a live count, not the constant 6, so it is read from
+    SEED_SECTIONS rather than typed (LLM-COP-36).
 
     The first pair restates edit.html, which server-renders "Aloitusosio"
-    and "Osio 1 / 6"; it is here as the before, not as the claim. The
+    and the position line; it is here as the before, not as the claim. The
     claim is the pair AFTER the click, which nothing but edit.js:205-207
     can paint — and the click itself needs a .muut-osiot-list the server
     ships empty, so an unbooted panel cannot even reach it. Measured:
@@ -157,12 +160,16 @@ def test_switching_sections_shows_the_new_name_and_position(page, expect, live_a
     page.goto(f"{live_app.base_url}/muokkaa")
 
     expect(page.locator(".section-name")).to_have_text("Aloitusosio")
-    expect(page.locator(".section-position")).to_have_text("Osio 1 / 6")
+    expect(page.locator(".section-position")).to_have_text(
+        f"Osio 1 / {len(SEED_SECTIONS)}"
+    )
 
     page.locator(".muut-osiot-list li").first.click()
 
     expect(page.locator(".section-name")).to_have_text("Tietoa minusta")
-    expect(page.locator(".section-position")).to_have_text("Osio 2 / 6")
+    expect(page.locator(".section-position")).to_have_text(
+        f"Osio 2 / {len(SEED_SECTIONS)}"
+    )
 
 
 # --- the Ulkoasu tab and the site-wide style (LLM-COP-22) -------------------
