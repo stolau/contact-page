@@ -7,6 +7,11 @@ best-effort extra whose failure never costs the visitor their message.
 Privacy: no message field value is ever logged — not the name, not the
 body, not the email, not the phone. Log lines carry the row id only.
 
+The visitor's address is the one visitor-controlled value that reaches a
+mail header, as Reply-To; every other field goes into the body. _set_reply_to
+is that boundary, and it refuses any value it cannot turn into a header it
+trusts rather than costing the owner the notification.
+
 Rate limiting assumes the app is reached directly (README runs
 `flask --app app run`), so request.remote_addr is the visitor. The window
 store is an in-process dict, so a restart clears every window; that is
@@ -139,6 +144,55 @@ def _store(conn, payload):
     return cursor.lastrowid
 
 
+def _set_reply_to(mail, address, message_id):
+    """Put the visitor's address in Reply-To, or put nothing there at all.
+
+    This is the only place a visitor-controlled value becomes a header, so
+    the header boundary lives here. Three things must hold before the value
+    is trusted, and none of them is redundant — stated here in the order
+    the code below evaluates them. First a non-empty string, because the
+    empty string is both printable and ASCII, and _text answers None for a
+    non-string. Then isascii(), because a non-ASCII address serialises to
+    an RFC 2047 encoded word (=?utf-8?q?m=C3=A4ria?=@esimerkki.fi), which
+    looks like an address and cannot be replied to. Then isprintable(),
+    which keeps out CR, LF, NUL and DEL — a CR or LF is what would let the
+    sender append headers of their own, and it is the reason this boundary
+    exists at all. A missing header degrades to what the owner has today;
+    a mangled one is discovered only after they have hit reply.
+
+    The assignment is guarded as well as the value, because the stdlib
+    raises on printable ASCII that is not an address — mail["Reply-To"] =
+    "a@" is an IndexError — and this call sits *outside* _notify's own try,
+    which does not open until the send. An unguarded raise would therefore
+    escape _notify and post_message alike and answer the visitor 500 on a
+    message that is already stored — measured, not assumed: without this
+    guard both "a@" and a CRLF address do exactly that. A raise leaves the
+    message clean: no partial header survives it.
+
+    isascii() is a fact about encoding, not about address grammar. It says
+    nothing about whether an address is well formed, and this refuses to
+    start saying so: "a@b, c@d" and "a@" pass on purpose, and nothing here
+    should grow into address validation. A refused value costs the Reply-To
+    and nothing else — the mail is still sent, and the body carries the
+    address verbatim as the authoritative copy.
+    """
+    if address and address.isascii() and address.isprintable():
+        try:
+            mail["Reply-To"] = address
+            return
+        # Narrow on purpose: the assignment is the entire crash surface.
+        # S110 is suppressed rather than answered here because this refusal
+        # *is* logged — by the statement below, which it shares.
+        except Exception:  # noqa: BLE001, S110
+            pass
+    # One statement for both refusals — the predicate's and the stdlib's —
+    # so there is one log line to promise and one never-log case to prove.
+    # Id only, as everywhere here: never the address.
+    current_app.logger.warning(
+        "contact message reply address refused id=%s", message_id
+    )
+
+
 def _notify(message_id, payload):
     """Best-effort mail notification. Never raises, never logs field values.
 
@@ -160,6 +214,9 @@ def _notify(message_id, payload):
     mail["Subject"] = "Uusi yhteydenotto"
     mail["From"] = os.environ.get("MAIL_FROM") or mail_to
     mail["To"] = mail_to
+    # The same stripped value _store wrote, so the header and the row can
+    # never disagree about who wrote.
+    _set_reply_to(mail, _text(payload, "email"), message_id)
     mail.set_content(
         "Nimi: {name}\n"
         "Sähköposti: {email}\n"

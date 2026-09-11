@@ -35,6 +35,7 @@ tests/conftest.py deliberately: they are this unit's instruments, and
 conftest is owned elsewhere.
 """
 
+import base64
 import logging
 import re
 import time
@@ -498,6 +499,287 @@ def test_no_mail_configuration_sends_nothing(app, client, monkeypatch):
     assert len(stored(app)) == 1
 
 
+# --- the Reply-To header, and the boundary that guards it --------------------
+#
+# Three measured facts shape every assertion below. Each of them turns an
+# obvious-looking assertion into one that cannot fail, so they are recorded
+# here rather than rediscovered:
+#
+# 1. **A header reads back decoded.** mail["Reply-To"] answers
+#    'märia@esimerkki.fi' for a value the wire carries as
+#    '=?utf-8?q?m=C3=A4ria?=@esimerkki.fi'. An in-memory equality assertion
+#    therefore passes over a mangled wire. The serialised form is the only
+#    witness, which is what header_block exists for.
+# 2. **The body is base64.** The template contains "Sähköposti", so
+#    set_content picks Content-Transfer-Encoding: base64 and the string
+#    "Bcc:" appears verbatim NOWHERE in mail.as_string() — not in the
+#    headers and not in the body. So `"Bcc:" not in mail.as_string()` is a
+#    vacuous pass. Assertions here are scoped to the header block, or made
+#    against a decoded body.
+# 3. **A refused assignment leaves the message clean.** After the stdlib
+#    raises, no partial Reply-To survives — so "no header" really is the
+#    observable outcome, not a half-written one.
+
+
+def configure_mail(monkeypatch):
+    """The two settings _notify needs before it builds a mail at all.
+
+    Without both of them _notify returns before the Reply-To boundary is
+    ever reached, so a test of that boundary written without these would
+    pass whatever the boundary did.
+    """
+    monkeypatch.setenv("SMTP_HOST", "smtp.esimerkki.fi")
+    monkeypatch.setenv("MAIL_TO", "yllapito@esimerkki.fi")
+
+
+def sent_mail(calls):
+    """The one live EmailMessage the fake transport recorded.
+
+    send_message hands over the real object the route built, so these tests
+    assert against the notification itself rather than a reconstruction.
+    """
+    recorded = sends(calls)
+    assert len(recorded) == 1, recorded
+    return recorded[0][1]
+
+
+def header_block(mail):
+    """Everything a receiving server reads before the first blank line.
+
+    Serialised, because a header object reads back decoded (fact 1 above)
+    and because the body legitimately carries the visitor's address
+    verbatim — so a whole-serialisation assertion would either be vacuous
+    or fail for an honest reason.
+    """
+    return mail.as_string().split("\n\n", 1)[0]
+
+
+def header_lines(mail):
+    """The header block as whole lines, so a membership test is exact.
+
+    `"Reply-To: a@b" in header_block(...)` would also be satisfied by
+    `Reply-To: a@b.evil.fi`; line membership cannot be.
+    """
+    return header_block(mail).split("\n")
+
+
+def body_text(mail):
+    """The notification's body as its reader would see it, decoded.
+
+    Fact 2 above: the serialised body is base64, so any assertion about the
+    body's text over as_string() passes without proving anything. The
+    Content-Transfer-Encoding is asserted rather than assumed, so a future
+    change that makes the body 7bit fails here loudly instead of silently
+    handing back garbage.
+
+    The assertion is about as_string() and nothing else. smtplib does its
+    own serialisation on the way out, and against a real server that
+    advertises 8BITMIME the wire body is Content-Transfer-Encoding: 8bit
+    rather than base64 — measured, not assumed. The header block is
+    identical either way, which is why every load-bearing assertion in this
+    section reads the headers and not the body.
+    """
+    headers, _, encoded = mail.as_string().partition("\n\n")
+    assert "Content-Transfer-Encoding: base64" in headers, headers
+    return base64.b64decode(encoded).decode("utf-8")
+
+
+def assert_refusal_warning(caplog, message_id, body):
+    """The refusal tells the operator which row, and nothing else.
+
+    A refused address is a visitor's personal data exactly like the name,
+    the phone and the message, so the warning keeps the discipline the rest
+    of this module already keeps: the id, and not one field value.
+    """
+    assert_warning_captured(caplog)
+    assert f"id={message_id}" in caplog.text, caplog.text
+    for field in ("name", "email", "message", "phone"):
+        value = body.get(field)
+        if value:
+            assert value not in caplog.text, (field, caplog.text)
+
+
+# A CRLF spliced mid-value, so _text's strip cannot quietly remove it and
+# leave the test proving nothing. This is the payload the whole boundary
+# exists for: on the wire it would end one header and begin another.
+CRLF_INJECTION = "maria@esimerkki.fi\r\nBcc: hyokkaaja@esimerkki.fi"
+
+
+def test_the_notification_replies_to_the_visitor_not_to_mail_from(
+    app, client, monkeypatch
+):
+    """The point of the change: the owner hits reply in their mail client
+    and reaches the person who wrote, instead of the address the site sends
+    from.
+
+    MAIL_FROM is set to something deliberately unanswerable so the
+    assertion has somewhere wrong to land — with no Reply-To a reply goes
+    to ei-vastauksia@esimerkki.fi, which is the behaviour this replaces.
+    Asserted on the serialised header line, because that is the byte a mail
+    client actually parses.
+    """
+    calls = install_fake_smtp(monkeypatch)
+    configure_mail(monkeypatch)
+    monkeypatch.setenv("MAIL_FROM", "ei-vastauksia@esimerkki.fi")
+
+    assert post(client).status_code == 201
+
+    mail = sent_mail(calls)
+    lines = header_lines(mail)
+    assert f"Reply-To: {VALID['email']}" in lines, lines
+    assert "From: ei-vastauksia@esimerkki.fi" in lines, lines
+    assert "To: yllapito@esimerkki.fi" in lines, lines
+
+
+@pytest.mark.parametrize(
+    "address",
+    [
+        "maria@esimerkki.fi",
+        # Case is the visitor's to choose; nothing here may normalise it.
+        "marIa@esimerkki.fi",
+        # Accepted on purpose, and pinned so it stays accepted. The
+        # boundary is a question about encoding, not about address
+        # grammar: a comma cannot add a recipient, because smtplib derives
+        # RCPT TO from To/Cc/Bcc and never from Reply-To. If a later edit
+        # grows this predicate into RFC 5322 validation, this case is what
+        # goes red.
+        "a@b, c@d",
+        "c@d",
+    ],
+)
+def test_an_ascii_printable_address_reaches_the_header_verbatim(
+    app, client, monkeypatch, address
+):
+    """Whatever the visitor typed is what the owner replies to — no
+    encoding, no rewriting, and no header the visitor did not pay for."""
+    calls = install_fake_smtp(monkeypatch)
+    configure_mail(monkeypatch)
+
+    assert post(client, payload(email=address)).status_code == 201
+
+    mail = sent_mail(calls)
+    lines = header_lines(mail)
+    assert f"Reply-To: {address}" in lines, lines
+    assert "=?" not in header_block(mail), header_block(mail)
+    assert mail.get_all("Bcc") is None
+    assert mail.get_all("Cc") is None
+    assert mail.get_all("To") == ["yllapito@esimerkki.fi"]
+
+
+def test_a_crlf_in_the_address_adds_no_header_and_still_notifies(
+    app, client, monkeypatch
+):
+    """The header-injection case, whole: the owner is still notified, no
+    second header appears, and the attacker's text is not destroyed — it
+    stays on the body side of the boundary, where every other visitor value
+    already lives.
+
+    This fails against the naive one-liner in two independent ways: that
+    version lets the stdlib's ValueError escape _notify and post_message
+    altogether, so the POST answers 500 instead of 201 — measured, not
+    assumed, because the assignment happens before _notify's own try opens
+    — and were the send restored, a Bcc line would stand in the header
+    block.
+    """
+    calls = install_fake_smtp(monkeypatch)
+    configure_mail(monkeypatch)
+
+    assert post(client, payload(email=CRLF_INJECTION)).status_code == 201
+
+    mail = sent_mail(calls)
+    assert mail["Reply-To"] is None
+    assert mail.get_all("Bcc") is None
+    # Scoped to the header block: "Bcc" in the whole serialisation would be
+    # a vacuous test (fact 2 above), and the keys check below makes the
+    # absence exhaustive rather than a spot check.
+    assert "Bcc" not in header_block(mail), header_block(mail)
+    assert set(mail.keys()) == {
+        "Subject",
+        "From",
+        "To",
+        "Content-Type",
+        "Content-Transfer-Encoding",
+        "MIME-Version",
+    }
+    assert "Bcc: hyokkaaja@esimerkki.fi" in body_text(mail)
+    rows = stored(app)
+    assert len(rows) == 1
+    assert rows[0]["email"] == CRLF_INJECTION
+
+
+# Every value here must cost the Reply-To and nothing else. Named, because
+# a bare list of escapes in the failure output says nothing about which
+# wrong implementation the case is aimed at.
+SUPPRESSED_ADDRESSES = {
+    # The stdlib raises IndexError on this printable ASCII address, and
+    # _validate accepts it (it contains "@"). Fails against any version
+    # that does not guard the assignment itself.
+    "a plain typo the stdlib crashes on": "a@",
+    "a crlf that would begin a header": CRLF_INJECTION,
+    "a bare newline": "maria@esimerkki.fi\nBcc: hyokkaaja@esimerkki.fi",
+    "a bare carriage return": "maria@esimerkki.fi\rBcc: hyokkaaja@esimerkki.fi",
+    # The stdlib accepts NUL and DEL and serialises them into the header
+    # line verbatim, so these two fail against a CR/LF-only guard.
+    "a nul byte": "mar\x00ia@esimerkki.fi",
+    "a del byte": "mar\x7fia@esimerkki.fi",
+    # Non-ASCII: the header would serialise to an RFC 2047 encoded word
+    # that looks like an address and cannot be replied to. These two fail
+    # against an isprintable()-only predicate.
+    "non-ascii in the local part": "märia@esimerkki.fi",
+    # .fi has permitted ä and ö since 2005, so this is an ordinary Finnish
+    # address, not an exotic input.
+    "non-ascii in the domain": "maria@esimerkkí.fi",
+}
+
+
+@pytest.mark.parametrize(
+    "address",
+    list(SUPPRESSED_ADDRESSES.values()),
+    ids=list(SUPPRESSED_ADDRESSES),
+)
+def test_an_unheaderable_address_costs_the_header_and_nothing_else(
+    app, client, monkeypatch, caplog, address
+):
+    """A value that cannot become a header the site trusts loses the
+    Reply-To — and only the Reply-To.
+
+    The owner is still notified, the visitor still gets their 201, the row
+    is still stored with the address exactly as typed, and the operator
+    gets a warning naming the row and no field value. Dropping the mail
+    instead would hand any sender a mute button for their own notification;
+    rejecting the submission would cost the visitor their message, which is
+    the one thing this module is built not to do.
+
+    For the two non-ASCII cases the absence of "=?" from the serialised
+    header block is asserted FIRST, and the order is deliberate. A header
+    reads back decoded, so an *equality* assertion would pass over an
+    encoded word on the wire; `is None` does discriminate, but it would
+    also fire first and leave the "=?" check never evaluated, which is a
+    backstop that can never bite. Asserted first, an implementation that
+    encodes rather than suppresses fails here with the encoded word itself
+    in the failure output, which names the bug rather than merely denying
+    the header.
+    """
+    calls = install_fake_smtp(monkeypatch)
+    configure_mail(monkeypatch)
+    caplog.set_level(logging.DEBUG)
+    body = payload(email=address)
+
+    assert post(client, body).status_code == 201
+
+    mail = sent_mail(calls)
+    # First on purpose — see the docstring. Ordered after the `is None`
+    # below it could never bite, because `is None` already discriminates.
+    assert "=?" not in header_block(mail), header_block(mail)
+    assert mail["Reply-To"] is None
+    assert "Reply-To" not in header_block(mail), header_block(mail)
+    assert mail.get_all("Bcc") is None
+    rows = stored(app)
+    assert len(rows) == 1
+    assert rows[0]["email"] == address
+    assert_refusal_warning(caplog, rows[0]["id"], body)
+
+
 # --- never log a visitor's words ---------------------------------------------
 
 SENTINEL_BODY = "kanarialintu-9f3a2b poikani anankytys huolettaa minua"
@@ -578,6 +860,46 @@ def test_the_missing_recipient_warning_is_field_free(app, client, caplog,
 
     assert post(client, sentinel_payload()).status_code == 201
 
+    assert_warning_captured(caplog)
+    assert_no_sentinel_logged(caplog)
+
+
+def test_the_refused_reply_address_path_logs_no_field_values(
+    app, client, caplog, monkeypatch
+):
+    """The newest warning is the one most tempting to spill: an operator
+    debugging a refused address wants to see the address, and the address
+    is the visitor's personal data exactly like the message is.
+
+    **The payload's shape is the whole point of this test and must not be
+    tidied.** assert_no_sentinel_logged searches for SENTINEL_EMAIL as a
+    plain substring, so the CRLF is appended AFTER an intact sentinel
+    rather than spliced into the middle of one. Written the other way the
+    sentinel no longer occurs in the offending address, and an implementer
+    who logged the whole address "to help the operator debug it" would pass
+    this test. Appending keeps the sentinel a prefix, so logging the
+    address logs the sentinel and goes red. If a later edit does want the
+    spliced form, the spliced string must join SENTINELS in the same
+    commit.
+
+    SMTP_HOST, MAIL_TO and the fake transport are all required rather than
+    incidental: without them _notify returns before the boundary is
+    reached, nothing warns, and every assertion below is vacuous. That is
+    what assert_warning_captured is here to catch — and the send and the
+    missing Reply-To pin the warning to this path rather than to a
+    swallowed transport failure.
+    """
+    calls = install_fake_smtp(monkeypatch)
+    configure_mail(monkeypatch)
+    caplog.set_level(logging.DEBUG)
+    body = sentinel_payload()
+    body["email"] = SENTINEL_EMAIL + "\r\nBcc: hyokkaaja@esimerkki.fi"
+
+    assert post(client, body).status_code == 201
+
+    assert stored(app)[0]["body"] == SENTINEL_BODY
+    mail = sent_mail(calls)
+    assert mail["Reply-To"] is None
     assert_warning_captured(caplog)
     assert_no_sentinel_logged(caplog)
 
