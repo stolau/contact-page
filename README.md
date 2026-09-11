@@ -103,14 +103,17 @@ request rather than at startup, and are documented under
 ## Secrets, and what this app logs
 
 **No secret is ever written to `app.config`, and nothing sensitive is
-logged.** The application emits exactly three log lines of its own:
+logged.** The application emits exactly four log lines of its own:
 
 - the two resolved data paths at startup, with where each came from;
 - a warning when `SMTP_HOST` is set but `MAIL_TO` is not — deliberately
   field-free, because the operator needs the misconfiguration, not the
   visitor's message;
 - a warning that a mail notification failed, carrying **the message id only**,
-  never the message or the sender.
+  never the message or the sender;
+- a warning that a visitor's address could not become a `Reply-To` header,
+  again carrying **the message id only** — never the refused address, which
+  is a visitor's personal data like any other field.
 
 Passwords are never logged, and are stored only as hashes. Session tokens are
 stored only as a SHA-256 of the token, so a copy of the database yields no
@@ -347,6 +350,21 @@ A mail notification is sent only when both `SMTP_HOST` and `MAIL_TO` are
 set — with `SMTP_HOST` set and `MAIL_TO` missing, nothing is sent and a
 warning is logged. The message is always stored first, so a mail failure
 never loses it.
+
+The notification's `Reply-To` is the visitor's address, so hitting reply in a
+mail client answers the person who wrote rather than `MAIL_FROM`. An address
+that carries a non-printable character, **or any non-ASCII character — an
+address with ä, ö or the like gets no `Reply-To`** — or one the mail library
+does not hand back exactly as it was given costs the `Reply-To` header and
+**not** the notification: the mail is still sent, the message is still
+stored, and the visitor still gets a 201. That last rule is written as a
+check on the resulting header rather than on whether the library raised,
+because the library is not consistent about that between patch releases:
+`a@` raises on one Python 3.12 and silently becomes the null address `<>` on
+another, and both must come out as no header at all. A non-ASCII address is left out on purpose, because it would serialise
+to an encoded word that looks like an address and cannot be replied to, which
+the owner would only discover after answering. The address is always in the
+body of the notification, and that copy stays the authoritative one.
 
 | Variable | Meaning |
 | --- | --- |
