@@ -80,7 +80,16 @@ SEED_BY_KIND = dict(SEED_SECTIONS)
 JSON_ACCEPT = {"Accept": "application/json"}
 
 DISCLAIMER = "Muutokset näkyvät julkisella sivulla vasta julkaisun jälkeen."
-HERO_SUMMARY = "Muotokuva, otsikko, ingressi, 2 painiketta"
+# What app/summary.py::_hero generates for the seeded hero. The trailing count
+# is NOT part of the criterion any more: LLM-COP-36 cut row-summary's
+# contains-text down to the prose half and demoted "2 painiketta" to a note,
+# because _hero counts how many of contact_label / services_label carry text —
+# an owner who clears one ("Painike 2" in the panel) gets "1 painike".
+# HERO_SUMMARY_PROSE is the half the spec still promises and the half _hero
+# hardcodes; HERO_SUMMARY is the whole generated line, used only where the
+# claim is about the generator or the renderer, never about the criterion.
+HERO_SUMMARY_PROSE = "Muotokuva, otsikko, ingressi"
+HERO_SUMMARY = f"{HERO_SUMMARY_PROSE}, 2 painiketta"
 
 
 # --- helpers -----------------------------------------------------------------
@@ -154,12 +163,18 @@ def tietoa_fragment(logged_in_admin, app):
 # --- Step 1: the summaries and the blank payload -----------------------------
 
 
-def test_hero_summary_is_the_row_aloitusosio_criterion_byte_exact():
-    """cp-main-edit-sections.sections-list.row-aloitusosio / cp-section-row
-    row-summary — contains-text "Muotokuva, otsikko, ingressi, 2 painiketta".
+def test_hero_summary_generated_over_the_seeded_payload_is_the_whole_line():
+    """What app/summary.py::_hero makes of the seeded hero, byte for byte.
 
-    Asserted on the summary generator over the seeded hero payload, so the
-    string is produced from data rather than written into a template.
+    This is NOT the row-summary criterion and no longer claims to be. That
+    criterion is contains-text "Muotokuva, otsikko, ingressi" — the prose
+    half — and it is asserted off the served row in PAGE_TEXT_CRITERIA below.
+    The trailing "2 painiketta" here is a count over the seed, so it belongs
+    to the same family as tests/test_seed.py: a legitimate claim about what
+    the generator makes of the shipped seed, not a promise about what the
+    screen says. An owner who clears a CTA label changes the line and breaks
+    nothing — test_hero_summary_counts_the_buttons_that_carry_text below is
+    the test that owns that, and it is where the count is really proven.
     """
     assert summarize("hero", SEED_BY_KIND["hero"]) == HERO_SUMMARY
 
@@ -266,8 +281,10 @@ PAGE_TEXT_CRITERIA = [
     # position 1, which is why first-match is the exemplar row the spec names.
     ("cp-main-edit-sections.sections-list.row-aloitusosio/row-title",
      "span", "row-title", "Aloitusosio"),
+    # The prose half only (LLM-COP-36): the criterion's contains-text stops
+    # before the button count, which is data _hero derives from the payload.
     ("cp-main-edit-sections.sections-list.row-aloitusosio/row-summary",
-     "span", "row-summary", HERO_SUMMARY),
+     "span", "row-summary", HERO_SUMMARY_PROSE),
     ("cp-main-edit-sections.sections-list.row-aloitusosio/row-status-badge",
      "span", "row-status-badge", "Julkaistu"),
     ("cp-section-row.row-edit-button",

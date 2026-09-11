@@ -1148,13 +1148,21 @@ def cd_text(html, cls):
 # --- the dialog: contains-text criteria, one test per address ----------------
 
 # (spec address, the class the plan pins for it, the byte-exact spec string)
+#
+# Every string below is a literal app/templates/contact_dialog.html owns and
+# no admin can edit. Two rows used to sit here that were not:
+# cp-contact-dialog.name-label ("Nimi") and .message-label ("Mitä etsit?")
+# render {{ dialog_name_label }} / {{ dialog_message_label }}, bound in
+# app/sections.py to the yhteydenotto section's name_label / message_label —
+# the fields the panel offers as "Nimikentän otsikko" and "Viestikentän
+# otsikko". LLM-COP-36 demoted them: a value the owner types is not a
+# criterion. They moved to SEEDED_LABELS below and now assert that the
+# element renders the STORED value, never what it says.
 CONTAINS_TEXT = [
     ("cp-contact-dialog.dialog-header.dialog-title", "cd-title",
      "Kerro, mitä etsit"),
     ("cp-contact-dialog.dialog-header.dialog-subtitle", "cd-subtitle",
      "Vastaan kahden arkipäivän kuluessa"),
-    ("cp-contact-dialog.name-label", "cd-name-label", "Nimi"),
-    ("cp-contact-dialog.message-label", "cd-message-label", "Mitä etsit?"),
     ("cp-contact-dialog.message-hint", "cd-message-hint", "Vapaa kuvaus"),
     ("cp-contact-dialog.message-helper", "cd-message-helper",
      "Kerro kenelle terapiaa haetaan ja mikä huolettaa."),
@@ -1175,12 +1183,44 @@ CONTAINS_TEXT = [
 )
 def test_dialog_contains_text_criterion(page_html, cls, text):
     """Each criterion's own element must exist, and must itself carry the
-    string. "Nimi" already appears in the seeded page and every one of these
-    strings could be hidden in the dialog's inline script, so neither a
-    whole-document nor a root-scoped check would prove anything."""
+    string. Every one of these strings could be hidden in the dialog's inline
+    script, and several recur in the seeded page, so neither a whole-document
+    nor a root-scoped check would prove anything."""
     scoped = cd_text(page_html, cls)
     assert scoped is not None, f"no element carries class {cls}"
     assert text in scoped
+
+
+# (spec address, the class the plan pins for it, the yhteydenotto field the
+# element renders) — the two labels LLM-COP-36 took out of CONTAINS_TEXT.
+SEEDED_LABELS = [
+    ("cp-contact-dialog.name-label", "cd-name-label", "name_label"),
+    ("cp-contact-dialog.message-label", "cd-message-label", "message_label"),
+]
+
+
+@pytest.mark.parametrize(
+    "cls, field",
+    [(cls, field) for _, cls, field in SEEDED_LABELS],
+    ids=[address for address, _, _ in SEEDED_LABELS],
+)
+def test_dialog_label_renders_its_stored_value(page_html, cls, field):
+    """The criterion's own element exists and carries the STORED label — not
+    that the label is any particular words.
+
+    These are yhteydenotto.name_label / .message_label, which the owner edits
+    from the panel's "Nimikentän otsikko" and "Viestikentän otsikko" rows, so
+    the words are theirs to change. Scoped to the element exactly as
+    CONTAINS_TEXT is, and for the same reason: "Nimi" already appears
+    elsewhere in the seeded page, so a whole-document check could pass with
+    the dialog's binding deleted. This still exercises seed -> database ->
+    dialog_labels -> template and goes red if the binding drops.
+    """
+    seeded = dict(SEED_SECTIONS)["yhteydenotto"][field]
+    assert seeded.strip(), f"the seed has no yhteydenotto.{field} to serve"
+    scoped = cd_text(page_html, cls)
+    assert scoped is not None, f"no element carries class {cls}"
+    assert seeded in scoped, f"stored yhteydenotto.{field} not in .{cls}"
 
 
 # --- the dialog: is-visible criteria, structural -----------------------------
