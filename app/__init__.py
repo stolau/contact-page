@@ -26,6 +26,11 @@ from .notice import contact_notice
 from .sanitize import sanitize_rich
 from .sectionlist import bp as sectionlist_bp
 from .sections import contact_dialog_copy, site_chrome, visible_sections
+from .security import (
+    HEADERS_EVERYWHERE,
+    content_security_policy,
+    inline_script_hashes,
+)
 from .seed import seed_if_empty
 from .shapes import resolve_shape
 from .styles import template_for
@@ -189,6 +194,37 @@ def create_app(instance_path=None):
     app.register_blueprint(wizard_bp)
     app.register_blueprint(direct_edit_bp)
     app.register_blueprint(images_bp)
+
+    # The security headers (LLM-COP-35). Derived ONCE, here: the hashes come
+    # from a walk of app/templates/, and repeating that per response would
+    # buy nothing but a directory walk and three file reads on every request.
+    # The dev-mode consequence — a template edit needs a restart before its
+    # hash matches — is stated in app/security.py rather than hidden, along
+    # with the argument for every directive in the string.
+    policy = content_security_policy(
+        inline_script_hashes(
+            os.path.join(app.root_path, app.template_folder)
+        )
+    )
+
+    @app.after_request
+    def _security_headers(response):
+        # nosniff and Referrer-Policy carry no assumption about the body, so
+        # they go on everything — JSON, images, static files, fragments.
+        for header, value in HEADERS_EVERYWHERE.items():
+            response.headers[header] = value
+        # CSP and X-Frame-Options are claims about a DOCUMENT, and the gate
+        # is load-bearing rather than tidy: app/images.py serves
+        # GET /kuvat/<digest> with its own, far stricter
+        # "default-src 'none'; sandbox", and an ungated assignment here would
+        # overwrite it with something much looser. send_from_directory is
+        # given mimetype=row["content_type"] there, so an image response is
+        # image/png or image/jpeg and is skipped whole. SAMEORIGIN and never
+        # DENY: the editor frames its own preview (app/templates/edit.html).
+        if response.mimetype == "text/html":
+            response.headers["Content-Security-Policy"] = policy
+            response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        return response
 
     # A stored reference to a URL, or None. Registered as a filter so the
     # public template can ask for one without importing anything.

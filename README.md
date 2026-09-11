@@ -259,10 +259,26 @@ none:
   `SameSite=Lax`, but the `Secure` flag is not set anywhere in the code, so
   the browser will send it over plain HTTP if it ever gets the chance.
   Terminating TLS is necessary but does not by itself set that flag.
-- **There are no security headers on HTML responses** — no
-  `Content-Security-Policy`, no `X-Frame-Options`, no
-  `X-Content-Type-Options`. Your reverse proxy is the practical place to add
-  them today. (Uploaded images *are* served with a strict CSP.)
+- **HTML responses carry a `Content-Security-Policy`, and plain HTTP can
+  strip it.** Every HTML response sends `default-src 'self'` with a
+  `script-src` naming SHA-256 hashes of the app's own inline scripts — so
+  injected script cannot run — plus `X-Frame-Options: SAMEORIGIN`,
+  `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`. A
+  man-in-the-middle on plain HTTP can delete those headers before the browser
+  ever sees them, so this is defence in depth behind TLS and not a substitute
+  for the gap above. Two allowances are deliberate, and `app/security.py`
+  argues both: `style-src` keeps `'unsafe-inline'`, because the colour block
+  is built from your chosen colours and no fixed hash could ever match it
+  (`style-src-attr 'none'` still refuses an injected `style="…"` attribute),
+  and `frame-ancestors` is `'self'` rather than `'none'`, because the editor
+  frames its own preview. Safari implements neither `script-src-attr` nor
+  `style-src-attr`, so there each falls back to `script-src` / `style-src`.
+  Only the style half actually weakens — `style-src` keeps `'unsafe-inline'`,
+  so an injected `style="…"` attribute would be allowed there; `script-src`
+  carries no `'unsafe-inline'`, so an injected handler attribute stays
+  refused in Safari too. A degraded policy, never a broken page. (Uploaded
+  images are served with a stricter policy of their own:
+  `default-src 'none'; sandbox`.)
 - **Contact messages are personal data, stored in plain text, kept forever.**
   There is a per-message delete in the inbox and nothing else: no retention
   period, no bulk erasure, no export. If real people will use the form,
