@@ -36,7 +36,7 @@
               "Times New Roman", serif;
   --v2-sans: "Helvetica Neue", Helvetica, Arial, sans-serif;
 
-  /* The six tokens the owner's colour override writes into (USR-COP-2).
+  /* The nine tokens the owner's colour override writes into (USR-COP-2).
      Every default is the var() or the literal that supplied the value
      before, so a site that has chosen no colour renders exactly what it
      rendered before — the override is a <style> block that is ABSENT, not
@@ -64,13 +64,47 @@
      card, --v2-header #d9e8f2 in the header — are not in this derivation's
      surface set. Retargeting it measurably makes the navy card WORSE
      (11.0249:1 down to 3.7287:1) and still misses 3:1 on the header
-     (2.8386:1). */
+     (2.8386:1).
+
+     THE THREE RING TOKENS ARE WHAT THAT PARAGRAPH LEAVES UNSOLVED
+     (LLM-COP-44). A primary button whose border is its own fill has no
+     boundary except fill-against-ground, and the fill is the owner's
+     literal pick, so it cannot be walked. The boundary is therefore drawn
+     OUTSIDE the border box as `box-shadow: 0 0 0 1px`, in a colour
+     app/palette.py derives to 3:1 against the one ground that button sits
+     on — which is why there are three of them and not one: the grounds are
+     three different colours and no single value could clear all three.
+     --v2-rust-ring serves every primary button on a light surface (the hero
+     card, both dialog submits, direct-edit's Julkaise); --v2-rust-ring-navy
+     serves .v2-contact-primary on the --v2-navy card; --v2-rust-ring-header
+     serves .header-contact on --v2-header, which IS the owner's main
+     colour, so a single pick for both roles would otherwise render that
+     button at 1.0000:1.
+
+     FOUR OF THE FIVE RING DEFAULTS ACROSS THE TWO SKINS ARE `transparent`,
+     and that is the derivation's identity case rather than a placeholder:
+     when the fill already clears 3:1 the ring is a paint no-op and the
+     button renders exactly as it did. --v2-rust-ring-navy is the ONE
+     exception in either stylesheet, and it is the live SC 1.4.11 defect
+     this change exists for: the shipped rust reaches only 2.1987:1 on the
+     navy card, and 1.6753:1 once --v2-rust-dark takes over on hover, so
+     #c05b34 is painted there by default and takes the boundary to 3.0206:1
+     in both states. Every other button on a page that has chosen no colour
+     is untouched — #a8431c clears the light surfaces at 5.1441 worst and
+     the default header at 4.8141. --v2-rust-ring is NOT a reuse of
+     --v2-rust-edge, for the same reason the edge was not a reuse of the fg:
+     the edge token can never be transparent, because on .button.secondary
+     the border is the only boundary there is, and the ring token must
+     be. */
   --v2-header-ink: var(--v2-ink);
   --v2-header-accent: var(--v2-rust);
   --v2-rust-ink: #ffffff;
   --v2-rust-dark-ink: #ffffff;
   --v2-rust-fg: var(--v2-rust);
   --v2-rust-edge: var(--v2-rust);
+  --v2-rust-ring: transparent;        /* every light surface of the skin */
+  --v2-rust-ring-navy: #c05b34;       /* the contact card — the one changed default */
+  --v2-rust-ring-header: transparent; /* the owner's header ground */
 }
 
 * { box-sizing: border-box; }
@@ -106,10 +140,20 @@ h1, h2 { font-family: var(--v2-serif); color: var(--v2-ink); font-weight: 400; }
    primary button the two are the same value, so the border is no boundary a
    user perceives and contrast(x, x) is 1.0 for every colour there is. Only
    .button.secondary, whose background is transparent, draws an edge that has
-   to be seen — it alone takes --v2-rust-edge (LLM-COP-40). */
-.button.primary { background: var(--v2-rust); color: var(--v2-rust-ink); }
+   to be seen — it alone takes --v2-rust-edge (LLM-COP-40).
+
+   The primary button's boundary is the 1px box-shadow instead (LLM-COP-44).
+   It sits just OUTSIDE the border box, so its ground is the container rather
+   than the button's own fill, and the derivation is per ground — hence one
+   rule per ground below. The two overrides are (0,3,0) against the base's
+   (0,2,0) and win whatever the source order. The :hover rule re-declares
+   border-color but NOT box-shadow, so the ring survives into hover, where
+   the darker fill needs it most: #8b3715 on the navy card is 1.6753:1. */
+.button.primary { background: var(--v2-rust); color: var(--v2-rust-ink); box-shadow: 0 0 0 1px var(--v2-rust-ring); }
 .button.primary:hover { background: var(--v2-rust-dark); color: var(--v2-rust-dark-ink); border-color: var(--v2-rust-dark); }
 .button.secondary { background: transparent; color: var(--v2-rust-fg); border-color: var(--v2-rust-edge); }
+.v2-contact-card .button.primary { box-shadow: 0 0 0 1px var(--v2-rust-ring-navy); }
+.v2-header .button.primary { box-shadow: 0 0 0 1px var(--v2-rust-ring-header); }
 
 /* ---- header (v2-cp-hero.nav, v2-cp-phone-hero.header) ---------------- */
 

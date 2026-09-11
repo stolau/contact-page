@@ -10,17 +10,23 @@ WHAT THIS MODULE IS FOR. A chosen colour cannot simply be dropped into the
 stylesheet's --accent and --header-bg and left there: the accent is a button
 BACKGROUND at two sites, a button LABEL's ground at two more, and plain TEXT
 at eleven others, and the main colour is the ground the header's brand, links
-and button sit on. So seven of the nine values the override writes are
-DERIVED here, in Python, from the two the owner picked — the hover shade, the
-two button label inks, the header's own ink, the header's link-hover colour,
-the accent as readable body text and the accent as a visible EDGE
-(LLM-COP-40, the ninth token, at SC 1.4.11's 3:1 rather than 1.4.3's 4.5).
-Only --accent/--v2-rust and --header-bg/--v2-header are written through
-unchanged; the count said "six" before this change and omitted the header
-ink, which on_color derives exactly as it derives the two label inks. Deriving them in CSS with
-color-mix() was not an option worth taking: the derivations that matter are
-contrast decisions, and a contrast decision that cannot be swept in a test
-is a decision nobody has checked.
+and button sit on. So NINE of the eleven values the override writes on V1,
+and TEN of the twelve it writes on V2, are DERIVED here, in Python, from the
+two the owner picked — the hover shade, the two button label inks, the
+header's own ink, the header's link-hover colour, the accent as readable body
+text, the accent as a visible EDGE (LLM-COP-40, at SC 1.4.11's 3:1 rather
+than 1.4.3's 4.5) and the primary button's boundary RING, one per ground the
+button is ever painted on (LLM-COP-44, the same 3:1 against the ground rather
+than against the surface set). The rings are also why the two skins' counts
+DIFFER for the first time: V1 puts a primary button on two grounds and V2 on
+three. Only --accent/--v2-rust and --header-bg/--v2-header are written
+through unchanged, and both counts have moved twice: the DERIVED count was
+six before the header ink, which on_color derives exactly as it derives the
+two label inks, and seven before the rings; the TOTAL was nine on BOTH skins
+before the rings, which is the last time the two wrote the same number of
+declarations. Deriving them in CSS with color-mix() was not an option worth
+taking: the derivations that matter are contrast decisions, and a contrast
+decision that cannot be swept in a test is a decision nobody has checked.
 
 THE ONE TABLE, IN THE ONE PLACE. ROLE_TOKENS below is the whole mapping from
 the two owner roles to the two skins' token vocabularies. Neither template
@@ -283,6 +289,60 @@ def visible_on(color, backgrounds):
     return readable_on(color, backgrounds, NON_TEXT_RATIO)
 
 
+# THE GROUND THAT IS NOT FROZEN. A ring's grounds are written as literals in
+# ROLE_TOKENS, but one of them is the owner's own main colour, which has no
+# literal until a request arrives. This sentinel stands in its place and
+# palette_css substitutes effective_main for it. It cannot collide with a
+# frozen ground, because every frozen ground is "#rrggbb"; and if one ever
+# escaped into the output, the "<" would fail the closed-alphabet assertion
+# in tests/test_palette.py rather than render as a colour nobody chose.
+MAIN = "<main>"
+
+
+def ring_on(fills, grounds):
+    """"transparent", or a colour that reaches 3:1 on every ground.
+
+    THE FOURTH DERIVATION, and the one SC 1.4.11 case visible_on could not
+    reach on its own (LLM-COP-44): a filled button's boundary. The boundary
+    can be carried by the FILL against the ground, or by an edge drawn
+    around it. The fill is the owner's literal pick and cannot be moved, so
+    this returns the edge — and returns nothing at all when the fill is
+    already doing the job.
+
+    "transparent" IS THE IDENTITY CASE, and it is the whole reason this
+    change repaints one button on the shipped pages instead of eleven. When
+    every fill already clears 3:1 on every ground, the ring is a paint
+    no-op and the rendering is byte-identical to what it was. That keeps
+    LLM-COP-40's promise — "a compliant colour is never dulled" — for the
+    fill as well as for the line.
+
+    BOTH FILLS, not just the rest one. `fills` is (accent, shade(accent)),
+    because the hover fill is the worse of the two and it is the state the
+    defect actually lives in: shade("#a8431c") is #863616, which reaches
+    1.6108 on the navy contact card where the rest fill reaches 2.1987. A
+    ring derived from the rest fill alone would vanish exactly where it is
+    needed.
+
+    IT CANNOT REACH visible_on's RAISE, and that is structural rather than
+    swept. Every ground tuple in ROLE_TOKENS["rings"] is either the
+    singleton (MAIN,) — where the on_color theorem guarantees an endpoint at
+    >= 4.5826 against ANY colour, the owner's included — or a tuple of
+    frozen literals with a checked black-or-white endpoint at 3:1
+    (V1_SURFACES at >= 19.6513 for black, V2_SURFACES at >= 17.9252 for
+    black, ("#14324a",) at 13.2503 for white). tests/test_palette.py fences
+    both clauses off the table itself, so a row somebody adds later is held
+    to them too — which is what keeps readable_on's raise from becoming a
+    500 on the public page.
+    """
+    if all(
+        contrast(fill, ground) >= NON_TEXT_RATIO
+        for fill in fills
+        for ground in grounds
+    ):
+        return "transparent"
+    return visible_on(fills[0], grounds)
+
+
 # THE SURFACES THE ACCENT RENDERS AS TEXT ON, per skin — frozen literals,
 # fenced against drift by tests/test_palette.py, which reads each
 # stylesheet's own :root and asserts every literal here is still one of its
@@ -381,8 +441,8 @@ V2_SURFACES = ("#f7fafc", "#ffffff", "#e6eef6")
 #
 #   RETARGETED to the edge token, on SC 1.4.11 proper — a boundary a user
 #   must perceive:
-#     style.css     :77  .button.secondary   border-color: var(--accent-edge)
-#     style-v2.css  :112 .button.secondary   border-color: var(--v2-rust-edge)
+#     style.css     :112 .button.secondary   border-color: var(--accent-edge)
+#     style-v2.css  :154 .button.secondary   border-color: var(--v2-rust-edge)
 #     direct-edit.css :14 body.direct-edit [data-field]   the idle dashed
 #                          affordance, and :28 the focus/active ring — a
 #                          STATE indicator, on the one page that both
@@ -391,35 +451,68 @@ V2_SURFACES = ("#f7fafc", "#ffffff", "#e6eef6")
 #   RETARGETED on the weaker and separately stated ground that a line drawn
 #   in a colour nobody can see is not a line — an owner picks a colour in
 #   order to see it, and the same token costs no extra derivation:
-#     style.css     :162 .fact-card          border-top
-#                   :211 .service-card       border-top
-#     style-v2.css  :344 .v2-section-label::after   the short rust bar
+#     style.css     :198 .fact-card          border-top
+#                   :247 .service-card       border-top
+#     style-v2.css  :388 .v2-section-label::after   the short rust bar
 #   These three are NOT claimed as 1.4.11 cases: the cards' perceivable
 #   boundary is their 1px var(--line) frame, cards 2-4 take fixed literals by
-#   ordinal position (style.css:167-169, :215-216), and the bar is deleted
-#   outright at the phone breakpoint (style-v2.css:635, `content: none`).
+#   ordinal position (style.css:203-205, :251-252), and the bar is deleted
+#   outright at the phone breakpoint (style-v2.css:721-722, `content: none`).
 #
 #   NOT RETARGETED, deliberately, and this is a decision rather than an
 #   omission:
-#     style.css     :69  .button           border: 1px solid var(--accent)
-#     style-v2.css  :97  .button           border: 1px solid var(--v2-rust)
-#     style-v2.css  :111 .button.primary:hover  border-color: var(--v2-rust-dark)
+#     style.css     :95  .button           border: 1px solid var(--accent)
+#     style-v2.css  :131 .button           border: 1px solid var(--v2-rust)
+#     style-v2.css  :153 .button.primary:hover  border-color: var(--v2-rust-dark)
 #   On every element these actually paint alone — the primary buttons — the
-#   border is byte-identical to the fill (style.css:75, style-v2.css:110-111),
+#   border is byte-identical to the fill (style.css:110, style-v2.css:152-153),
 #   so it is not a boundary anyone perceives, and contrast(x, x) is 1.0 for
 #   every colour there is: an assertion that can never pass is proof the site
 #   is misidentified, not proof of a defect.
 #
-# THE REAL 1.4.11 CASE THIS DERIVATION CANNOT REACH, stated so nobody thinks
-# it was handled: the v2 primary button's FILL against its container —
-# --v2-navy #14324a (style-v2.css:459) and --v2-header #d9e8f2 (:32). The
-# shipped rust reaches only 2.1987:1 on the navy card. Two reasons it is not
-# here: the fill IS the owner's pick, so darkening it overrules the choice
-# and desynchronises --v2-rust-ink, which on_color derives against the raw
-# pick; and the surface tuple would have to hold both #ffffff and #14324a,
-# where contrast("#000000", "#14324a") is 1.5849 and no endpoint clears 3:1
-# against both — turning readable_on's documented-dead raise into a live 500
-# on the public page. Filed, not smuggled.
+# THE REAL 1.4.11 CASE, AND WHAT WAS DONE ABOUT IT (LLM-COP-44). This
+# paragraph used to say the case could not be reached and to leave it filed.
+# It is reached now, and by a different argument rather than by a bigger
+# surface tuple.
+#
+# The case: a primary button's FILL against its container. On V2 that is
+# --v2-navy #14324a (style-v2.css:28) and --v2-header #d9e8f2 (:32), where
+# the SHIPPED rust reaches only 2.1987:1 on the navy card before any owner
+# picks anything; on V1 it is --paper/--card and --header-bg, where an owner
+# who gives both roles one colour gets 1.0000:1 — a button that is literally
+# not there.
+#
+# What was NOT done, and why both were dead ends:
+#   MOVE THE FILL. The fill IS the owner's pick, so darkening it overrules
+#   the choice and desynchronises --v2-rust-ink, which on_color derives
+#   against the raw pick. Worse, it is impossible: one fill faces three
+#   grounds on V2, and a tuple holding both #ffffff and #14324a has NO
+#   common endpoint — contrast("#000000", "#14324a") is 1.5849 and
+#   contrast("#ffffff", "#ffffff") is 1.0000 — so readable_on's
+#   documented-dead raise would become a live 500 on the public page.
+#   MOVE THE GROUND. --v2-navy is the design, not an owner role, and four
+#   frozen text literals read against it. And it cannot touch the header
+#   site at all: --v2-header IS main_bg, the owner's own colour.
+#
+# What WAS done: the button gains a boundary OUTSIDE its border box, in a
+# colour that IS constrained — ring_on above, read through the "rings" row
+# below and painted as `box-shadow: 0 0 0 1px` in both stylesheets. A ring
+# outside the border box has exactly ONE ground, the container, so each row
+# takes the ground it actually sits on rather than a set: one ground per
+# token, and a singleton tuple can never reach the raise. The fill still
+# carries the boundary wherever it already clears 3:1, because ring_on
+# returns "transparent" there and nothing is painted.
+#
+# NOT the border-color, and not an outline. border-color cannot express "no
+# ring" — the identity value would have to be the fill, and
+# .button.primary:hover re-declares it (style-v2.css:153), so preserving
+# both states would cost two tokens per ground; it would also overturn the
+# decision recorded just above, that the primary border is its own fill.
+# outline collides with direct-edit.css's own [data-field] ring, which the
+# primary buttons carry, and its computed width is the property that
+# differed between two Chrome versions on CI. box-shadow follows
+# border-radius, costs no layout, is re-declared by neither hover rule, and
+# takes "transparent" as an exact paint no-op.
 #
 # ONE HONEST LIMIT of what IS constrained: the direct-edit outline sits at
 # outline-offset: 3px, OUTSIDE the border box, so its ground is the container
@@ -432,11 +525,24 @@ V2_SURFACES = ("#f7fafc", "#ffffff", "#e6eef6")
 # [data-field] whose own fill can be the raw accent.
 
 ROLE_TOKENS = {
-    # Per skin: the nine token names the override writes, the skin's own
-    # frozen main and accent (needed for the CROSS TERMS — a chosen main
-    # with an unset accent still has to derive the header's link-hover
-    # colour from the skin's own accent, against the chosen ground), and the
-    # surface set the accent renders as text on.
+    # Per skin: the nine scalar token names the override writes, the "rings"
+    # row — which is a LIST of (token, grounds) pairs rather than a scalar,
+    # and the reason the two skins now write a different NUMBER of
+    # declarations — the skin's own frozen main and accent (needed for the
+    # CROSS TERMS: a chosen main with an unset accent still has to derive
+    # the header's link-hover colour from the skin's own accent, against the
+    # chosen ground), and the surface set the accent renders as text on.
+    #
+    # THE RINGS ROW IS THE GROUND TABLE, in this one place, the way the rest
+    # of this table is. Each pair names the token a rule reads and the
+    # ground(s) that rule's button is painted on; MAIN stands for the
+    # owner's main colour, which has no literal until a request arrives. Two
+    # clauses hold over every row and tests/test_palette.py checks them off
+    # the table statically, with no colour sweep: a tuple CONTAINING MAIN
+    # must be the singleton (MAIN,), and a tuple containing NO MAIN must
+    # have a member of ("#000000", "#ffffff") clearing 3:1 against every one
+    # of its grounds. Together they are what makes ring_on structurally
+    # unable to raise — for these rows and for any row added later.
     #
     # V1's main role is --header-bg, a token this change ADDS, because the
     # header's ground is var(--card) and --card is eleven other surfaces
@@ -455,6 +561,22 @@ ROLE_TOKENS = {
         "accent_hover_ink": "--accent-dark-ink",
         "accent_fg": "--accent-fg",
         "accent_edge": "--accent-edge",
+        "rings": (
+            # Every .button.primary in this skin except the header's. Six
+            # sites, all on a surface of V1_SURFACES: the hero .cta-contact
+            # (page.html:65) and the yhteydenotto section's .cta-contact
+            # (page.html:159), both of which walk to body's --paper because
+            # neither .hero (style.css:157) nor .contact (:267) declares a
+            # background; .cd-submit and .login-submit on --card; and
+            # direct-edit's .direct-julkaise, which sits in
+            # .direct-publishbar (direct-edit.css:173, NOT the topbar) on
+            # that rule's var(--card).
+            ("--accent-ring", V1_SURFACES),
+            # .site-header .button.primary (page.html:180), whose ground is
+            # --header-bg (style.css:121) — main_bg, the owner's own colour,
+            # which is why this ground is MAIN and not a literal.
+            ("--accent-ring-header", (MAIN,)),
+        ),
     },
     "v2": {
         "default_main": "#d9e8f2",   # --v2-header
@@ -469,6 +591,29 @@ ROLE_TOKENS = {
         "accent_hover_ink": "--v2-rust-dark-ink",
         "accent_fg": "--v2-rust-fg",
         "accent_edge": "--v2-rust-edge",
+        "rings": (
+            # The primary buttons on a light surface: the hero card's
+            # (page_v2.html:146) on --v2-card, .cd-submit and .login-submit
+            # on --v2-card, and direct-edit's Julkaise, whose ground walks
+            # all the way to body's --v2-page because .direct-publishbar's
+            # `background: var(--card)` (direct-edit.css:173) is invalid on
+            # a skin that declares no --card — the same invalidity
+            # tests/browser/test_browser_colors.py records for
+            # .direct-topbar in its SWEEP_ROUTES comment. That last site is
+            # why this row takes the whole V2_SURFACES tuple rather than
+            # #ffffff alone.
+            ("--v2-rust-ring", V2_SURFACES),
+            # .v2-contact-primary (page_v2.html:296) inside
+            # .v2-contact-card, whose background is --v2-navy
+            # (style-v2.css:541) — the one site that fails 3:1 before any
+            # owner picks anything, at 2.1987 for the shipped rust and
+            # 1.6108 for its hover shade.
+            ("--v2-rust-ring-navy", ("#14324a",)),
+            # .header-contact (page_v2.html:317) inside .v2-header
+            # (style-v2.css:165), whose ground is main_bg — the owner's own
+            # colour, hence MAIN.
+            ("--v2-rust-ring-header", (MAIN,)),
+        ),
     },
 }
 
@@ -501,9 +646,16 @@ def palette_css(style, main, accent):
     The output alphabet is [-a-z0-9:;#{}] by construction: token names are
     literals from the table above and every value comes out of
     resolve_color, on_color, shade or readable_on, all of which return
-    lowercase "#rrggbb". No <, no quote and no closing brace can appear in
-    it, which is what makes emitting it inside <style> safe. The templates
-    emit it WITHOUT |safe all the same — see page.html.
+    lowercase "#rrggbb" — or out of ring_on, whose OTHER return is the bare
+    keyword "transparent". That is the one value in the block that is not a
+    hash and six hex digits, and it was checked against the alphabet rather
+    than assumed into it: "transparent" is eleven lowercase letters, so it
+    sits inside the same [-a-z0-9:;#]+ that tests/test_palette.py's _BLOCK
+    and the browser suite's copy of that regex both already enforce, and
+    neither had to be widened to admit it. No <, no quote and no closing
+    brace can appear in the output, which is what makes emitting it inside
+    <style> safe. The templates emit it WITHOUT |safe all the same — see
+    page.html.
     """
     tokens = ROLE_TOKENS[resolve_style(style)]
     chosen_main = resolve_color(main)
@@ -532,6 +684,23 @@ def palette_css(style, main, accent):
             tokens["accent_edge"],
             visible_on(effective_accent, tokens["surfaces"]),
         ),
+    ) + tuple(
+        # APPENDED, never interleaved, and the byte-identity pins in
+        # tests/test_palette.py depend on that: the nine values above come
+        # out in the order they came out in before LLM-COP-44, and the rings
+        # follow. MAIN is substituted here and only here — it is the one
+        # ground that is not a literal.
+        (
+            token,
+            ring_on(
+                (effective_accent, hover),
+                tuple(
+                    effective_main if ground == MAIN else ground
+                    for ground in grounds
+                ),
+            ),
+        )
+        for token, grounds in tokens["rings"]
     )
     body = "".join(f"{name}:{value};" for name, value in declarations)
     return ":root{" + body + "}"

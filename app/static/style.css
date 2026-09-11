@@ -9,7 +9,7 @@
   --card: #ffffff;
   --line: #e4ddd3;
 
-  /* The seven tokens the owner's colour override writes into (USR-COP-2).
+  /* The nine tokens the owner's colour override writes into (USR-COP-2).
      Every default below is the literal or the var() that supplied the value
      before this change, so a site that has chosen no colour renders exactly
      what it rendered before — the override is a <style> block that is
@@ -30,14 +30,38 @@
 
      --accent-edge is the accent as a LINE (LLM-COP-40), walked until it
      reaches WCAG 2.1 SC 1.4.11's 3:1 against --paper and --card rather than
-     SC 1.4.3's 4.5 — a different claim, not a relaxed one, so it is a ninth
-     value and not a reuse of --accent-fg. Read by .button.secondary's
-     border-color, the .fact-card and .service-card top rules, and the
-     direct-edit affordance and focus ring in direct-edit.css, which loads
-     after this file in the same document. The bare .button border below
-     deliberately KEEPS var(--accent): on a primary button it is
-     byte-identical to the fill, so it is no boundary, and on v2 that
-     button's grounds are not surfaces the derivation constrains at all. */
+     SC 1.4.3's 4.5 — a different claim, not a relaxed one, so it is a
+     value of its own and not a reuse of --accent-fg. Read by
+     .button.secondary's border-color, the .fact-card and .service-card top
+     rules, and the direct-edit affordance and focus ring in direct-edit.css,
+     which loads after this file in the same document. The bare .button
+     border below deliberately KEEPS var(--accent): on a primary button it is
+     byte-identical to the fill, so it is no boundary anyone perceives.
+
+     --accent-ring and --accent-ring-header are the PRIMARY button's
+     boundary (LLM-COP-44), and they are what the sentence above leaves
+     open: a filled button whose border is its own fill has no boundary at
+     all except fill-against-ground, and that ground is not a surface this
+     skin's derivation can walk the fill toward, because the fill is the
+     owner's literal pick. So the boundary is drawn OUTSIDE the border box
+     instead, as `box-shadow: 0 0 0 1px`, in a colour app/palette.py derives
+     to 3:1 against the one ground the button actually sits on. Two tokens
+     because there are two grounds: every primary button on this page walks
+     to --paper or --card, EXCEPT the header's, which sits on --header-bg —
+     the owner's own main colour, where a single pick for both roles would
+     otherwise render the button at 1.0000:1.
+
+     Both default to `transparent` and both stay transparent on the shipped
+     palette, which is not a coincidence but the derivation's identity case:
+     #1f6f5c clears --paper/--card at 5.6363 and the default header ground
+     at 6.0231, and the hand-picked hover --accent-dark: #17594a clears them
+     at 7.6635 and 8.1895, so the fill is already carrying the boundary and
+     nothing is painted. A V1 page that has chosen no colour renders exactly
+     what it rendered before this change — not approximately, exactly.
+     --accent-ring is NOT a reuse of --accent-edge for the same reason
+     --accent-edge was not a reuse of --accent-fg: the edge token can never
+     be transparent, because on .button.secondary the border is the only
+     boundary there is, and the ring token must be. */
   --header-bg: var(--card);
   --header-ink: var(--ink);
   --header-accent: var(--accent);
@@ -45,6 +69,8 @@
   --accent-dark-ink: #ffffff;
   --accent-fg: var(--accent);
   --accent-edge: var(--accent);
+  --accent-ring: transparent;         /* both light surfaces of this skin */
+  --accent-ring-header: transparent;  /* the owner's header ground */
 }
 
 * { box-sizing: border-box; }
@@ -72,9 +98,19 @@ a { color: var(--accent-fg); }
   cursor: pointer;
   text-decoration: none;
 }
-.button.primary { background: var(--accent); color: var(--accent-ink); }
+/* The 1px box-shadow is the primary button's BOUNDARY (LLM-COP-44), drawn
+   just outside the border box so that its ground is the container and not
+   the button's own fill. One rule per ground, because the derivation is per
+   ground: the base rule serves every primary button that walks to --paper or
+   --card, and the override below serves the one that sits on --header-bg.
+   The override is (0,3,0) against the base's (0,2,0), so it wins whatever
+   the source order. Neither :hover rule re-declares box-shadow, so the ring
+   survives hover — which is the state it is most needed in, the hover fill
+   being the darker of the two. */
+.button.primary { background: var(--accent); color: var(--accent-ink); box-shadow: 0 0 0 1px var(--accent-ring); }
 .button.primary:hover { background: var(--accent-dark); color: var(--accent-dark-ink); }
 .button.secondary { background: transparent; color: var(--accent-fg); border-color: var(--accent-edge); }
+.site-header .button.primary { box-shadow: 0 0 0 1px var(--accent-ring-header); }
 
 /* Header */
 .site-header {
