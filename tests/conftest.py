@@ -184,8 +184,41 @@ APP_ROOT = os.path.join(
 )
 
 
+# The one file under app/ that assert_absent_from_app below skips.
+#
+# LLM-COP-38's breached-password deny-list is 29,954 lines of other people's
+# leaked passwords. It is the only file under app/ that is not the product's
+# own text, so a needle that matched a line of it would say nothing whatever
+# about whether the product reads the store — which is the only thing that
+# helper exists to answer.
+#
+# A FORWARD GUARD, AND SAID SO PLAINLY: measured when this landed, the helper
+# is called from 8 files at 29 call sites carrying 45 distinct needle values,
+# and ZERO of them appear in the list. This skip prevents no failure today.
+# What it prevents is the next one: of the 2,080 distinct string literals in
+# tests/ between 4 and 40 characters, 112 are substrings of the list — among
+# them "admin", "badge", "brand", "cookie", "email", "error", "label" and
+# "preview" — and one, "unauthorized", is an exact entry. The first time
+# anyone hands a short lowercase word to this helper it would fail for a
+# reason with nothing to do with the product. The 45 values survive today
+# because they are specific invented strings, not because the list cannot
+# hold their shape: four of them already equal their own casefold, and two of
+# those contain no space, so neither capitals nor spaces are what saves them.
+#
+# It covers tests/browser/ too, which shares this helper and runs under the
+# bare `pytest` CI invokes.
+#
+# NOT A SPEED MEASURE, and must not be sold as one: those 29 extra reads and
+# scans cost about 15 ms across the whole suite. The reason is correctness.
+# app/breached_passwords.SOURCE.txt is deliberately NOT skipped — it is
+# English prose a person wrote, and belongs under the guard like every other
+# file in app/.
+NOT_THE_PRODUCTS_OWN_TEXT = "breached_passwords.txt"
+
+
 def assert_absent_from_app(*strings):
-    """Every string given must appear NOWHERE under app/.
+    """Every string given must appear NOWHERE under app/, except in
+    NOT_THE_PRODUCTS_OWN_TEXT.
 
     This is what makes an "the owner can change this" test falsifiable, and
     it is checked rather than promised in a docstring. A test that rewrites a
@@ -206,6 +239,8 @@ def assert_absent_from_app(*strings):
     for base, dirs, files in os.walk(APP_ROOT):
         dirs[:] = [d for d in dirs if d != "__pycache__"]
         for name in files:
+            if name == NOT_THE_PRODUCTS_OWN_TEXT:
+                continue
             path = os.path.join(base, name)
             try:
                 with open(path, encoding="utf-8") as handle:

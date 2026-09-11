@@ -13,6 +13,7 @@ result.
 """
 
 import hashlib
+import inspect
 import json
 import os
 import subprocess
@@ -26,7 +27,7 @@ import pytest
 from werkzeug.security import check_password_hash
 
 import app as app_module
-from app import LOGIN_ERROR, auth, create_app, messages, totp
+from app import LOGIN_ERROR, auth, create_app, messages, passwords, totp
 from app import db as database
 from tests.conftest import (
     ADMIN_PASSWORD as PASSWORD,
@@ -125,7 +126,7 @@ def gated_app(admin_app):
 
 
 def test_db_never_holds_the_raw_token(conn):
-    token = auth.mint_session(conn, remember=False)
+    token = auth.mint_session(conn, 1, remember=False)
     rows = session_rows(conn)
     assert len(rows) == 1
     for value in tuple(rows[0]):
@@ -137,7 +138,7 @@ def test_db_never_holds_the_raw_token(conn):
 
 
 def test_idle_31_min_without_remember_refuses_and_deletes_the_row(conn, app):
-    token = auth.mint_session(conn, remember=False)
+    token = auth.mint_session(conn, 1, remember=False)
     rewind_last_seen(conn, 31 * 60)
     assert session_lookup(app, conn, token) is None
     assert session_rows(conn) == []
@@ -146,7 +147,7 @@ def test_idle_31_min_without_remember_refuses_and_deletes_the_row(conn, app):
 
 
 def test_idle_31_min_with_remember_still_passes(conn, app):
-    token = auth.mint_session(conn, remember=True)
+    token = auth.mint_session(conn, 1, remember=True)
     rewind_last_seen(conn, 31 * 60)
     row = session_lookup(app, conn, token)
     assert row is not None
@@ -154,7 +155,7 @@ def test_idle_31_min_with_remember_still_passes(conn, app):
 
 
 def test_remember_session_past_expires_at_is_refused(conn, app):
-    token = auth.mint_session(conn, remember=True)
+    token = auth.mint_session(conn, 1, remember=True)
     conn.execute("UPDATE sessions SET expires_at = ?", (int(time.time()) - 1,))
     conn.commit()
     assert session_lookup(app, conn, token) is None
@@ -162,7 +163,7 @@ def test_remember_session_past_expires_at_is_refused(conn, app):
 
 
 def test_last_seen_at_slides_on_a_valid_request(conn, app):
-    token = auth.mint_session(conn, remember=False)
+    token = auth.mint_session(conn, 1, remember=False)
     rewind_last_seen(conn, 20 * 60)
     (before,) = conn.execute("SELECT last_seen_at FROM sessions").fetchone()
     assert session_lookup(app, conn, token) is not None
@@ -2118,3 +2119,413 @@ def test_an_expired_pending_row_is_deleted_not_merely_refused(app):
         assert c.execute("SELECT * FROM pending_logins").fetchall() == []
     finally:
         c.close()
+
+
+# --- LLM-COP-38: the password policy, and the reset that evicts the attacker -
+#
+# Every test below runs against a real temp-file SQLite store, the real click
+# commands through app.test_cli_runner(), and the real Flask routes through a
+# test client. The CLI runner and the test client share the SAME database
+# file, and that shared file is the coupling this change is about — so
+# in-process here is the real target rather than a convenience.
+
+
+def session_token_of(response):
+    """The admin_session cookie a response set, or None."""
+    jar = SimpleCookie()
+    for header in response.headers.getlist("Set-Cookie"):
+        jar.load(header)
+    if auth.SESSION_COOKIE not in jar:
+        return None
+    return jar[auth.SESSION_COOKIE].value
+
+
+def cli_reset(app, password):
+    return app.test_cli_runner().invoke(
+        args=["admin-reset-password"], input=f"{password}\n{password}\n"
+    )
+
+
+def admin_id(app):
+    return admin_row(app)[0]["id"]
+
+
+# Long enough, and NOT in the shipped list — asserted against app/passwords.py
+# below rather than assumed, so this constant cannot quietly become a password
+# the policy refuses and turn a revocation test green for the wrong reason.
+STRONG_NEW_PASSWORD = "uusi pitka salasana 789"
+
+# Twelve characters, which clears the length rule, and in the shipped breached
+# list. The pair below is what proves the CLI consults BOTH rules rather than
+# one rule with two messages.
+BREACHED_PASSWORD = "aaaaaaaaaaaa"
+SHORT_PASSWORD = "lyhyt"
+
+
+def test_the_passwords_this_module_relies_on_are_what_it_says_they_are():
+    """The premise of every CLI test below, checked rather than assumed."""
+    assert passwords.refusal(STRONG_NEW_PASSWORD) is None
+    assert passwords.refusal(PASSWORD) is None  # conftest's admin password
+    assert len(SHORT_PASSWORD) < passwords.MIN_LENGTH
+    assert len(BREACHED_PASSWORD) == passwords.MIN_LENGTH
+    assert passwords.refusal(BREACHED_PASSWORD) is not None
+
+
+# --- admin-create refuses before it writes -----------------------------------
+
+
+def test_admin_create_refuses_a_short_password_and_creates_nothing(app):
+    """Refused BEFORE the INSERT, which is the whole point of where the check
+    sits: a rejected password must leave no half-made account behind for the
+    owner to find later and wonder about."""
+    result = cli_create(app, password=SHORT_PASSWORD)
+
+    assert result.exit_code != 0
+    assert str(passwords.MIN_LENGTH) in result.output
+    c = app_conn(app)
+    try:
+        (count,) = c.execute("SELECT COUNT(*) FROM admin_user").fetchone()
+        assert count == 0
+    finally:
+        c.close()
+
+
+def test_admin_create_refuses_a_breached_password_and_creates_nothing(app):
+    """Twelve characters — the length rule admits it and the list does not.
+
+    Paired with the test above, this is what shows admin-create consults the
+    whole policy: the two refusals cannot both be coming from a length check.
+    """
+    result = cli_create(app, password=BREACHED_PASSWORD)
+
+    assert result.exit_code != 0
+    assert "breached" in result.output
+    # Not the length message, or this would prove nothing the previous test
+    # does not already prove.
+    assert str(passwords.MIN_LENGTH) not in result.output
+    c = app_conn(app)
+    try:
+        (count,) = c.execute("SELECT COUNT(*) FROM admin_user").fetchone()
+        assert count == 0
+    finally:
+        c.close()
+
+
+def test_admin_create_refuses_a_second_account_before_it_reads_a_password(app):
+    """Why test_admin_create_refuses_a_second_account stays green UNCHANGED
+    while passing a nine-character password.
+
+    That test predates this policy and is not about it. With an account
+    already present the command raises at the existing-account check, which
+    runs before click.prompt ever reads stdin — so the weak password is never
+    evaluated, and the refusal a person sees is still the one that tells them
+    about admin-reset-password rather than a confusing complaint about
+    length. This test exists so that ordering is a claim the gate checks,
+    instead of something a later reader has to re-derive before deciding the
+    older test is not quietly broken.
+    """
+    assert cli_create(app).exit_code == 0
+
+    result = cli_create(app, username="toinen.tunnus", password="toinen pw")
+
+    assert result.exit_code != 0
+    assert "admin-reset-password" in result.output
+    assert str(passwords.MIN_LENGTH) not in result.output
+    assert "breached" not in result.output
+    # Not even prompted for: the prompt never ran, so the input was unread.
+    assert "Password" not in result.output
+
+
+# --- admin-reset-password refuses before it writes ---------------------------
+
+
+def test_admin_reset_password_refuses_a_weak_password_byte_for_byte(app):
+    """The stored hash is BYTE-IDENTICAL afterwards, which is a stronger
+    claim than "the old password still works".
+
+    A command that validated after re-hashing would leave a different hash
+    that still verified the same password, and "the old password still works"
+    would happily pass. Comparing the stored string exactly is the only
+    assertion that can tell those two apart.
+    """
+    assert cli_create(app).exit_code == 0
+    before = admin_row(app)[0]["password_hash"]
+
+    for weak, expected in (
+        (SHORT_PASSWORD, str(passwords.MIN_LENGTH)),
+        (BREACHED_PASSWORD, "breached"),
+    ):
+        result = cli_reset(app, weak)
+
+        assert result.exit_code != 0, weak
+        assert expected in result.output, weak
+        assert admin_row(app)[0]["password_hash"] == before, weak
+
+    # And the account is still usable through the real route, which is what
+    # an owner actually cares about after a refused reset.
+    response = login(app.test_client())
+    assert response.status_code == 302
+    assert session_token_of(response)
+
+
+def test_a_refused_reset_signs_nobody_out(gated_app):
+    """The revocation rides on the write, not on the command being invoked.
+
+    A refused password must not cost the owner their live session as a
+    consolation prize — that would turn a typo into the very lockout the
+    policy exists to avoid.
+    """
+    client = gated_app.test_client()
+    assert login(client).status_code == 302
+
+    result = cli_reset(gated_app, SHORT_PASSWORD)
+
+    assert result.exit_code != 0
+    c = app_conn(gated_app)
+    try:
+        assert len(session_rows(c)) == 1
+    finally:
+        c.close()
+    assert client.get("/_suojattu").status_code == 200
+
+
+# --- the reset evicts, end to end --------------------------------------------
+
+
+def test_a_password_reset_signs_out_a_live_session(gated_app):
+    """THE bar: the whole eviction, driven through the real route and the
+    real command against one database file.
+
+    Sign in for real and keep the cookie the route issued. Leave a real
+    half-finished login on the account as well — auth.mint_pending is the
+    production writer kirjaudu() itself calls, and the row it writes is
+    redeemable at the code step with nothing but six digits, so it is a
+    credential minted by the OLD password and must not survive it. Then run
+    the real admin-reset-password through the CLI runner and ask the five
+    questions that together mean "the attacker is out":
+
+      the session rows are gone; the pending row is gone; the old cookie is
+      refused by the real gate; the new password signs in; the old password
+      does not.
+
+    Any four of those without the fifth is a control that only looks like it
+    works.
+    """
+    client = gated_app.test_client()
+    response = login(client)
+    assert response.status_code == 302
+    token = session_token_of(response)
+    assert token
+    assert client.get("/_suojattu").status_code == 200
+
+    user_id = admin_id(gated_app)
+    c = app_conn(gated_app)
+    try:
+        auth.mint_pending(c, user_id, False)
+        assert len(c.execute("SELECT * FROM pending_logins").fetchall()) == 1
+        assert len(session_rows(c)) == 1
+    finally:
+        c.close()
+
+    result = cli_reset(gated_app, STRONG_NEW_PASSWORD)
+    assert result.exit_code == 0, result.output
+    assert "signed out" in result.output
+
+    c = app_conn(gated_app)
+    try:
+        assert session_rows(c) == []
+        assert (
+            c.execute(
+                "SELECT * FROM pending_logins WHERE user_id = ?", (user_id,)
+            ).fetchall()
+            == []
+        )
+    finally:
+        c.close()
+
+    # The cookie the route issued a moment ago, re-presented at a real gated
+    # route: refused, and sent back to the login dialog.
+    fresh = gated_app.test_client()
+    fresh.set_cookie(auth.SESSION_COOKIE, token)
+    refused = fresh.get("/_suojattu")
+    assert refused.status_code == 302
+    assert urlparse(refused.headers["Location"]).path == "/yllapito"
+    # The client that WAS signed in, too — its jar still holds the cookie and
+    # it is just as dead.
+    assert client.get("/_suojattu").status_code == 302
+
+    # The new password works...
+    new_login = login(gated_app.test_client(), password=STRONG_NEW_PASSWORD)
+    assert new_login.status_code == 302
+    assert session_token_of(new_login)
+
+    # ...and the old one is finished, answered by the one generic failure.
+    old_login = login(gated_app.test_client(), password=PASSWORD)
+    assert old_login.status_code == 200
+    assert LOGIN_ERROR in old_login.get_data(as_text=True)
+    assert "Set-Cookie" not in old_login.headers
+
+
+# --- disabling the factor evicts too, and hands the account back -------------
+
+
+def test_disabling_the_factor_signs_out_a_live_two_step_session(
+    gated_app, monkeypatch
+):
+    """The same eviction on the other credential-weakening command, and the
+    other half of the promise in the same test.
+
+    Enrol through the real admin-totp-enable, complete a real two-step login,
+    hold the cookie that second step issued. Then admin-totp-disable: the
+    cookie is dead, AND a ONE-STEP login with the password alone works again.
+    Proved on THE SAME ACCOUNT, which is the only way to say "an account
+    without a second factor signs in exactly as it did before" — a different
+    account would only show that some account can.
+    """
+    enrol(gated_app, monkeypatch)
+    freeze_totp(monkeypatch, LOGIN_AT)
+
+    client = gated_app.test_client()
+    first = login(client)
+    assert first.status_code == 200  # the password step alone is not a session
+    assert session_token_of(first) is None
+    second = post_code(client, code_for(LOGIN_AT))
+    assert second.status_code == 302
+    token = session_token_of(second)
+    assert token
+    assert client.get("/_suojattu").status_code == 200
+
+    user_id = admin_id(gated_app)
+    c = app_conn(gated_app)
+    try:
+        rows = session_rows(c)
+        assert len(rows) == 1
+        assert rows[0]["user_id"] == user_id  # the two-step path owns it too
+    finally:
+        c.close()
+
+    result = gated_app.test_cli_runner().invoke(args=["admin-totp-disable"])
+    assert result.exit_code == 0, result.output
+    assert "signed out" in result.output
+
+    c = app_conn(gated_app)
+    try:
+        assert session_rows(c) == []
+    finally:
+        c.close()
+
+    fresh = gated_app.test_client()
+    fresh.set_cookie(auth.SESSION_COOKIE, token)
+    refused = fresh.get("/_suojattu")
+    assert refused.status_code == 302
+    assert urlparse(refused.headers["Location"]).path == "/yllapito"
+
+    # And the way back in is ONE step, with the password that was never
+    # changed — the factor came off, the account did not.
+    one_step = gated_app.test_client()
+    response = login(one_step)
+    assert response.status_code == 302
+    assert session_token_of(response)
+    assert one_step.get("/_suojattu").status_code == 200
+    c = app_conn(gated_app)
+    try:
+        rows = session_rows(c)
+        assert len(rows) == 1
+        assert rows[0]["user_id"] == user_id
+    finally:
+        c.close()
+
+
+# --- session ownership (sessions.user_id, migration 15) ----------------------
+
+
+def test_a_one_step_login_records_the_session_owner(admin_app):
+    """The column is written by the ROUTE, not only by the migration's
+    backfill — otherwise every session minted after the upgrade would be an
+    orphan and revocation would rest entirely on the fail-closed NULL clause.
+    """
+    response = login(admin_app.test_client())
+    assert response.status_code == 302
+
+    c = app_conn(admin_app)
+    try:
+        rows = session_rows(c)
+        assert len(rows) == 1
+        assert rows[0]["user_id"] is not None
+        assert rows[0]["user_id"] == admin_id(admin_app)
+    finally:
+        c.close()
+
+
+def test_a_two_step_login_records_the_session_owner(admin_app, monkeypatch):
+    """The second call site, which takes the owner from the pending row
+    rather than from a user lookup — a different line of code making the same
+    promise, so it needs its own proof."""
+    enrol(admin_app, monkeypatch)
+    freeze_totp(monkeypatch, LOGIN_AT)
+    client = admin_app.test_client()
+    assert login(client).status_code == 200
+    assert post_code(client, code_for(LOGIN_AT)).status_code == 302
+
+    c = app_conn(admin_app)
+    try:
+        rows = session_rows(c)
+        assert len(rows) == 1
+        assert rows[0]["user_id"] is not None
+        assert rows[0]["user_id"] == admin_id(admin_app)
+    finally:
+        c.close()
+
+
+def test_revoke_sessions_for_user_takes_one_account_and_leaves_the_other(conn):
+    """The seam itself: by account, counted, and fail-closed on NULL.
+
+    Four rows minted by the real mint_session for two different owners, one
+    of which then has its owner column emptied. That last row is written with
+    direct SQL because it is a state the code cannot produce any more — a
+    pre-migration session on a store that had sessions and no account — and
+    it is exactly the row the `OR user_id IS NULL` clause exists for: a
+    revocation must never leave a session alive merely because nobody knows
+    whose it was.
+    """
+    auth.mint_session(conn, 1, remember=False)
+    auth.mint_session(conn, 1, remember=True)
+    others = auth.mint_session(conn, 2, remember=False)
+    orphan = auth.mint_session(conn, 1, remember=False)
+    conn.execute(
+        "UPDATE sessions SET user_id = NULL WHERE token_hash = ?",
+        (hashlib.sha256(orphan.encode("utf-8")).hexdigest(),),
+    )
+    conn.commit()
+    assert len(session_rows(conn)) == 4
+
+    removed = auth.revoke_sessions_for_user(conn, 1)
+
+    assert removed == 3  # the two owned rows and the orphan
+    rows = session_rows(conn)
+    assert len(rows) == 1
+    assert rows[0]["user_id"] == 2
+    assert (
+        rows[0]["token_hash"]
+        == hashlib.sha256(others.encode("utf-8")).hexdigest()
+    )
+
+    # Asking again removes nothing and says so, which is what makes the
+    # returned count a report rather than a guess.
+    assert auth.revoke_sessions_for_user(conn, 1) == 0
+    assert len(session_rows(conn)) == 1
+
+
+def test_mint_session_will_not_write_a_session_without_an_owner():
+    """user_id is positional and required, so a call site that forgot the
+    owner is a TypeError at the call rather than an unrevocable row in the
+    store. The signature IS the guarantee here: the column has to allow NULL
+    (SQLite's ADD COLUMN refuses NOT NULL without a default), so the database
+    cannot say this and Python has to."""
+    parameters = list(
+        inspect.signature(auth.mint_session).parameters.values()
+    )
+    assert [p.name for p in parameters] == ["conn", "user_id", "remember"]
+    owner = parameters[1]
+    assert owner.default is inspect.Parameter.empty
+    assert owner.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD

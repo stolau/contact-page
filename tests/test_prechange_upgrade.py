@@ -480,6 +480,26 @@ def upgraded_to_13(path, rows=FROZEN_V6_ROWS):
     return conn
 
 
+def upgraded_to_14(path, rows=FROZEN_V6_ROWS):
+    """The frozen install brought to the state migration 15 finds it in.
+
+    upgraded_to_13's sibling, one link on: MIGRATIONS[6:14] — migrations 7
+    through 14 — called directly and in order, so _migration_15 is the only
+    thing that has not run yet. Same reason, stated once more because it is
+    the reason the whole file exists: a migration's byte-for-byte test has to
+    be handed the real input a real install would give it, and it has to be
+    the last thing that touches the store.
+
+    frozen_v6_store runs MIGRATIONS[:6], which includes _migration_2, so
+    admin_user and sessions both exist in this fixture — which is what lets
+    migration 15's ALTER and its unique index run against it at all.
+    """
+    conn = frozen_v6_store(path, rows)
+    for migration in database.MIGRATIONS[6:14]:
+        migration(conn)
+    return conn
+
+
 def rows_by_kind(conn):
     return {
         row["kind"]: row
@@ -654,7 +674,7 @@ def test_the_frozen_v6_install_upgrades_with_every_badge_unchanged(tmp_path):
     database.migrate(conn)
 
     (version,) = conn.execute("PRAGMA user_version").fetchone()
-    assert version == len(database.MIGRATIONS) == 14
+    assert version == len(database.MIGRATIONS) == 15
     stored = rows_by_kind(conn)
     for kind, row in stored.items():
         assert badge(row["state"], row["draft"], row["published"]) == (
@@ -1847,6 +1867,95 @@ def test_migration_14_does_not_flip_a_clean_tietoa_badge_when_the_heros_draft_an
         assert badge(row["state"], row["draft"], row["published"]) == (
             before_badges[kind]
         ), kind
+    conn.close()
+
+
+def test_migration_15_leaves_the_frozen_install_byte_for_byte_unchanged(
+    tmp_path,
+):
+    """LLM-COP-38's migration adds a column, a backfill and an index, and
+    touches no section text at all — proved, not said.
+
+    The direct sibling of
+    test_migration_10_leaves_the_frozen_install_byte_for_byte_unchanged, and
+    written for the same reason it was. The house standard here is a
+    frozen-literal splice, so that a separator, a sort_keys or an ensure_ascii
+    mistake in a migration's own serialiser shows up as a diff. Migration 15
+    has nothing to splice — it reads no sections row, writes no payload and
+    touches no draft/published/previous_published text — so minting a new
+    MIGRATED_15_* constant would be MIGRATED_11_HERO_DRAFT under a different
+    name, and would prove nothing.
+
+    What has to be proved instead is that the whole stored install comes
+    through THIS migration byte-for-byte, and that is what this asserts:
+    every row compared against expectations SPLICED FROM THE FROZEN LITERALS
+    rather than read back out of the store before the migration ran, and
+    every badge compared to hard-coded FROZEN_BADGES rather than to a badge
+    recomputed from the migrated rows — a recomputed badge would agree with a
+    migration that flipped all six, which is the one failure this file exists
+    to catch.
+
+    _migration_7 through _migration_14 are run by upgraded_to_14 rather than
+    by migrate(), the idiom every per-migration test in this file uses: once
+    _migration_15 is in MIGRATIONS, migrate() would run it too and this test
+    could no longer say which link left the bytes it is looking at.
+
+    The last assertions are the anti-vacuity guard. "Nothing changed" is also
+    true of a migration that did nothing at all, so the two shape changes are
+    shown to have happened — and the backfill is shown to have left the
+    sessions table alone here, because this fixture has no session rows and
+    no admin row, which is exactly the state an install that has never been
+    signed into is in.
+    """
+    conn = upgraded_to_14(tmp_path / "fifteen.sqlite3")
+
+    database._migration_15(conn)
+
+    stored = rows_by_kind(conn)
+    # The hero, through the whole frozen -> +style -> +portrait_alt ->
+    # +background -> +colours splice chain, and no further: migration 15 must
+    # leave the same literal migration 11 left.
+    assert stored["hero"]["draft"] == MIGRATED_11_HERO_DRAFT
+    assert stored["hero"]["published"] == MIGRATED_11_HERO_DRAFT
+    # yhteydenotto, likewise, at exactly where migration 12 left it.
+    assert stored["yhteydenotto"]["draft"] == MIGRATED_12_YHTEYDENOTTO
+    assert stored["yhteydenotto"]["published"] == MIGRATED_12_YHTEYDENOTTO
+    for kind, _position, _state, draft, published, previous in FROZEN_V6_ROWS:
+        assert stored[kind]["previous_published"] == previous, kind
+        if kind not in MIGRATION_14_KINDS:
+            continue
+        # The frozen text, plus migration 8's suffix, plus migration 14's —
+        # built by string arithmetic over the captured literals, never read
+        # back out of the store.
+        eight = MIGRATION_8_SUFFIXES[kind]
+        after_8_draft = draft[:-1] + eight
+        after_8_published = published[:-1] + eight
+        assert stored[kind]["draft"] == (
+            after_8_draft[:-1] + MIGRATION_14_BLANK_SUFFIX
+        ), kind
+        assert stored[kind]["published"] == (
+            after_8_published[:-1] + MIGRATION_14_BLANK_SUFFIX
+        ), kind
+    for kind, row in stored.items():
+        assert badge(row["state"], row["draft"], row["published"]) == (
+            FROZEN_BADGES[kind]
+        ), kind
+
+    # Anti-vacuity: the migration really did the two things it exists to do.
+    columns = {
+        row["name"] for row in conn.execute("PRAGMA table_info(sessions)")
+    }
+    assert "user_id" in columns
+    indexes = list(conn.execute("PRAGMA index_list(admin_user)"))
+    assert any(
+        row["name"] == "admin_user_username" and row["unique"]
+        for row in indexes
+    ), indexes
+    # And it seeded no session onto an install that has never been signed
+    # into — an upgrade that minted a session would be a live cookie nobody
+    # ever issued.
+    (sessions,) = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()
+    assert sessions == 0
     conn.close()
 
 
