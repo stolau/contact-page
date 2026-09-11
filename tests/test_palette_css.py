@@ -252,6 +252,34 @@ RETARGETED = (
         "outline",
         "2px solid var(--accent-edge)",
     ),
+    # LLM-COP-42 — direct-edit.css's TEXT and EDGE sites, the five the
+    # override reached and nothing constrained. Three text colours and two
+    # edges, all of them measured at 1.2019:1 on V1 against --card before
+    # this change.
+    #
+    # --accent-ink appears once and the exception is the point:
+    # .direct-field-tag's GROUND is the accent itself (`background:
+    # var(--accent)`, direct-edit.css:129), which is the .button.primary
+    # case. --accent-fg is readable_on(accent, V1_SURFACES) and says
+    # nothing about legibility ON the accent — for #ffe9a8 it is #856f2e,
+    # which on #ffe9a8 measures 4.0536:1 and FAILS 4.5. The other four sit
+    # on --card, which is a frozen literal no owner role can move, so the
+    # existing V1 derivations are sound there with no new surface tuple.
+    ("direct-edit.css", ".direct-esikatsele", "color", "var(--accent-fg)"),
+    ("direct-edit.css", ".direct-field-tag", "color", "var(--accent-ink)"),
+    ("direct-edit.css", ".direct-changes", "color", "var(--accent-fg)"),
+    (
+        "direct-edit.css",
+        ".direct-changes",
+        "border",
+        "1px solid var(--accent-edge)",
+    ),
+    (
+        "direct-edit.css",
+        ".direct-toolbar button:hover:not(:disabled)",
+        "border-color",
+        "var(--accent-edge)",
+    ),
 )
 
 # The border rules that KEEP the owner's raw colour, and must. Asserted as
@@ -301,6 +329,16 @@ OWNER_GROUNDED = (
     ("style.css", ".brand-avatar"),
     ("style-v2.css", ".button.primary"),
     ("style-v2.css", ".button.primary:hover"),
+    # LLM-COP-42 — the fence reaches direct-edit.css. A file-wide sweep of
+    # that stylesheet for literal `color` values — which is what this fence
+    # reads, and the qualifier is load-bearing: the file also carries two
+    # literal rgba()s, at :48's active-field wash and :146's toolbar
+    # box-shadow, and neither is a text colour — returns exactly two: this
+    # one, which shipped `color: #fff` over `background: var(--accent)`, and
+    # `.direct-errors { color: #a33 }` (:217), which is not white and whose
+    # ground is the publish bar's --card, no owner role. So extending the
+    # fence here reddens exactly the one rule this change fixes.
+    ("direct-edit.css", ".direct-field-tag"),
 )
 
 _LITERAL_WHITE = re.compile(r"^(#fff|#ffffff|white)$", re.IGNORECASE)
@@ -724,3 +762,45 @@ def test_the_hover_border_is_excluded_because_it_equals_its_own_fill():
     fill = _values_for("style-v2.css", ".button.primary:hover", "background")
     edge = _values_for("style-v2.css", ".button.primary:hover", "border-color")
     assert fill == edge == ["var(--v2-rust-dark)"]
+
+
+# --- LLM-COP-42's boundary: the fills that stay raw ------------------------
+
+
+def test_the_direct_edit_fills_that_stay_the_owners_raw_pick():
+    """A NOTE, NOT A GUARD, in the idiom of the two above, and it carries
+    the boundary LLM-COP-42 leaves behind.
+
+    After that change every raw `var(--accent)` left in direct-edit.css is a
+    FILL; every TEXT and every EDGE in the file reads a derived token. These
+    are the two fills.
+
+    `.direct-field-tag`'s fill is the GROUND --accent-ink is derived
+    against, so it must stay raw: retargeting it would move the ground out
+    from under the on_color theorem that makes the label's 4.5826:1 floor
+    true, and the label would be derived against a colour it is no longer
+    painted on.
+
+    `.direct-dot` is out on the WCAG argument rather than on a measurement.
+    It renders at the same 1.2019:1 as the five that moved, but it is
+    `aria-hidden="true"` (direct_edit_chrome.html:19) and sits immediately
+    before `<span class="direct-mode">Muokkaustila</span>` (:20), which
+    carries the whole of the meaning in text. SC 1.4.11 covers graphical
+    objects REQUIRED TO UNDERSTAND THE CONTENT; a decorative dot redundant
+    with the words beside it is not one. (It is also a fill rather than a
+    line or text, so measuring it would need a third measurement shape
+    tests/browser/test_browser_colors.py does not have — true, but that is
+    convenience and the WCAG reason is the one that decides it.)
+
+    Not watching for a later change that moves either onto a ground the
+    owner cannot repaint. What it buys is that neither exclusion can be
+    quietly deleted and then cited as coverage: deleting either rule fails
+    this, and folding `.direct-field-tag`'s background into RETARGETED
+    fails test_each_retargeted_rule_names_its_token.
+    """
+    assert _values_for("direct-edit.css", ".direct-dot", "background") == [
+        "var(--accent)"
+    ]
+    assert _values_for(
+        "direct-edit.css", ".direct-field-tag", "background"
+    ) == ["var(--accent)"]

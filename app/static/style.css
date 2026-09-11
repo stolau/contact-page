@@ -33,8 +33,12 @@
      SC 1.4.3's 4.5 — a different claim, not a relaxed one, so it is a
      value of its own and not a reuse of --accent-fg. Read by
      .button.secondary's border-color, the .fact-card and .service-card top
-     rules, and the direct-edit affordance and focus ring in direct-edit.css,
-     which loads after this file in the same document. The bare .button
+     rules, and four rules in direct-edit.css, which loads after this file
+     in the same document: the editable affordance and the focus ring, and
+     (LLM-COP-42) the .direct-changes badge's border and the toolbar
+     button's :hover:not(:disabled) border-color. Those last two are the
+     weaker claim — a line nobody can see is not a line — rather than
+     SC 1.4.11 proper; app/palette.py's site list says why. The bare .button
      border below deliberately KEEPS var(--accent): on a primary button it is
      byte-identical to the fill, so it is no boundary anyone perceives.
 
