@@ -711,10 +711,19 @@ def test_a_crlf_in_the_address_adds_no_header_and_still_notifies(
 # a bare list of escapes in the failure output says nothing about which
 # wrong implementation the case is aimed at.
 SUPPRESSED_ADDRESSES = {
-    # The stdlib raises IndexError on this printable ASCII address, and
-    # _validate accepts it (it contains "@"). Fails against any version
-    # that does not guard the assignment itself.
+    # Printable ASCII that is not an address, and _validate accepts it (it
+    # contains "@"). The stdlib is NOT consistent here: this raises
+    # IndexError on one 3.12 patch release and quietly stores the null
+    # address <> on another, which is how it once passed locally and failed
+    # in CI. Both outcomes must suppress the header, which is why the code
+    # checks what the header became instead of whether the assignment threw.
     "a plain typo the stdlib crashes on": "a@",
+    # The same shape, but it stores <> rather than raising on EVERY
+    # interpreter tested — so this case reproduces that CI failure anywhere
+    # and does not depend on which patch release is running. Do not remove
+    # it: without it the suppression could regress to depending on a raise
+    # and still look green locally.
+    "a bare at sign the stdlib rewrites": "@",
     "a crlf that would begin a header": CRLF_INJECTION,
     "a bare newline": "maria@esimerkki.fi\nBcc: hyokkaaja@esimerkki.fi",
     "a bare carriage return": "maria@esimerkki.fi\rBcc: hyokkaaja@esimerkki.fi",

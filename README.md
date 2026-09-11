@@ -355,9 +355,13 @@ The notification's `Reply-To` is the visitor's address, so hitting reply in a
 mail client answers the person who wrote rather than `MAIL_FROM`. An address
 that carries a non-printable character, **or any non-ASCII character — an
 address with ä, ö or the like gets no `Reply-To`** — or one the mail library
-cannot parse costs the `Reply-To` header and **not** the notification: the
-mail is still sent, the message is still stored, and the visitor still gets a
-201. A non-ASCII address is left out on purpose, because it would serialise
+does not hand back exactly as it was given costs the `Reply-To` header and
+**not** the notification: the mail is still sent, the message is still
+stored, and the visitor still gets a 201. That last rule is written as a
+check on the resulting header rather than on whether the library raised,
+because the library is not consistent about that between patch releases:
+`a@` raises on one Python 3.12 and silently becomes the null address `<>` on
+another, and both must come out as no header at all. A non-ASCII address is left out on purpose, because it would serialise
 to an encoded word that looks like an address and cannot be replied to, which
 the owner would only discover after answering. The address is always in the
 body of the notification, and that copy stays the authoritative one.

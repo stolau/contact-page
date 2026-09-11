@@ -160,14 +160,22 @@ def _set_reply_to(mail, address, message_id):
     exists at all. A missing header degrades to what the owner has today;
     a mangled one is discovered only after they have hit reply.
 
-    The assignment is guarded as well as the value, because the stdlib
-    raises on printable ASCII that is not an address — mail["Reply-To"] =
-    "a@" is an IndexError — and this call sits *outside* _notify's own try,
-    which does not open until the send. An unguarded raise would therefore
-    escape _notify and post_message alike and answer the visitor 500 on a
-    message that is already stored — measured, not assumed: without this
-    guard both "a@" and a CRLF address do exactly that. A raise leaves the
-    message clean: no partial header survives it.
+    The assignment is guarded as well as the value, and then its *result*
+    is checked, which matters more than the guard. The stdlib is not
+    consistent about printable ASCII that is not an address: mail["Reply-To"]
+    = "a@" raises IndexError on one 3.12 patch release and quietly stores the
+    null address <> on another, and "@" stores <> on both. Whether an
+    exception happens is therefore not a fact this module may build a
+    decision on, so it does not: the header is kept only when it reads back
+    as exactly the string that went in, which is the same answer everywhere.
+
+    The guard is still needed, because where the stdlib does raise, this call
+    sits *outside* _notify's own try, which does not open until the send. An
+    unguarded raise would escape _notify and post_message alike and answer
+    the visitor 500 on a message that is already stored — measured, not
+    assumed. A raise leaves the message clean: no partial header survives it,
+    and a header we refuse after the fact is deleted, which leaves it equally
+    clean.
 
     isascii() is a fact about encoding, not about address grammar. It says
     nothing about whether an address is well formed, and this refuses to
@@ -179,12 +187,26 @@ def _set_reply_to(mail, address, message_id):
     if address and address.isascii() and address.isprintable():
         try:
             mail["Reply-To"] = address
-            return
         # Narrow on purpose: the assignment is the entire crash surface.
         # S110 is suppressed rather than answered here because this refusal
         # *is* logged — by the statement below, which it shares.
         except Exception:  # noqa: BLE001, S110
             pass
+        else:
+            # Keep the header only when it came back as exactly what the
+            # visitor typed. Whether the stdlib *raises* on a value it does
+            # not like is not ours to rely on — "a@" is an IndexError on one
+            # 3.12 patch release and the null address <> on another — so the
+            # decision is made here, from what the header actually became,
+            # and is the same on every interpreter. A value the library
+            # rewrote is a value we did not recognise, and an unrecognised
+            # Reply-To is worse than none: it points somewhere that is not
+            # the visitor. This does not subsume isascii() above, which
+            # still earns its place — a non-ASCII address reads back
+            # unchanged and is caught only there.
+            if str(mail["Reply-To"]) == address:
+                return
+            del mail["Reply-To"]
     # One statement for both refusals — the predicate's and the stdlib's —
     # so there is one log line to promise and one never-log case to prove.
     # Id only, as everywhere here: never the address.
