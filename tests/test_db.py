@@ -9,7 +9,7 @@ from app import db as database
 from app.fields import FIELDS
 from app.sanitize import validate_payload
 from app.sections import badge
-from app.seed import SEED_SECTIONS
+from app.seed import SEED_SECTIONS, seed_if_empty
 from tests.conftest import PERSONA_PATTERN, assert_absent_from_app
 
 
@@ -72,6 +72,11 @@ def test_migration_2_creates_the_auth_tables(tmp_path):
         "last_seen_at",
         "remember",
         "expires_at",
+        # LLM-COP-38's migration 15: every session names its owner, so
+        # revoking one account's sessions is a query rather than a
+        # DELETE FROM sessions that is correct only by procedure. Named here,
+        # for the reason above — this assertion stays exact.
+        "user_id",
     }
     assert columns("audit_log") == {"id", "at", "event"}
     c.close()
@@ -1763,21 +1768,258 @@ def test_migration_12_keeps_a_notice_the_owner_already_wrote(tmp_path):
     c.close()
 
 
-def test_the_migration_head_is_fourteen(tmp_path):
-    """The head, named exactly once in the suite.
+# --- migration 15: the session owner, and the username constraint ----------
+#
+# LLM-COP-38. Two statements that change the SHAPE of the auth tables and one
+# backfill, and nothing whatever that reads a sections row — so there is no
+# frozen-literal splice here and no badge to keep in step, the same thing
+# migrations 10 and 13 say of themselves.
+#
+# Each test below runs _migration_15 DIRECTLY against a store brought to
+# exactly user_version 14, the idiom every per-migration test in this file
+# uses: migrate() would be the whole ladder, and a claim about what THIS
+# migration does to a store it was handed cannot be made by running all of
+# them.
+
+
+def _store_at_14(path, username="yllapitaja", sessions=1):
+    """A real store stopped one step short of migration 15.
+
+    MIGRATIONS[:14] and an explicit PRAGMA, so _migration_15 really is the
+    only thing that has not run yet. The admin row and the session rows are
+    written with the pre-migration column list on purpose: a session inserted
+    after the ALTER would carry an owner already, and the backfill is exactly
+    the claim that a session written BEFORE it gets one.
+    """
+    c = database.connect(str(path))
+    for migration in database.MIGRATIONS[:14]:
+        migration(c)
+    c.execute("PRAGMA user_version = 14")
+    c.execute(
+        "INSERT INTO admin_user (username, password_hash) VALUES (?, ?)",
+        (username, "scrypt:32768:8:1$fake$notahash"),
+    )
+    for index in range(sessions):
+        c.execute(
+            "INSERT INTO sessions"
+            " (token_hash, created_at, last_seen_at, remember, expires_at)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (f"{index:064x}", 1_700_000_000, 1_700_000_000, 0, None),
+        )
+    c.commit()
+    return c
+
+
+def _columns(c, table):
+    return {row["name"] for row in c.execute(f"PRAGMA table_info({table})")}
+
+
+def test_migration_15_adds_the_owner_column_and_the_username_index(tmp_path):
+    """THE ANTI-VACUITY GUARD, and it is not decoration.
+
+    Every other assertion in this block is about what the migration LEAVES
+    ALONE or about a constraint firing, and "nothing changed" is also true of
+    a migration that did nothing at all. So the two shape changes are named
+    here directly.
+
+    index_list is the right instrument for the second one and an easy thing
+    to get wrong: admin_user.id is `INTEGER PRIMARY KEY`, a rowid alias, so
+    it creates NO index entry and this table carried an empty index_list
+    before this migration. The assertion really can fail.
+    """
+    c = _store_at_14(tmp_path / "fifteen.sqlite3")
+    assert "user_id" not in _columns(c, "sessions")  # the precondition
+    assert list(c.execute("PRAGMA index_list(admin_user)")) == []
+
+    database._migration_15(c)
+
+    assert "user_id" in _columns(c, "sessions")
+    indexes = list(c.execute("PRAGMA index_list(admin_user)"))
+    unique = [row for row in indexes if row["unique"]]
+    assert unique, indexes
+    assert any(row["name"] == "admin_user_username" for row in unique), indexes
+    # On username, which is the claim — an index on any other column would
+    # satisfy "a unique index exists" and guarantee nothing.
+    (index_sql,) = c.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?",
+        ("admin_user_username",),
+    ).fetchone()
+    assert re.search(
+        r"ON\s+admin_user\s*\(\s*username\s*\)", index_sql
+    ), index_sql
+    c.close()
+
+
+def test_migration_15_backfills_the_owner_onto_a_pre_migration_session(
+    tmp_path,
+):
+    """A session minted before the upgrade names the account it belonged to.
+
+    Without this an install that upgrades while its owner is signed in would
+    carry rows nothing could revoke by account, and the whole control would
+    rest on the fail-closed NULL clause instead of on the column.
+    """
+    c = _store_at_14(tmp_path / "backfill.sqlite3", sessions=2)
+    (admin,) = c.execute("SELECT id FROM admin_user").fetchone()
+
+    database._migration_15(c)
+
+    owners = [
+        row["user_id"]
+        for row in c.execute("SELECT user_id FROM sessions ORDER BY id")
+    ]
+    assert owners == [admin, admin]
+    assert admin is not None
+    c.close()
+
+
+def test_migration_15_leaves_a_session_unowned_when_there_is_no_account(
+    tmp_path,
+):
+    """The backfill's subquery answers NULL on a store with no admin row, and
+    that is correct rather than a gap: there is no account to attribute the
+    session to. It is the one state that can still produce a NULL owner, and
+    it is why auth.revoke_sessions_for_user deletes NULL rows as well —
+    asserted there, named here so the two halves cannot drift apart.
+    """
+    c = database.connect(str(tmp_path / "ownerless.sqlite3"))
+    for migration in database.MIGRATIONS[:14]:
+        migration(c)
+    c.execute("PRAGMA user_version = 14")
+    c.execute(
+        "INSERT INTO sessions"
+        " (token_hash, created_at, last_seen_at, remember, expires_at)"
+        " VALUES (?, ?, ?, ?, ?)",
+        ("f" * 64, 1_700_000_000, 1_700_000_000, 0, None),
+    )
+    c.commit()
+
+    database._migration_15(c)
+
+    (owner,) = c.execute("SELECT user_id FROM sessions").fetchone()
+    assert owner is None
+    c.close()
+
+
+def test_migration_15_is_a_no_op_the_second_time(tmp_path):
+    """Called directly, twice, on a store that already has the column.
+
+    SQLite has no ALTER TABLE ... ADD COLUMN IF NOT EXISTS, so re-runnability
+    here comes from a PRAGMA table_info guard rather than from the SQL — and
+    a guard is a line of code that can be wrong, where IF NOT EXISTS cannot
+    be. That is what makes this test worth its lines: _migration_6's own
+    comment gives the reason re-runnability matters at all, a store stamped
+    at a number a rebase later moves.
+    """
+    c = _store_at_14(tmp_path / "twice15.sqlite3")
+
+    database._migration_15(c)
+    before = [tuple(row) for row in c.execute("SELECT * FROM sessions")]
+    admin_before = [tuple(row) for row in c.execute("SELECT * FROM admin_user")]
+
+    database._migration_15(c)  # raises nothing
+
+    assert [tuple(row) for row in c.execute("SELECT * FROM sessions")] == before
+    assert [
+        tuple(row) for row in c.execute("SELECT * FROM admin_user")
+    ] == admin_before
+    assert "user_id" in _columns(c, "sessions")
+    c.close()
+
+
+def test_migration_15_makes_a_duplicate_username_impossible(tmp_path):
+    """The constraint the single-row rule has only ever had procedurally.
+
+    admin-create refuses a second account, so duplicates are unreachable
+    today — by procedure, which is precisely the shape of guarantee this
+    change exists to replace. Both halves are asserted: the SAME username is
+    refused, and a DIFFERENT one still inserts. Without the second half an
+    index on the whole row, or a constraint that refused every insert, would
+    pass just as well.
+    """
+    c = _store_at_14(tmp_path / "unique.sqlite3", username="yllapitaja")
+
+    database._migration_15(c)
+
+    try:
+        c.execute(
+            "INSERT INTO admin_user (username, password_hash) VALUES (?, ?)",
+            ("yllapitaja", "scrypt:32768:8:1$other$notahash"),
+        )
+    except sqlite3.IntegrityError:
+        pass
+    else:
+        raise AssertionError("admin_user accepted a duplicate username")
+    c.rollback()
+
+    c.execute(
+        "INSERT INTO admin_user (username, password_hash) VALUES (?, ?)",
+        ("toinen.tunnus", "scrypt:32768:8:1$other$notahash"),
+    )
+    c.commit()
+    names = {
+        row["username"] for row in c.execute("SELECT username FROM admin_user")
+    }
+    assert names == {"yllapitaja", "toinen.tunnus"}
+    c.close()
+
+
+def test_migration_15_writes_no_section_payload(tmp_path):
+    """The badge hazard, answered where the schema lives as well as where the
+    frozen install does.
+
+    badge() compares the RAW STORED TEXT of draft against published, so a
+    migration that rewrote one column and not the other would turn Julkaistu
+    into Luonnos on deploy. This one reads no sections row at all, and here
+    that is a byte comparison of the whole table rather than a sentence in a
+    comment. tests/test_prechange_upgrade.py asks the same question against
+    the real captured install and its hard-coded badges.
+    """
+    c = _store_at_14(tmp_path / "sections15.sqlite3")
+    # The real seeding path create_app runs, not a planted row: six published
+    # sections whose draft and published columns are byte-equal, which is the
+    # only starting state in which a one-column rewrite is visible as a badge
+    # flip rather than lost in a row that was already dirty.
+    seed_if_empty(c)
+    before = [
+        tuple(row)
+        for row in c.execute("SELECT * FROM sections ORDER BY id")
+    ]
+    assert len(before) == len(SEED_SECTIONS)  # or this proves nothing
+
+    database._migration_15(c)
+
+    after = [
+        tuple(row)
+        for row in c.execute("SELECT * FROM sections ORDER BY id")
+    ]
+    assert after == before
+    for row in c.execute("SELECT state, draft, published FROM sections"):
+        assert badge(row["state"], row["draft"], row["published"])
+    c.close()
+
+
+def test_the_migration_head_is_fifteen(tmp_path):
+    """The head, named literally here and in one other place.
 
     Every other version assertion in this file is written as
     `len(database.MIGRATIONS)` on purpose, so migrations added later do not
     break tests that are not about them. This one is deliberately literal: it
-    is the single place a person adding migration 14 is told, by a red test,
-    that a stamped store now upgrades one step further — and it pins that
-    MIGRATIONS ends where the list says rather than where a stale PRAGMA does.
+    is the place a person adding migration 15 is told, by a red test, that a
+    stamped store now upgrades one step further — and it pins that MIGRATIONS
+    ends where the list says rather than where a stale PRAGMA does.
+
+    It is not quite alone, and LLM-COP-38 corrected this line rather than
+    carrying its inaccuracy forward: the second literal head is
+    tests/test_prechange_upgrade.py's frozen-v6 upgrade test, which asserts
+    `version == len(database.MIGRATIONS) == 15`. Both move together, and a
+    re-grep for the number is what proves there is no third.
 
     It did that job for LLM-COP-30, again for USR-COP-4, again for
-    LLM-COP-39 and again for LLM-COP-28, each of which found it red and
-    moved it here rather than silencing it. Rename it with the number, so
-    the test's name keeps stating the head instead of a head it used to
-    have.
+    LLM-COP-39, again for LLM-COP-28 and again for LLM-COP-38, each of which
+    found it red and moved it here rather than silencing it. Rename it with
+    the number, so the test's name keeps stating the head instead of a head
+    it used to have.
 
     The list is named by INDEX as well as by length, because the two say
     different things: the length pins where the ladder ends, and the
@@ -1792,7 +2034,7 @@ def test_the_migration_head_is_fourteen(tmp_path):
     both landed, neither number moved, and the reserved no-op that had been
     holding slot 12 was deleted rather than renumbered.
     """
-    assert len(database.MIGRATIONS) == 14
+    assert len(database.MIGRATIONS) == 15
     assert database.MIGRATIONS[8] is database._migration_9
     assert database.MIGRATIONS[9] is database._migration_10
     assert database.MIGRATIONS[10] is database._migration_11
@@ -1802,9 +2044,13 @@ def test_the_migration_head_is_fourteen(tmp_path):
     # not renumbered, and named by index here so that appending it is what
     # this line says rather than merely what happened.
     assert database.MIGRATIONS[13] is database._migration_14
+    # LLM-COP-38's session owner column and the admin_user username index.
+    # Appended, not renumbered, and named by index here so that appending it
+    # is what this line says rather than merely what happened.
+    assert database.MIGRATIONS[14] is database._migration_15
 
     c = database.connect(str(tmp_path / "head.sqlite3"))
     database.migrate(c)
     (version,) = c.execute("PRAGMA user_version").fetchone()
-    assert version == 14
+    assert version == 15
     c.close()

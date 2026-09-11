@@ -1,0 +1,7 @@
+# LLM-COP-38. The breached-password list is pinned by SHA-256 in the test
+# suite (tests/test_passwords.py) and in app/breached_passwords.SOURCE.txt, so
+# its bytes must survive a checkout unchanged. Without this line a clone made
+# with core.autocrlf=true would rewrite every LF to CRLF and turn that tripwire
+# red for a reason that has nothing to do with the data or the code. CI runs on
+# ubuntu, so CI was never at risk; this is for the developer machine that is.
+app/breached_passwords.txt -text

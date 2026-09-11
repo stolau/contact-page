@@ -876,6 +876,59 @@ def _migration_14(conn):
             )
 
 
+def _migration_15(conn):
+    # Sessions get an owner, and admin_user gets the constraint its single-row
+    # rule has only ever had procedurally (LLM-COP-38).
+    #
+    # THIS MIGRATION READS NO sections ROW and writes no payload, so the
+    # frozen-literal splice that proves migrations 4-9
+    # (tests/test_prechange_upgrade.py) has nothing to splice here — the same
+    # thing _migration_10 and _migration_13 say of themselves.
+    #
+    # SQLite has no ALTER TABLE ... ADD COLUMN IF NOT EXISTS, so the guard is a
+    # PRAGMA table_info read — giving this migration the re-runnable property
+    # _migration_6 and _migration_10 get from IF NOT EXISTS, for the same
+    # rebase reason _migration_13 states at length.
+    #
+    # user_id is NULLABLE, and not by preference: SQLite's ADD COLUMN refuses
+    # NOT NULL without a non-null default, and 0 is not a real user id.
+    # auth.mint_session always writes it, so after this migration a NULL row
+    # can only be a pre-migration session on a store that had sessions and no
+    # account — which login cannot produce. auth.revoke_sessions_for_user
+    # deletes NULL rows anyway, fail-closed; see the comment there.
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(sessions)")}
+    if "user_id" not in existing:
+        conn.execute("ALTER TABLE sessions ADD COLUMN user_id INTEGER")
+    # The backfill ASSUMES THE SINGLE-OWNER INSTALL, which is worth stating
+    # rather than leaving in the SQL. With admin_user empty it leaves NULL
+    # (correct, and revocation handles it); with two rows it would attribute
+    # every pre-migration session to the first — the same assumption a bare
+    # DELETE FROM sessions makes today, and one that stops applying to every
+    # session minted after this migration, because those carry a real owner.
+    conn.execute(
+        "UPDATE sessions SET user_id = (SELECT id FROM admin_user)"
+        " WHERE user_id IS NULL"
+    )
+    # A unique INDEX rather than a rebuilt table with a UNIQUE constraint:
+    # SQLite implements the constraint as exactly this index, and rebuilding
+    # admin_user would mean re-creating it with _migration_13's three TOTP
+    # columns and copying every row for no extra guarantee.
+    #
+    # ITS ONE REAL COST, NAMED RATHER THAN HIDDEN: this is the only statement
+    # in this migration that can fail, and a migration that raises aborts
+    # migrate() before user_version is stamped — so an install carrying
+    # duplicate usernames would not start. That set is empty by construction:
+    # the only two writers are admin-create, which refuses outright when a row
+    # already exists, and tests/conftest.py's direct SQL. And refusing to
+    # start is the better failure: the alternative is kirjaudu()'s
+    # `SELECT * FROM admin_user WHERE username = ?` + fetchone() silently
+    # picking one of two accounts with the same name.
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS admin_user_username"
+        " ON admin_user (username)"
+    )
+
+
 MIGRATIONS = [
     _migration_1,
     _migration_2,
@@ -891,6 +944,7 @@ MIGRATIONS = [
     _migration_12,
     _migration_13,
     _migration_14,
+    _migration_15,
 ]
 
 

@@ -9,6 +9,12 @@ token lives only in the visitor's cookie — the database never holds it, so a
 database read cannot leak a usable session. All timestamps are integer Unix
 epoch seconds (see app/db.py migration 2).
 
+Every session row names its owner (sessions.user_id, app/db.py migration 15),
+which is what makes revoke_sessions_for_user a seam rather than a blunt
+DELETE: a CLI command that changes a credential can end exactly the sessions
+that credential justified. mint_session takes the owner as a required
+positional argument so a session without one cannot be written by accident.
+
 client_key() lives here rather than in app/messages.py because both limiters
 need it: TRUSTED_PROXY is read per request, and with it unset the
 X-Forwarded-For header is ignored entirely, so a spoofed header cannot mint a
@@ -101,20 +107,35 @@ def bucket_key(key):
     return key or ""
 
 
-def mint_session(conn, remember):
+def mint_session(conn, user_id, remember):
     """Insert a session row and return the raw token for the cookie.
 
     Only sha256(token) is stored; remember=1 gets an absolute expiry of
     created_at + 30 days, remember=0 gets none (the idle rule governs it).
+
+    user_id is POSITIONAL AND REQUIRED, mirroring mint_pending. An optional
+    owner would be the same "the guarantee lives in procedure" defect
+    revoke_sessions_for_user exists to end: a session minted without one
+    could not be revoked by account, and nothing would say so at the call
+    site (app/db.py migration 15 has to allow NULL, so the database cannot
+    say it either).
     """
     token = secrets.token_urlsafe(32)
     now = _now()
     expires_at = now + REMEMBER_LIFETIME if remember else None
     conn.execute(
         "INSERT INTO sessions"
-        " (token_hash, created_at, last_seen_at, remember, expires_at)"
-        " VALUES (?, ?, ?, ?, ?)",
-        (_hash_token(token), now, now, 1 if remember else 0, expires_at),
+        " (token_hash, user_id, created_at, last_seen_at, remember,"
+        " expires_at)"
+        " VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            _hash_token(token),
+            user_id,
+            now,
+            now,
+            1 if remember else 0,
+            expires_at,
+        ),
     )
     conn.commit()
     return token
@@ -160,6 +181,31 @@ def current_admin_session(conn):
 def delete_session(conn, session_id):
     conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
     conn.commit()
+
+
+def revoke_sessions_for_user(conn, user_id):
+    """Sign one account out everywhere, and answer how many rows went.
+
+    The seam admin-reset-password and admin-totp-disable need: changing a
+    credential that ends a session's justification must end the session too,
+    or an attacker holding a live cookie simply keeps it through the owner's
+    recovery. Shaped like clear_all_login_attempts, and here for the same
+    stated reason — every statement against this table lives in this module
+    rather than as SQL in a command.
+
+    `OR user_id IS NULL` IS FAIL-CLOSED AND DELIBERATE. A revocation must
+    never leave a session alive merely because its owner column was empty.
+    After migration 15 a NULL can only be a pre-migration row on a store that
+    had sessions and no account — a state login cannot produce — so the
+    clause deletes only rows that should not exist, and it deletes them at the
+    one moment the owner has explicitly asked for a clean slate.
+    """
+    cursor = conn.execute(
+        "DELETE FROM sessions WHERE user_id = ? OR user_id IS NULL",
+        (user_id,),
+    )
+    conn.commit()
+    return cursor.rowcount
 
 
 def audit(conn, event):

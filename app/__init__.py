@@ -14,7 +14,7 @@ from flask import (
 from markupsafe import Markup
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from . import auth, totp
+from . import auth, passwords, totp
 from . import db as database
 from .direct_edit import bp as direct_edit_bp
 from .edit import bp as edit_bp
@@ -355,7 +355,7 @@ def create_app(instance_path=None):
                     # an attempt that crossed and then succeeded is not a
                     # lockout.
                     auth.clear_login_attempts(conn, key)
-                    token = auth.mint_session(conn, remember)
+                    token = auth.mint_session(conn, user["id"], remember)
                     response = redirect(login_target(conn))
                     # Secure is omitted deliberately: the site is served over
                     # plain HTTP, and a Secure cookie would never come back.
@@ -482,7 +482,9 @@ def create_app(instance_path=None):
                         # remember rides on the pending row rather than
                         # being resubmitted, so it cannot be tampered with
                         # between the two steps.
-                        token = auth.mint_session(conn, pending["remember"])
+                        token = auth.mint_session(
+                            conn, pending["user_id"], pending["remember"]
+                        )
                         response = redirect(login_target(conn))
                         response.set_cookie(
                             auth.SESSION_COOKIE,
@@ -541,6 +543,9 @@ def create_app(instance_path=None):
 
         Runs without the server: create_app opened and migrated the
         database directly, so this works against the file itself.
+
+        The password must satisfy app/passwords.py — at least 12 characters
+        and not one of the common breached passwords bundled with the app.
         """
         conn = database.connect(app.config["DATABASE"])
         try:
@@ -552,6 +557,14 @@ def create_app(instance_path=None):
             password = click.prompt(
                 "Password", hide_input=True, confirmation_prompt=True
             )
+            # BEFORE the INSERT, and that ordering is the whole point: a
+            # refused password must leave nothing half-created. The
+            # already-exists check above is the only other refusal and it too
+            # runs before any write, so this command either writes one
+            # complete row or writes nothing at all.
+            refused = passwords.refusal(password)
+            if refused:
+                raise click.ClickException(refused)
             conn.execute(
                 "INSERT INTO admin_user (username, password_hash)"
                 " VALUES (?, ?)",
@@ -564,7 +577,20 @@ def create_app(instance_path=None):
 
     @app.cli.command("admin-reset-password")
     def admin_reset_password():
-        """Set a new password for the admin account (server not needed)."""
+        """Set a new password for the admin account (server not needed).
+
+        The new password must satisfy app/passwords.py, and it is checked
+        before anything is written: a refused password leaves the stored hash
+        byte-identical.
+
+        THIS SIGNS THE OWNER OUT EVERYWHERE. Every live session and every
+        half-finished two-step login for the account is deleted, because this
+        is the command an owner runs while recovering from a suspected
+        compromise, and a reset that let an attacker keep their cookie would
+        be recovery in name only. There is deliberately no exemption for the
+        person running it — an exemption list is exactly the hole — so the
+        cost is that the owner signs in again with the password they just set.
+        """
         conn = database.connect(app.config["DATABASE"])
         try:
             row = conn.execute("SELECT id FROM admin_user").fetchone()
@@ -575,14 +601,25 @@ def create_app(instance_path=None):
             password = click.prompt(
                 "New password", hide_input=True, confirmation_prompt=True
             )
+            # BEFORE the UPDATE: a refused password must not have moved the
+            # stored hash, not even to a re-hash of the same password.
+            refused = passwords.refusal(password)
+            if refused:
+                raise click.ClickException(refused)
             conn.execute(
                 "UPDATE admin_user SET password_hash = ? WHERE id = ?",
                 (generate_password_hash(password), row["id"]),
             )
             conn.commit()
+            revoked = auth.revoke_sessions_for_user(conn, row["id"])
+            # A pending half-login is a credential minted by the OLD password
+            # and must not survive it — it is redeemable at the code step
+            # with nothing but six digits.
+            auth.delete_pending_for_user(conn, row["id"])
         finally:
             conn.close()
         click.echo("admin password reset")
+        click.echo(f"{revoked} session(s) signed out; sign in again")
 
     @app.cli.command("admin-totp-enable")
     def admin_totp_enable():
@@ -648,6 +685,12 @@ def create_app(instance_path=None):
 
         The lockout backstop: a lost or wiped authenticator is a shell
         session, never a dead site.
+
+        THIS SIGNS THE OWNER OUT EVERYWHERE, for the same reason
+        admin-reset-password does: taking a factor off an account weakens
+        what its live cookies were issued against, and the command exists for
+        the case where the authenticator is lost — which is indistinguishable
+        from the case where it was taken.
         """
         conn = database.connect(app.config["DATABASE"])
         try:
@@ -668,9 +711,11 @@ def create_app(instance_path=None):
             # A half-authenticated token minted a moment ago must not stay
             # redeemable at a code step that no longer exists.
             auth.delete_pending_for_user(conn, row["id"])
+            revoked = auth.revoke_sessions_for_user(conn, row["id"])
         finally:
             conn.close()
         click.echo("two-step sign-in disabled")
+        click.echo(f"{revoked} session(s) signed out; sign in again")
 
     @app.cli.command("login-unlock")
     def login_unlock():

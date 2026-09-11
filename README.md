@@ -310,6 +310,43 @@ Every command above opens the database file directly through the app
 factory, so they work whether or not the server is running. Sign in at
 `/yllapito` (the Ylläpito link in the page footer).
 
+### What the password has to be
+
+**At least 12 characters, and not one of the common breached passwords
+bundled with the app.** That is the whole rule. No symbol requirements, no
+mixed case, no digits — passphrases are welcome and any length from 12
+upwards is fine. Composition rules push people towards `P@ssw0rd1!` and away
+from the long phrases that actually resist an offline crack, so this app does
+not have them.
+
+Both `admin-create` and `admin-reset-password` check before they write
+anything, so a refused password leaves the account exactly as it was.
+
+The list the second rule uses is `app/breached_passwords.txt`: 29,954
+passwords of 12 characters or more, filtered from the
+`Pwdb_top-1000000.txt` list in [SecLists](https://github.com/danielmiessler/SecLists)
+at a pinned commit. It is checked **offline** — this application never makes
+an outbound network call, and the command you would most want this check
+during is the one you run while recovering from a compromise, possibly on a
+machine with no working network. It costs about 161 KB in the repository
+(427 KB in the working tree). SecLists is MIT-licensed; the copyright notice,
+the permission notice, the pinned commit, both checksums and the exact filter
+that produced the file are all in `app/breached_passwords.SOURCE.txt`.
+
+**Its limitation, stated rather than buried.** It is a snapshot, not a
+corpus: thirty thousand common passwords, not the ~850-million-entry Have I
+Been Pwned set. A pass means "not one of the obvious ones", never "never
+breached".
+
+### Resetting the password signs you out everywhere
+
+`admin-reset-password` deletes every live session and every half-finished
+two-step login for the account. So does `admin-totp-disable`. This is
+deliberate and there is no exemption: the point of a reset is that it evicts
+whoever else was signed in, and an exemption list is exactly the hole. The
+price is that you sign in again straight away, with the password you just
+set.
+
 Failed sign-ins are limited (see Contact messages below for the client key).
 A successful sign-in clears the counter only while you are still under the
 limit; once the limit is reached, attempts are refused before the password is
@@ -328,7 +365,10 @@ a single sign-in. With the factor on, the password step hands you a second
 dialog asking for the six-digit code (or one recovery code), and no session
 exists until that step passes. `admin-totp-disable` is the way back in when
 the authenticator is lost — it clears the secret and the recovery codes and
-returns the account to a one-step sign-in.
+returns the account to a one-step sign-in. **It also signs you out of every
+browser**, for the same reason a password reset does: a lost authenticator
+is indistinguishable from a taken one, so the sessions that were issued
+while the factor was on do not survive turning it off.
 
 Two things this does not do, stated plainly. **The secret is a bearer
 credential at rest.** It sits in `instance/site.sqlite3` beside the password
