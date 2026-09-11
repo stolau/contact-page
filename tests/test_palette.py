@@ -29,6 +29,7 @@ tests/browser/test_browser_colors.py's, and it is the one that matters: a
 ratio computed here is a statement about this module, not about a page.
 """
 
+import functools
 import os
 import random
 import re
@@ -36,6 +37,7 @@ import re
 import pytest
 
 from app.palette import (
+    MAIN,
     NON_TEXT_RATIO,
     ROLE_TOKENS,
     V1_SURFACES,
@@ -46,6 +48,7 @@ from app.palette import (
     palette_css,
     readable_on,
     resolve_color,
+    ring_on,
     shade,
     visible_on,
 )
@@ -565,6 +568,421 @@ def test_visible_on_never_reaches_the_raise():
         assert all(contrast("#000000", s) >= NON_TEXT_RATIO for s in surfaces)
 
 
+# --- ring_on: the primary button's boundary ---------------------------------
+#
+# LLM-COP-44. The FOURTH derivation, and the first that can decline to
+# produce a colour at all. visible_on walks the accent until it is a visible
+# LINE against a set of surfaces; ring_on asks a different question about a
+# filled button — does the fill ALREADY carry the boundary against the one
+# ground this button sits on, and if it does, paint nothing.
+#
+# SO THE CLAIM HAS TWO HALVES AND THEY FAIL DIFFERENTLY. The IFF half is what
+# keeps a compliant button from being re-drawn: "transparent" must mean
+# "every fill already clears 3:1 on every ground", in both directions, so a
+# derivation that painted defensively goes red here rather than quietly
+# putting a rim on eleven buttons nobody asked to change. The GUARANTEE half
+# is the accessibility claim: when a ring IS painted it reaches 3:1 against
+# every ground it was derived for.
+#
+# BOTH FILLS. `fills` is (accent, shade(accent)) at every call site, because
+# the hover fill is the worse of the two and it is where the shipped defect
+# actually lives: #a8431c is 2.1987 on the navy contact card and its hover
+# shade #863616 is 1.6108. A sweep over the rest fill alone would pass on a
+# derivation that goes blind exactly on hover, so every case below carries
+# both.
+#
+# THE RAISE IS FENCED STRUCTURALLY, NOT SWEPT. ring_on delegates to
+# visible_on, whose raise is readable_on's, and a raise on the public page is
+# a 500. The two clauses of test_no_ring_ground_tuple_can_reach_the_raise
+# below partition every tuple shape the table can hold, so the property holds
+# for the five rows that exist AND for a row somebody adds later — which no
+# sweep of picks, however wide, could say.
+
+# The seeded sets the two sweeps share. Seeded rather than gridded because a
+# ring's ground is not the 4096-colour grid's business: two of the five rows
+# take the OWNER's main colour as their ground, so the sweep ranges over
+# (ground, pick) PAIRS and a full grid on both axes is 16.7M cases.
+_RING_SEED = 44
+_RING_PICKS = tuple(
+    f"#{_rand.randrange(1 << 24):06x}"
+    for _rand in (random.Random(_RING_SEED),)
+    for _ in range(2000)
+)
+# The colours the MAIN sentinel is bound to. Forty arbitrary ones plus four
+# that matter by name: the two skins' own default mains, and black and white,
+# the two grounds where on_color's choice of endpoint flips.
+_RING_MAINS = tuple(
+    f"#{_rand.randrange(1 << 24):06x}"
+    for _rand in (random.Random(_RING_SEED + 1),)
+    for _ in range(40)
+) + ("#ffffff", "#d9e8f2", "#000000", "#14324a")
+
+# How many picks each MAIN-bound ground gets. Smaller than the frozen rows'
+# 2000 because there are 44 such grounds per MAIN row and the product is what
+# costs. The number is stated here rather than buried, so raising it is a
+# one-line decision.
+_RING_PICKS_PER_MAIN = 400
+
+
+@functools.cache
+def _ring_sweep(skin):
+    """Every (token, grounds, accent) case of the ring sweep, measured once.
+
+    Cached because the two tests below make two DIFFERENT claims about the
+    same measurement, and running it twice buys nothing but the time. Each
+    case carries what a test needs to judge it: the bound ground tuple, the
+    two fills, whether every fill ALREADY clears NON_TEXT_RATIO on every
+    ground — computed here from contrast, never by asking ring_on what it
+    thinks — and what ring_on returned.
+
+    Every row is swept twice over: bound to the skin's own default main, at
+    the full pick count, so the SHIPPED binding is in the set whatever the
+    random mains turn out to be; and bound to each of _RING_MAINS, which is
+    what makes the owner-chosen ground a swept axis rather than an example.
+    """
+    default_main = ROLE_TOKENS[skin]["default_main"]
+    bindings = []
+    for token, grounds in ROLE_TOKENS[skin]["rings"]:
+        bindings.append((
+            token,
+            tuple(default_main if g == MAIN else g for g in grounds),
+            _RING_PICKS,
+        ))
+        if MAIN in grounds:
+            for main in _RING_MAINS:
+                bindings.append((
+                    token,
+                    tuple(main if g == MAIN else g for g in grounds),
+                    _RING_PICKS[:_RING_PICKS_PER_MAIN],
+                ))
+    cases = []
+    for token, grounds, picks in bindings:
+        for accent in picks:
+            fills = (accent, shade(accent))
+            clears = all(
+                contrast(fill, ground) >= NON_TEXT_RATIO
+                for fill in fills
+                for ground in grounds
+            )
+            cases.append(
+                (token, grounds, accent, clears, ring_on(fills, grounds))
+            )
+    return tuple(cases)
+
+
+@pytest.mark.parametrize("skin", sorted(ROLE_TOKENS))
+def test_the_ring_is_transparent_exactly_when_both_fills_already_clear(skin):
+    """THE IDENTITY CASE, stated as an IFF because both directions are real
+    defects.
+
+    LEFT TO RIGHT — "transparent" implies the fills already clear — is the
+    accessibility half. A derivation that returned "transparent" for a button
+    whose fill sits at 1.0416 against its ground would ship a boundary that
+    is not there, and every ratio assertion in this suite would still pass,
+    because there is nothing painted to measure.
+
+    RIGHT TO LEFT — the fills clearing implies "transparent" — is
+    LLM-COP-40's promise kept for the fill: "a compliant colour is never
+    dulled." A derivation that painted anyway would put a rim on the shipped
+    V1 page, on V2's hero card, on both headers and on both dialog submits,
+    none of which asked for one, and no contrast assertion anywhere would
+    complain.
+
+    THE PREDICATE IS COMPUTED FROM contrast, NOT FROM ring_on. `clears` in
+    _ring_sweep is the sentence "every fill clears 3:1 on every ground"
+    written out; the assertion is that ring_on's ANSWER agrees with it. Make
+    ring_on return "transparent" unconditionally and the left-to-right half
+    goes red on the first pale pick.
+
+    BOTH OUTCOMES OCCUR, asserted, because an iff over a set where one side
+    never happens is an iff nobody checked.
+    """
+    cases = _ring_sweep(skin)
+    for token, grounds, accent, clears, ring in cases:
+        assert (ring == "transparent") == clears, (
+            f"{skin} {token} on {grounds} with accent={accent}: ring_on "
+            f"returned {ring!r} while every fill clearing 3:1 is {clears}"
+        )
+    transparent = sum(1 for case in cases if case[4] == "transparent")
+    assert 0 < transparent < len(cases), (skin, transparent, len(cases))
+
+
+@pytest.mark.parametrize("skin", sorted(ROLE_TOKENS))
+def test_a_painted_ring_reaches_three_to_one_on_every_ground_it_has(skin):
+    """THE ACCESSIBILITY CLAIM, swept: whenever a ring IS painted it clears
+    SC 1.4.11's 3:1 against EVERY ground it was derived for.
+
+    Every ground, not the worst one the derivation happened to look at: a
+    ring token serving a tuple of surfaces is painted once and seen on all of
+    them, so the claim is a min over the tuple. V2's light row is what makes
+    that more than a formality — direct-edit's Julkaise walks all the way to
+    --v2-page while the hero card's button sits on --v2-card, and a
+    derivation that took #ffffff alone would leave the first at 2.90:1.
+
+    The floor is NON_TEXT_RATIO, so it follows the constant if the constant
+    moves. The pinned worst case is what holds the NUMBER: a sweep that
+    bottoms out at 3.0000 is a floor essentially reached rather than a margin
+    nobody has measured. It is taken on the UNROUNDED ratio, for the reason
+    the visible_on section states above — rounding first makes a near-tie a
+    coin toss between two colours and pins the loser.
+    """
+    painted = [
+        (min(contrast(ring, ground) for ground in grounds), token, accent)
+        for token, grounds, accent, _clears, ring in _ring_sweep(skin)
+        if ring != "transparent"
+    ]
+    assert painted, skin
+    worst, token, accent = _worst(painted)
+    assert worst >= NON_TEXT_RATIO, (skin, worst, token, accent)
+    assert round(worst, 4) == 3.0, (skin, worst, token, accent)
+
+
+# The corner grid the no-raise sweep drives: the two ends of the cube, every
+# frozen ground either skin's rings name, both shipped accents, and the two
+# saturated picks the rest of this file already uses as its awkward cases.
+_CORNERS = (
+    "#000000", "#ffffff", "#14324a", "#d9e8f2", "#f7fafc", "#e6eef6",
+    "#ffe9a8", "#a8431c", "#5d60ff", "#e400f3",
+)
+
+
+@pytest.mark.parametrize("skin", sorted(ROLE_TOKENS))
+def test_palette_css_raises_for_no_pair_of_colours(skin):
+    """CONSTRAINT 2 OF THE ASK, measured: no derivation may raise on the
+    public page.
+
+    readable_on raises when no black-or-white endpoint clears every ground it
+    was handed, and palette_css runs on every request that has a colour
+    stored — so a raise here is a 500 on the public page, not a test failure
+    somebody notices later. ring_on is the first caller ever to pass a ground
+    the OWNER chose, which is why this sweep exists at all: before
+    LLM-COP-44 every tuple palette_css passed was frozen.
+
+    THE FENCE BELOW IS THE PROOF AND THIS IS THE CORROBORATION, in that
+    order. 3100 pairs is 3100 pairs out of 16.7M x 16.7M; what makes the
+    property hold for the rest is that every ring ground tuple is either a
+    singleton — where the on_color theorem guarantees an endpoint for ANY
+    colour — or frozen with a checked endpoint. What this sweep catches that
+    the structural argument cannot see is a WIRING mistake: a ring row handed
+    the other skin's surfaces, or a MAIN left unsubstituted.
+
+    The corner grid is 10 x 10 over the colours that actually matter here;
+    the 3000 random pairs come from a seeded generator, so a failure is
+    reproducible from the seed alone.
+    """
+    rand = random.Random(4400)
+    pairs = [(main, accent) for main in _CORNERS for accent in _CORNERS] + [
+        (f"#{rand.randrange(1 << 24):06x}", f"#{rand.randrange(1 << 24):06x}")
+        for _ in range(3000)
+    ]
+    assert len(pairs) == 3100
+    for main, accent in pairs:
+        block = palette_css(skin, main, accent)
+        assert _BLOCK.fullmatch(block), (skin, main, accent, block)
+
+
+def test_no_ring_ground_tuple_can_reach_the_raise():
+    """THE FENCE, and it is why the sweep above is corroboration rather than
+    the argument.
+
+    Two clauses, read straight off ROLE_TOKENS, no colours swept:
+
+      (i)  a ground tuple that CONTAINS MAIN must be the singleton (MAIN,);
+      (ii) a ground tuple containing NO MAIN must have a member of
+           ("#000000", "#ffffff") clearing 3:1 against every one of its
+           grounds.
+
+    Together they cover every tuple shape the table can hold, so the no-raise
+    property holds for a row added next year as well as for the five that
+    exist. Clause (i) hands the tuple to the on_color theorem, which
+    guarantees an endpoint at >= 4.5826 against ANY colour, the owner's
+    included — asserted below over the same mains the sweep binds, rather
+    than cited. Clause (ii) hands it to a constant this file can check.
+
+    THE SHAPE THIS REFUSES is why it is two clauses and not one. A row like
+    ("--v2-rust-ring-navy", (MAIN, "#14324a")) satisfies a loose reading of
+    "there is an endpoint" — white clears #14324a at 13.2503 — and raises the
+    moment an owner picks a light main, because then neither black nor white
+    clears both. Clause (i) refuses that row outright, and that is the one
+    edit this test exists to stop.
+
+    Clause (ii) is not vacuous: black clears V1_SURFACES at 19.6513 worst and
+    V2_SURFACES at 17.9252 worst, white clears ("#14324a",) at 13.2503. Those
+    margins are pinned, so adding a dark surface to either tuple is told
+    about here rather than in a 500.
+    """
+    frozen = []
+    singletons = 0
+    for skin in sorted(ROLE_TOKENS):
+        rows = ROLE_TOKENS[skin]["rings"]
+        assert rows, skin
+        for token, grounds in rows:
+            assert grounds, (skin, token)
+            if MAIN in grounds:
+                # (i)
+                assert grounds == (MAIN,), (
+                    f"{skin} {token} takes {grounds}: a ring ground tuple "
+                    "containing the owner's main colour must be the "
+                    "singleton (MAIN,), or no endpoint is guaranteed and "
+                    "visible_on can raise on the public page"
+                )
+                singletons += 1
+            else:
+                # (ii)
+                margins = [
+                    min(contrast(end, ground) for ground in grounds)
+                    for end in ("#000000", "#ffffff")
+                ]
+                assert max(margins) >= NON_TEXT_RATIO, (
+                    f"{skin} {token} takes {grounds}: neither black nor "
+                    f"white clears every one of them at {NON_TEXT_RATIO} "
+                    f"(best margins {margins})"
+                )
+                frozen.append((grounds, round(max(margins), 4)))
+
+    assert singletons == 2, singletons
+    assert sorted(set(frozen)) == sorted({
+        (V1_SURFACES, 19.6513),
+        (V2_SURFACES, 17.9252),
+        (("#14324a",), 13.2503),
+    }), sorted(set(frozen))
+
+    # Clause (i)'s guarantee, asserted rather than cited: on_color clears
+    # 4.5826 against every main the sweep binds, so a singleton (main,) can
+    # never reach readable_on's endpoint search empty-handed.
+    for main in _RING_MAINS:
+        assert contrast(on_color(main), main) >= 4.5826, main
+
+
+# The block palette_css returned at ba0e93d, for the pair
+# test_the_block_it_writes_is_legible_at_every_derived_site already drives.
+# A LITERAL, read off `git show ba0e93d:app/palette.py` and run — not
+# regenerated from the current module, which would assert nothing.
+_BA0E93D_BLOCK = {
+    "v1": (
+        ":root{--header-bg:#1a1a2e;--header-ink:#ffffff;"
+        "--header-accent:#ffe9a8;--accent:#ffe9a8;--accent-dark:#ccba86;"
+        "--accent-ink:#000000;--accent-dark-ink:#000000;"
+        "--accent-fg:#856f2e;--accent-edge:#a38d4c;}"
+    ),
+    "v2": (
+        ":root{--v2-header:#1a1a2e;--v2-header-ink:#ffffff;"
+        "--v2-header-accent:#ffe9a8;--v2-rust:#ffe9a8;"
+        "--v2-rust-dark:#ccba86;--v2-rust-ink:#000000;"
+        "--v2-rust-dark-ink:#000000;--v2-rust-fg:#7f6928;"
+        "--v2-rust-edge:#9c8645;}"
+    ),
+}
+
+# And exactly what LLM-COP-44 appends to it. #a38d4c and #9c8645 are the same
+# bytes the edge token above them carries, which is neither a coincidence nor
+# a fold: on a light-surface row a painted ring IS visible_on(accent,
+# surfaces), the same call. The two tokens make different PROMISES — an edge
+# can never be transparent, because on .button.secondary the border is the
+# only boundary there is, and a ring must be able to — and this very row,
+# where the navy ring is transparent while the light one is painted, is what
+# that difference looks like in the output.
+_RINGS_APPENDED = {
+    "v1": "--accent-ring:#a38d4c;--accent-ring-header:transparent;",
+    "v2": (
+        "--v2-rust-ring:#9c8645;--v2-rust-ring-navy:transparent;"
+        "--v2-rust-ring-header:transparent;"
+    ),
+}
+
+
+@pytest.mark.parametrize("skin", sorted(ROLE_TOKENS))
+def test_the_block_is_the_pre_change_one_with_the_rings_appended(skin):
+    """BYTE IDENTITY OF WHAT DID NOT CHANGE.
+
+    Nine values came out of palette_css before LLM-COP-44 and the same nine
+    come out now, in the same order, with the rings after them. This is the
+    assertion that goes red on a reordering, on a re-derivation of any
+    existing token, and on a ring interleaved among them rather than
+    appended — none of which any ratio test in this file could see, because
+    all nine would still be legible colours and every ratio would still hold.
+
+    The left-hand side is a LITERAL from ba0e93d, not a regeneration: a test
+    that built the expected string by calling the module would pass on a
+    module that had changed every value in it.
+    """
+    block = palette_css(skin, "#1a1a2e", "#ffe9a8")
+    assert block == _BA0E93D_BLOCK[skin][:-1] + _RINGS_APPENDED[skin] + "}"
+    # And the pre-change block really is a prefix, said separately so a
+    # failure names which half moved.
+    assert block.startswith(_BA0E93D_BLOCK[skin][:-1])
+
+
+def test_palette_css_derives_every_ring_from_the_HOVER_fill_as_well():
+    """THE WIRING, which neither the sweeps above nor the fence can see.
+
+    _ring_sweep calls ring_on with both fills itself, so it proves what
+    ring_on does with the arguments it is given and nothing about the
+    arguments palette_css actually gives it. Drop shade(accent) from that
+    call site and every test above this one stays green: the derivation is
+    still correct, it is just no longer being told about the state the button
+    spends half its life in.
+
+    #ee0055 IS THE SHARPEST PICK ON THE 4096-COLOUR GRID THAT SEPARATES
+    THEM, and it was found by sweeping for it rather than chosen. On
+    --v2-navy its REST fill is 3.0076:1 — compliant, so a derivation that
+    looked only there would return "transparent" and paint nothing — while
+    its HOVER fill #be0044 is 2.0651:1, which is the button vanishing under
+    the pointer. 811 of the 4096 grid colours do this and every one of them
+    is on the navy card, because shade() darkens and every other ring ground
+    in either skin is light.
+
+    Asserted from the BLOCK, not from ring_on, so it is palette_css's call
+    site under test. The numbers are pinned alongside the decision, because
+    "not transparent" would also be true of a derivation that had stopped
+    checking anything.
+    """
+    accent = "#ee0055"
+    hover = shade(accent)
+    assert round(contrast(accent, "#14324a"), 4) == 3.0076
+    assert round(contrast(hover, "#14324a"), 4) == 2.0651
+
+    written = dict(
+        pair.split(":")
+        for pair in palette_css("v2", "", accent)[6:-1].split(";")
+        if pair
+    )
+    ring = written["--v2-rust-ring-navy"]
+    assert ring != "transparent", (
+        "the navy ring was derived from the rest fill alone: #ee0055 clears "
+        "3:1 on --v2-navy at rest and 2.0651:1 on hover, so a button that "
+        "looks compliant standing still disappears under the pointer"
+    )
+    assert contrast(ring, "#14324a") >= NON_TEXT_RATIO, ring
+
+
+@pytest.mark.parametrize("skin", sorted(ROLE_TOKENS))
+def test_the_main_sentinel_never_reaches_the_rendered_block(skin):
+    """MAIN IS A SENTINEL, NOT A COLOUR, and the day palette_css forgets to
+    substitute it the page must break loudly rather than quietly.
+
+    It is "<main>" and the "<" is deliberate: a leak fails _BLOCK's
+    closed-alphabet assertion — the same assertion that keeps a stored value
+    from opening a tag — instead of reaching the browser as a value no parser
+    can read and no owner chose. So both halves are asserted here: that the
+    sentinel still carries the character that makes a leak loud, and that it
+    does not reach the output for any combination of chosen and unchosen
+    roles, the unchosen being the case where substitution is easiest to skip.
+    """
+    assert "<" in MAIN
+    tokens = ROLE_TOKENS[skin]
+    for main, accent in (
+        ("#1a1a2e", "#ffe9a8"),
+        ("", "#ffe9a8"),
+        ("#1a1a2e", ""),
+        ("#ffffff", "#ffffff"),
+        (tokens["default_main"], tokens["default_accent"]),
+    ):
+        block = palette_css(skin, main, accent)
+        assert MAIN not in block, (skin, main, accent, block)
+        assert "<" not in block, (skin, main, accent, block)
+
+
 # --- ROLE_TOKENS: the table against the stylesheets it describes ------------
 
 
@@ -604,6 +1022,16 @@ def test_the_frozen_defaults_are_still_the_stylesheets_own(
     V2_SURFACES: the surface VALUES are fenced, the surface SET is not. A
     future rule painting accent-coloured text on a dark band would pass every
     test in this file.
+
+    SINCE LLM-COP-44 THE RING GROUNDS ARE FENCED THE SAME WAY, and they need
+    it more than the surfaces do. A ring's ground is written into ROLE_TOKENS
+    as the literal a CSS rule paints somewhere else — ("#14324a",) is
+    --v2-navy, the contact card's background — so the table is asserting
+    something about a colour it does not own. Recolour --v2-navy and the ring
+    is still derived against #14324a, still clears 3:1 against a colour the
+    card no longer has, and nothing anywhere says so. MAIN is skipped: it is
+    a sentinel, not a literal, and the ground it stands for is the owner's
+    and has no :root value at all.
     """
     declarations = _root_declarations(filename)
     assert ROLE_TOKENS[skin]["default_main"] == declarations[main_token]
@@ -611,13 +1039,34 @@ def test_the_frozen_defaults_are_still_the_stylesheets_own(
     values = set(declarations.values())
     for surface in ROLE_TOKENS[skin]["surfaces"]:
         assert surface in values, (skin, surface)
+    frozen_grounds = {
+        ground
+        for _token, grounds in ROLE_TOKENS[skin]["rings"]
+        for ground in grounds
+        if ground != MAIN
+    }
+    assert frozen_grounds, skin
+    for ground in sorted(frozen_grounds):
+        assert ground in values, (
+            f"{skin}: a ring is derived against {ground}, which {filename}'s "
+            ":root declares nowhere — the ground moved and the derivation "
+            "did not"
+        )
 
 
 @pytest.mark.parametrize("skin", sorted(ROLE_TOKENS))
 def test_every_token_the_override_writes_is_declared_by_its_stylesheet(skin):
     """A token the override writes that no :root declares is a declaration
     that reaches nothing — the silent failure this whole design is shaped to
-    avoid, and one no rendered page would report."""
+    avoid, and one no rendered page would report.
+
+    Two loops and not one, because "rings" is not shaped like the others:
+    the nine roles above it are scalar token names, while "rings" is a list
+    of (token, grounds) pairs, one per ground a primary button is painted on
+    (LLM-COP-44). Folding them together would mean guessing at the shape of
+    a row, which is how a table with two shapes ends up with a test that
+    only checks one of them.
+    """
     filename = "style.css" if skin == "v1" else "style-v2.css"
     declarations = _root_declarations(filename)
     for role in (
@@ -632,6 +1081,8 @@ def test_every_token_the_override_writes_is_declared_by_its_stylesheet(skin):
         "accent_edge",
     ):
         assert ROLE_TOKENS[skin][role] in declarations, (skin, role)
+    for token, _ in ROLE_TOKENS[skin]["rings"]:
+        assert token in declarations, (skin, token)
 
 
 # --- palette_css: the string that reaches a <style> block ------------------
@@ -681,8 +1132,15 @@ def test_every_block_it_does_write_is_inside_the_closed_alphabet(
 ):
     ruleset = palette_css(skin, main, accent)
     assert _BLOCK.fullmatch(ruleset), ruleset
-    # Nine declarations, always — one code path, never a partial block.
-    assert ruleset.count(";") == 9
+    # Every declaration, always — one code path, never a partial block. The
+    # count is PER SKIN since LLM-COP-44 and it is the first thing about the
+    # two skins' output that differs: nine scalar tokens each, plus one ring
+    # per ground a primary button is painted on, and V1 has two such grounds
+    # (its light surfaces and the header's) where V2 has three (its light
+    # surfaces, the navy contact card and the header's). A number that was
+    # the same for both is exactly the kind of thing somebody "fixes" by
+    # widening it to >= 9, so it is written as two literals.
+    assert ruleset.count(";") == {"v1": 11, "v2": 12}[skin]
 
 
 @pytest.mark.parametrize("skin", sorted(ROLE_TOKENS))

@@ -1333,7 +1333,7 @@ def test_the_v2_direct_edit_page_draws_no_author_outline_at_all(
 
 
 def test_the_edge_token_never_reaches_the_admin_inbox(page, live_app, skin):
-    """style.css:77 now reads --accent-edge, and inbox.html links style.css.
+    """style.css:112 now reads --accent-edge, and inbox.html links style.css.
 
     /yllapito/viestit renders .button.secondary and receives no site_chrome
     spread, so no <style> block reaches it whatever an owner picks — which
@@ -1604,3 +1604,699 @@ def test_the_style_block_is_last_in_head_and_carries_only_the_closed_alphabet(
     )
     assert hero["color_main"] == PANEL_MAIN
     assert hero["color_accent"] == PANEL_ACCENT
+
+
+# --- 8: LLM-COP-44, the primary button's RING -------------------------------
+#
+# ADDITIVE, like section 6 above: not one line of the text-site or edge
+# machinery is edited. `measure`, `measure_edges`, TEXT_SITES, EDGE_SITES and
+# every test reading them are untouched, because "text contrast is unchanged"
+# and "the edges still hold" are claims this file has to be able to make
+# about itself.
+#
+# WHAT IS BEING PROVED, in one sentence, because a looser one is false. The
+# button's outer BOUNDARY reaches 3:1 against its own ground at rest and on
+# hover, on every ground either skin puts a primary button on. NOT that the
+# fill reaches 3:1 — it never will, the fill is the owner's literal pick and
+# no derivation may move it. The boundary is carried by the fill wherever the
+# fill already clears, and by a 1px ring drawn just outside the border box
+# wherever it does not, and which of the two is carrying it on any given
+# button is a thing these tests MEASURE rather than assume.
+#
+# THREE HAZARDS THIS SECTION IS SHAPED AROUND, all three of which have
+# actually bitten this codebase:
+#
+# 1. READ THE PROPERTY OFF THE ELEMENT THAT OWNS IT. USR-COP-2's earlier
+#    draft read `color` off an ancestor that does not own it and would have
+#    passed green at 1.07:1. Every row below reads boxShadow off the
+#    `.button.primary` itself, and its ground by walking from
+#    el.parentElement — the ring sits OUTSIDE the border box, so the button's
+#    own fill is not what it is seen against.
+#
+# 2. NEVER PIN A PROPERTY THE UA SUPPLIES. LLM-COP-40's first push was green
+#    locally and red on CI because a test pinned a computed `outline-width`
+#    that Chrome 142 reports as 0px and Chrome 152 as 3px. So nothing here
+#    pins the computed box-shadow STRING or its px serialisation. One regex
+#    takes the colour and its alpha out; the offsets, the blur, the spread
+#    and the order of the parts are the UA's business and no assertion
+#    touches them. Chrome 142 on this machine serialises the two cases as
+#    `rgba(0, 0, 0, 0) 0px 0px 0px 1px` and `rgb(192, 91, 52) 0px 0px 0px
+#    1px` — recorded so a future reader knows what was parsed, NOT asserted.
+#
+# 3. TEST THE ALPHA FIRST. `rgb()` above REFUSES a translucent value by
+#    design — a silent blend would be this file inventing a ground. Every
+#    transparent ring computes with alpha 0, so a row that routed a ring
+#    colour through rgb() or ratio() before testing its alpha would die with
+#    `translucent:` instead of saying what was wrong. shadow_colour below
+#    returns the alpha ALONGSIDE the triple and never goes through rgb(), and
+#    every caller looks at the alpha before it looks at the colour.
+
+# Every .button.primary on the public page, per skin: (selector, the ground
+# it walks to when no MAIN colour is chosen, whether that ground IS the
+# owner's main role).
+#
+# THE HERO CTA AND THE CONTACT CTA ARE TWO SITES ON V1, not one. page.html:65
+# is the hero's `.cta-row` button and page.html:159 is the yhteydenotto
+# section's; both carry .cta-contact, both walk to body's --paper because
+# neither .hero nor .contact declares a background, and both are measured.
+# V2 has no such pair — its yhteydenotto button is .v2-contact-primary on the
+# navy card, which is the live defect and is listed on its own.
+#
+# THE GROUNDS ARE PINNED AS LITERALS and the browser is asked to agree with
+# them. That is the assertion that catches a selector aimed at the wrong
+# element: `.contact .button.primary` on a ground of rgb(255, 255, 255) would
+# mean the walk found the card and not the paper, and every ratio computed
+# from it would be a ratio about the wrong thing.
+RING_SITES = {
+    "v1": (
+        (".cta-row .button.primary", "rgb(250, 247, 242)", False),
+        (".contact .button.primary", "rgb(250, 247, 242)", False),
+        (".site-header .button.primary", "rgb(255, 255, 255)", True),
+    ),
+    "v2": (
+        (".v2-hero-card .button.primary", "rgb(255, 255, 255)", False),
+        (".v2-contact-card .button.primary", "rgb(20, 50, 74)", False),
+        (".v2-header .button.primary", "rgb(217, 232, 242)", True),
+    ),
+}
+
+# The dialog's submit, which is a fourth site on both skins and the one that
+# cannot be measured where it stands. contact_dialog.html:6 ships
+# `<div class="contact-dialog" hidden>`, so .cd-submit has a zero box until
+# an opener is clicked — and a zero-size element measured anyway is exactly
+# the silent pass assert_painted exists to stop. It is opened for real, with
+# a click on the hero's own .cta-contact, and the `rendered` precondition is
+# what catches a row that forgot.
+DIALOG_OPENER = ".cta-row .cta-contact"
+DIALOG_SITE = (".contact-dialog .cd-submit", "rgb(255, 255, 255)", False)
+
+# The five (main, accent) pairs every site is driven at.
+#
+# The three accents are EDGE_CASES, the file's own picks from LLM-COP-40, so
+# the three failure modes its docstring argues for carry over unchanged: pale
+# is the defect the ask names, mid is the one that catches a NEARLY right
+# derivation, dark is the identity case the derivation must leave alone.
+#
+# THE FOURTH IS THE PATHOLOGICAL ONE and it is the only way to reach the
+# 1.0000 row. An owner who gives BOTH roles one colour puts the header's
+# primary button on its own fill: contrast(x, x) is 1.0 for every colour
+# there is, so that button is not a button, it is a rectangle of header. No
+# amount of sweeping the accent alone finds it, because the ground has to
+# move with the fill.
+#
+# THE FIFTH IS THE ONLY ONE THAT SEPARATES REST FROM HOVER, and without it
+# the hover half of this test proves nothing it does not already prove at
+# rest. The derivation takes BOTH fills — (accent, shade(accent)) — and the
+# case that holds it to that is an accent whose REST fill clears its ground
+# while its HOVER fill does not. Swept the 4096-colour grid for one: 811
+# exist and all 811 are on --v2-navy, because shade() darkens and every
+# other ring ground in either skin is light. #ee0055 is the sharpest of them
+# — 3.0076:1 on the navy card at rest, 2.0651:1 once the pointer lands.
+# Drop shade(accent) from the derivation's fills and this is the row that
+# goes red, at 2.0651, and only on hover.
+#
+# On V1 it is a quiet pass and says so: no v1 ground can produce the flip at
+# all, so the case is carried for the skin that has it and costs the other a
+# page load.
+RING_CASES = (
+    ("", "#ffe9a8"),
+    ("", "#66aa88"),
+    ("", "#1a1a2e"),
+    ("#ffe9a8", "#ffe9a8"),
+    ("", "#ee0055"),
+)
+
+# One evaluate per measurement. Three things it returns and why each is here:
+# `boxShadow` read off the button ITSELF (hazard 1); `fill`, its own computed
+# background, which is the other half of the SC 1.4.11 disjunction; and
+# `ground`, the walk from el.parentElement — the ring is painted outside the
+# border box, so the button's own fill is not underneath it. `rendered` is
+# the precondition: a zero-size element has no boundary to perceive and every
+# ratio taken off it is a number about nothing.
+_MEASURE_RINGS = """
+(selectors) => selectors.map((selector) => {
+  const el = document.querySelector(selector);
+  if (!el) return { selector, found: false };
+  const cs = getComputedStyle(el);
+  const opaque = (raw) => {
+    const parts = (raw.match(/[\\d.]+/g) || []).map(Number);
+    return parts.length >= 3 && (parts.length < 4 || parts[3] > 0);
+  };
+  const walk = (node) => {
+    while (node) {
+      const raw = getComputedStyle(node).backgroundColor;
+      if (opaque(raw)) return raw;
+      node = node.parentElement;
+    }
+    return null;
+  };
+  const box = el.getBoundingClientRect();
+  return {
+    selector,
+    found: true,
+    rendered: box.width > 0 && box.height > 0,
+    boxShadow: cs.boxShadow,
+    fill: cs.backgroundColor,
+    ground: walk(el.parentElement),
+  };
+});
+"""
+
+# The colour of a box-shadow, and NOTHING ELSE OF IT. Chrome puts the colour
+# first and the four lengths after; Firefox has been known to put the lengths
+# first. This finds the first rgb()/rgba() wherever it sits and ignores every
+# length, which is what keeps hazard 2 closed.
+_SHADOW_COLOUR = re.compile(r"rgba?\(([\d.,\s]+)\)")
+
+
+def shadow_colour(text):
+    """((r, g, b), alpha) of a computed box-shadow's colour.
+
+    THE ALPHA COMES BACK ALONGSIDE THE TRIPLE, deliberately, and this is the
+    one colour parser in this file that does not go through rgb(). rgb()
+    refuses a translucent value — a silent blend would be the test inventing
+    a ground — and an unpainted ring is `rgba(0, 0, 0, 0)`, so routing one
+    through it would turn "this button has no ring" into `translucent:
+    'rgba(0, 0, 0, 0) 0px 0px 0px 1px'`, which names neither the button nor
+    the claim. Callers test the alpha first and only then look at the colour.
+
+    NOTHING BUT THE COLOUR IS RETURNED. No caller can pin the spread, the
+    offsets or the px serialisation of any of them, because they are not here
+    to be pinned.
+    """
+    found = _SHADOW_COLOUR.search(text or "")
+    assert found, f"no colour in box-shadow {text!r}"
+    parts = [float(part) for part in found.group(1).split(",")]
+    assert len(parts) >= 3, f"not a colour: {text!r}"
+    alpha = parts[3] if len(parts) > 3 else 1.0
+    return tuple(round(part) for part in parts[:3]), alpha
+
+
+def measure_rings(page, selectors):
+    """{selector: {...}} for every selector, measured in the live page."""
+    rows = page.evaluate(_MEASURE_RINGS, list(selectors))
+    return {row["selector"]: row for row in rows}
+
+
+def ring_claim(row, where):
+    """SC 1.4.11 for one filled button, COMPUTED rather than matched.
+
+    The claim is a disjunction and it is written out as one: the boundary
+    reaches 3:1 if the FILL clears its ground, OR if the ring is opaque AND
+    the RING clears its ground. Returns None on a pass and a failure line
+    naming both halves otherwise.
+
+    WHY THE DISJUNCTION AND NOT A VALUE PIN. An earlier form of the sweep
+    below asked whether a button "carries one of the ring values the block
+    wrote". That fences nothing: a fourth primary-button site added later on
+    a fourth dark ground inherits the base rule, carries the light-surface
+    ring token, and passes — while for every accent that clears the light
+    tuple that ring is transparent, so the element is never even seen. The
+    scenario the sweep existed for is precisely the one that escaped it. The
+    claim form has no such hole: a button on a ground neither its fill nor
+    its ring clears fails outright, whatever token it happens to carry.
+
+    THE ALPHA IS TESTED BEFORE THE COLOUR, for the reason shadow_colour
+    states. A transparent ring is not a weaker ring, it is no ring — so when
+    the fill has already failed, alpha 0 is the failure, and saying so names
+    the defect instead of raising `translucent:` out of rgb().
+
+    IT DOES NOT REQUIRE THE BUTTON TO BE RENDERED, and its callers do that
+    themselves. A named site measured at a zero box is a silent pass and
+    every named-site test below asserts against it; the whole-document sweep,
+    by contrast, deliberately holds the HIDDEN buttons to the claim as well —
+    a dialog submit behind `hidden` still has resolved computed colours, and
+    those are exactly what it will paint with the moment somebody opens it.
+    """
+    assert row["found"], f"{where}: not on the page"
+    assert row["ground"], f"{where}: no opaque ground anywhere above it"
+    ground = rgb(row["ground"])
+    fill = ratio(rgb(row["fill"]), ground)
+    if fill >= 3.0:
+        return None
+    colour, alpha = shadow_colour(row["boxShadow"])
+    if alpha != 1.0:
+        return (
+            f"{where}: the fill is {fill:.4f}:1 on {row['ground']} and the "
+            f"ring is not painted (alpha {alpha}) — nothing carries the "
+            "boundary"
+        )
+    ring = ratio(colour, ground)
+    if ring >= 3.0:
+        return None
+    return (
+        f"{where}: the fill is {fill:.4f}:1 and the ring {row['boxShadow']} "
+        f"is {ring:.4f}:1, both on {row['ground']}"
+    )
+
+
+def open_contact_dialog(page):
+    """Click a real opener and wait for the submit to have a box.
+
+    contact_dialog.html binds `.header-contact, .cta-contact` as openers, and
+    the hero's is the one every skin has in the same place. Waiting on
+    `visible` rather than sleeping is what makes the `rendered` precondition
+    below a real assertion rather than a race.
+    """
+    page.click(DIALOG_OPENER)
+    page.wait_for_selector(DIALOG_SITE[0], state="visible")
+
+
+def test_the_shipped_default_page_carries_the_boundary_at_rest_and_on_hover(
+    page, live_app, skin
+):
+    """NOTHING PLANTED — the rendering every visitor who chose no colour gets,
+    and the one no derivation can influence.
+
+    A site that has chosen nothing serves NO <style> block at all, asserted
+    here, so every value below resolves through the ring tokens' `:root`
+    defaults. That makes this the test that says the DEFAULTS are right, and
+    it is the only test in the suite that can: everything else plants a
+    colour and measures what the derivation produced.
+
+    WHAT V2 SHOWS. The contact card's button is the live SC 1.4.11 defect the
+    artifact was filed for — the shipped rust is 2.1987:1 on --v2-navy, and
+    on hover, where --v2-rust-dark #8b3715 takes over, 1.6753:1. After this
+    change its ring is opaque rgb(192, 91, 52) at 3.0206:1 against the same
+    ground, at rest AND under the pointer, because neither hover rule
+    re-declares box-shadow. The other three v2 buttons keep an UNPAINTED ring
+    and are byte-identical to what they rendered before — #a8431c already
+    clears their grounds, so the fill carries the boundary and nothing new is
+    drawn.
+
+    WHAT V1 SHOWS: nothing is drawn anywhere. Both v1 rings derive to
+    transparent at the shipped accent and at the hand-picked hover literal,
+    so the shipped V1 page does not change by one pixel — and that is a
+    falsifiable claim rather than a hope, asserted here as alpha 0 on all
+    four buttons in both states.
+
+    THE V1 ASSERTION IS ALPHA, NOT `boxShadow == "none"`. After this change
+    the computed value on v1 is a shadow with alpha 0, not `none`, because
+    `0 0 0 1px transparent` IS a shadow. An assertion of "none" would be red
+    on a correct build.
+    """
+    plant(live_app, skin)
+    page_rows = RING_SITES[skin]
+    with anonymous(page.context.browser, live_app) as (visitor, response):
+        assert response.status == 200
+        assert_skin(visitor, skin)
+        assert "<style" not in response.text(), (
+            "a site that chose nothing must serve no block at all"
+        )
+        rows = page_rows + (DIALOG_SITE,)
+        for state in ("rest", "hover"):
+            for selector, ground, _is_main in rows:
+                if selector == DIALOG_SITE[0]:
+                    continue
+                if state == "hover":
+                    visitor.hover(selector)
+                row = measure_rings(visitor, (selector,))[selector]
+                _assert_default_ring(row, skin, selector, ground, state)
+        # The dialog last, and opened for real: it overlays the page, so a
+        # button behind it could not be hovered afterwards.
+        open_contact_dialog(visitor)
+        selector, ground, _is_main = DIALOG_SITE
+        for state in ("rest", "hover"):
+            if state == "hover":
+                visitor.hover(selector)
+            row = measure_rings(visitor, (selector,))[selector]
+            _assert_default_ring(row, skin, selector, ground, state)
+
+
+# What the shipped default must render at each site, per skin. Only one row
+# in either skin is painted, and it is the defect this change exists for; the
+# other seven are the identity case, which is what keeps the two default
+# pages from gaining eight rims nobody asked for.
+_DEFAULT_RING = {
+    "v2": {".v2-contact-card .button.primary": ((192, 91, 52), 3.0206)},
+    "v1": {},
+}
+# And what the fill measures on the one painted row, at rest and on hover —
+# the two numbers the artifact filed and the reason the ring is there.
+_DEFAULT_NAVY_FILL = {"rest": ((168, 67, 28), 2.1987),
+                      "hover": ((139, 55, 21), 1.6753)}
+
+
+def _assert_default_ring(row, skin, selector, ground, state):
+    """One site of the shipped default page, at rest or under the pointer."""
+    where = f"{skin} default {selector} ({state})"
+    assert row["found"], f"{where}: not on the page"
+    assert row["rendered"], f"{where}: rendered at zero size"
+    assert row["ground"] == ground, (
+        f"{where}: walks to {row['ground']}, not the expected {ground} — the "
+        "selector is aimed at an element in a different container"
+    )
+    colour, alpha = shadow_colour(row["boxShadow"])
+    expected = _DEFAULT_RING[skin].get(selector)
+    if expected is None:
+        assert alpha == 0, (
+            f"{where}: the ring is painted {row['boxShadow']}, but this "
+            "button's fill already clears 3:1 on its ground and the shipped "
+            "page must render exactly what it rendered before"
+        )
+        # And it really is the fill carrying the boundary, not nothing.
+        assert ratio(rgb(row["fill"]), rgb(ground)) >= 3.0, (
+            f"{where}: the ring is unpainted AND the fill is "
+            f"{ratio(rgb(row['fill']), rgb(ground)):.4f}:1"
+        )
+        return
+    want, want_ratio = expected
+    assert alpha == 1.0, (
+        f"{where}: the ring is not painted ({row['boxShadow']}), and the "
+        f"fill under it measures "
+        f"{ratio(rgb(row['fill']), rgb(ground)):.4f}:1 — this is the site "
+        "the whole change exists for"
+    )
+    assert colour == want, (
+        f"{where}: the ring is {colour}, not the {want} the :root default "
+        "declares"
+    )
+    assert round(ratio(colour, rgb(ground)), 4) == want_ratio, (
+        f"{where}: the ring measures "
+        f"{ratio(colour, rgb(ground)):.4f}:1, not {want_ratio}"
+    )
+    # The fill it is standing in for, so the improvement is measured and not
+    # asserted: 2.1987 at rest and 1.6753 on hover, both under 3:1.
+    fill_want, fill_ratio = _DEFAULT_NAVY_FILL[state]
+    assert rgb(row["fill"]) == fill_want, (where, row["fill"])
+    assert round(ratio(rgb(row["fill"]), rgb(ground)), 4) == fill_ratio
+    assert fill_ratio < 3.0
+
+
+@pytest.mark.parametrize(
+    "main,accent", RING_CASES,
+    ids=("pale", "mid", "dark", "main-equals-accent", "hover-only"),
+)
+def test_every_primary_button_carries_the_boundary_at_rest_and_on_hover(
+    page, live_app, skin, main, accent
+):
+    """THE CENTRAL CLAIM, in a real browser, at every site in both skins.
+
+    Five owner choices, four buttons per skin, two pointer states each: for
+    every one of them the SC 1.4.11 disjunction is COMPUTED from the rgb()
+    triples Chrome returned — the fill clears 3:1 against the walked ground,
+    or the ring is opaque and clears it. The arithmetic is this file's own;
+    app.palette.contrast is not imported for it, because a ratio computed
+    with the curve of the module under proof is a statement about that
+    module.
+
+    THE HOVER HALF IS NOT DECORATION, and one of the five cases exists only
+    for it. The hover fill is the darker of the two, so a derivation that
+    looked at the rest fill alone would go blind exactly where the boundary
+    is doing the work. #ee0055 is the case that holds it to both: 3.0076:1 on
+    the navy card at rest — compliant, and a rest-only test is satisfied —
+    and 2.0651:1 the moment the pointer lands. Here the pointer is really
+    moved and the computed style read again, so "the ring survives hover" is
+    a measurement and not a reading of the stylesheet.
+
+    THE GROUND IS ASSERTED BEFORE ANY RATIO IS TAKEN, and for the header it
+    MOVES WITH THE MAIN COLOUR. --header-bg and --v2-header are the owner's
+    own main role, so a pair that plants both roles the same colour puts that
+    button on its own fill at 1.0000:1 — the row no sweep over the accent
+    alone can reach, and the reason the two header ring tokens exist. If the
+    walk found some other ground the ratio below would be about a container
+    this button is not in, and it would be green for a reason with nothing to
+    do with the claim.
+
+    NOTHING HERE PINS A DERIVED COLOUR. The expected ring values are in the
+    plan and in tests/test_palette.py; what this test asserts is the
+    PROPERTY, so a better derivation that produced different colours still
+    passes and a derivation that produced compliant-looking colours on the
+    wrong grounds still fails.
+    """
+    plant(live_app, skin, main=main, accent=accent)
+    rows = RING_SITES[skin] + (DIALOG_SITE,)
+    failures = []
+    with anonymous(page.context.browser, live_app) as (visitor, response):
+        assert response.status == 200
+        assert_skin(visitor, skin)
+        assert "<style" in response.text(), "the colour never reached the page"
+        for state in ("rest", "hover"):
+            for selector, ground, is_main in rows:
+                if selector == DIALOG_SITE[0]:
+                    continue
+                if state == "hover":
+                    visitor.hover(selector)
+                row = measure_rings(visitor, (selector,))[selector]
+                assert row["found"] and row["rendered"], (
+                    f"{skin} {selector} ({state}) is not on the page or "
+                    "rendered at zero size — a named site measured at a zero "
+                    "box is a silent pass"
+                )
+                want = (
+                    "rgb({}, {}, {})".format(*hex_to_rgb(main))
+                    if is_main and main
+                    else ground
+                )
+                assert row["ground"] == want, (
+                    f"{skin} {main or 'default'}/{accent} {selector} "
+                    f"({state}) walks to {row['ground']}, not {want}"
+                )
+                failure = ring_claim(
+                    row, f"{skin} main={main or 'default'} accent={accent} "
+                         f"{selector} ({state})"
+                )
+                if failure:
+                    failures.append(failure)
+        open_contact_dialog(visitor)
+        selector = DIALOG_SITE[0]
+        for state in ("rest", "hover"):
+            if state == "hover":
+                visitor.hover(selector)
+            row = measure_rings(visitor, (selector,))[selector]
+            assert row["found"] and row["rendered"], (
+                f"{skin} {selector} ({state}) has a zero box — the dialog "
+                "ships `hidden` and must be opened before it is measured"
+            )
+            assert row["ground"] == DIALOG_SITE[1], (selector, row["ground"])
+            failure = ring_claim(
+                row, f"{skin} main={main or 'default'} accent={accent} "
+                     f"{selector} ({state})"
+            )
+            if failure:
+                failures.append(failure)
+    assert not failures, "; ".join(failures)
+
+
+# --- 9: the claim over the whole document, not over a list of selectors -----
+
+# Every element in the document whose PAINTED box-shadow is one of the ring
+# values the page's own <style> block wrote, plus every .button.primary in
+# it, whether this file names one or not.
+#
+# TWO HALVES, AND THE SECOND IS THE ONE THAT FENCES. Half (a) is the surface
+# fence in its ring-shaped form: a ring painted on a ground it was not
+# derived for is a ring this change guarantees nothing about. Half (b) is the
+# CLAIM, computed for every primary button the document contains — including
+# one added next year on a ground nobody thought of, which is exactly the
+# case half (a) cannot see, because a button on a new dark ground would carry
+# the light-surface token and for most accents that token is transparent, so
+# it would never be a hit at all.
+#
+# THE GROUND RULE IS measure_rings', deliberately and stated in both places:
+# the walk starts at el.parentElement, because a ring sits outside the border
+# box and the element's own fill is not underneath it.
+_SWEEP_RINGS = """
+(sentinels) => {
+  const opaque = (raw) => {
+    const parts = (raw.match(/[\\d.]+/g) || []).map(Number);
+    return parts.length >= 3 && (parts.length < 4 || parts[3] > 0);
+  };
+  const walk = (node) => {
+    while (node) {
+      const raw = getComputedStyle(node).backgroundColor;
+      if (opaque(raw)) return raw;
+      node = node.parentElement;
+    }
+    return null;
+  };
+  const where = (el) => {
+    const bits = [el.tagName.toLowerCase()];
+    if (el.id) bits.push('#' + el.id);
+    if (el.className && typeof el.className === 'string') {
+      bits.push('.' + el.className.trim().split(/\\s+/).join('.'));
+    }
+    return bits.join('');
+  };
+  const shadowColour = (raw) => {
+    const found = /rgba?\\([\\d.,\\s]+\\)/.exec(raw || '');
+    return found ? found[0] : null;
+  };
+  const hits = [];
+  for (const el of document.querySelectorAll('*')) {
+    const colour = shadowColour(getComputedStyle(el).boxShadow);
+    if (colour === null || !opaque(colour)) continue;
+    if (!sentinels.includes(colour)) continue;
+    hits.push({ what: where(el), colour, ground: walk(el.parentElement) });
+  }
+  const buttons = [];
+  for (const el of document.querySelectorAll('.button.primary')) {
+    const cs = getComputedStyle(el);
+    const box = el.getBoundingClientRect();
+    buttons.push({
+      selector: where(el),
+      found: true,
+      rendered: box.width > 0 && box.height > 0,
+      boxShadow: cs.boxShadow,
+      fill: cs.backgroundColor,
+      ground: walk(el.parentElement),
+    });
+  }
+  return { hits, buttons };
+};
+"""
+
+# Where the sweep runs. `/` and /muokkaa/sivu are SWEEP_ROUTES', and
+# /yllapito is added because it is the ONLY route that renders .login-submit:
+# login_dialog=True is set at app/__init__.py:256, :362, :375 and :482, all
+# of them /yllapito arms, so the two routes above would find TEN primary
+# buttons and miss the eleventh entirely. It renders through the same
+# render_page and therefore carries the same <style> block, so the sweep sees
+# a derived ring there exactly as it does on the other two.
+RING_SWEEP_ROUTES = ("/", "/muokkaa/sivu", "/yllapito")
+
+# How many .button.primary each route actually contains, per skin. A COUNT
+# and not a lower bound, because the failure this half exists to catch is a
+# button nobody knew about — and a `>= 4` would pass on a sweep that stopped
+# finding half of them. Measured, and the numbers say what the routes are:
+# `/` carries the hero CTA, the contact CTA, the header's and the dialog's
+# submit; /muokkaa/sivu adds direct-edit's Julkaise; /yllapito adds
+# .login-submit, the one button the other two routes cannot reach.
+#
+# THE TWO SKINS MATCH ON EVERY ROUTE, which is not the coincidence it looks
+# like: v2's yhteydenotto button is .v2-contact-primary on the navy card, a
+# different element on a different ground from v1's, but it carries
+# .cta-contact and `.button.primary` all the same (page_v2.html:296), so each
+# route puts the SAME number of primary buttons on the page in either skin.
+RING_SWEEP_COUNTS = {
+    "v1": {"/": 4, "/muokkaa/sivu": 5, "/yllapito": 5},
+    "v2": {"/": 4, "/muokkaa/sivu": 5, "/yllapito": 5},
+}
+
+
+def ring_values_in(document, skin):
+    """The PAINTED ring colours the page's own <style> block wrote.
+
+    READ OFF THE SERVED DOCUMENT, not derived by calling ring_on — the same
+    rule edge_token_in states for the edge token. The needle this sweep hunts
+    for has to be the colour that actually reached the browser; deriving it
+    from the module under proof would make the sweep agree with that module
+    by construction, and a wrong derivation would simply be hunted for under
+    its own wrong value.
+
+    A `transparent` ring is not a needle and is not returned. Nothing is
+    painted, so no element can be found by it, and half (a) of the sweep has
+    nothing to say about a button that draws no ring — which is the hole half
+    (b) exists to close.
+    """
+    from app.palette import ROLE_TOKENS
+
+    found = []
+    for token, _grounds in ROLE_TOKENS[skin]["rings"]:
+        match = re.search(rf"{token}:(#[0-9a-f]{{6}}|transparent);", document)
+        assert match, f"{token} is in no <style> block on this page"
+        if match.group(1) != "transparent":
+            found.append(match.group(1))
+    return tuple(found)
+
+
+@pytest.mark.parametrize("route", RING_SWEEP_ROUTES, ids=lambda r: r.strip("/"))
+def test_every_primary_button_in_the_document_carries_the_boundary(
+    page, live_app, skin, route
+):
+    """THE SWEEP THAT NAMES NO SITE — it walks the rendered document and
+    computes the claim, so a button this file never heard of is held to it.
+
+    HALF (a), THE SURFACE FENCE FOR RINGS. Every element whose PAINTED
+    box-shadow is one of the ring colours the page's own block wrote must
+    have a walked ground that the ring clears 3:1 against. A ring painted on
+    a ground it was not derived for is a ring this change guarantees nothing
+    about, and no arithmetic test could see it: the derivation would be
+    perfectly correct about the ground it was given.
+
+    HALF (b), THE CLAIM. For EVERY .button.primary in the document — named
+    here or not, rendered or not — the fill clears 3:1 against its walked
+    ground, or the ring is opaque and clears it. This is the half that closes
+    the hole a value-membership test leaves open. A fourth primary-button
+    site added later on a fourth dark ground inherits the base rule and
+    carries the light-surface token; for every accent that clears the light
+    tuple that token is transparent, so half (a) never sees the element at
+    all, while half (b) fails it outright.
+
+    THE VACUITY GUARDS, and neither is decoration. The planted colour must be
+    one the derivation actually PAINTS a ring for — #ffe9a8 is 1.0259 on
+    V2_SURFACES and 1.1247 on --paper, so it does — and both halves must find
+    something. A sweep that finds nothing proves nothing, and "0 results" on
+    a page that certainly has primary buttons is a bug in the sweep, not a
+    pass.
+
+    THE ROUTES ARE THREE, and the third is here for one button.
+    `.login-submit` renders only where login_dialog=True, which is /yllapito
+    and nowhere else, so `/` and /muokkaa/sivu between them reach ten primary
+    buttons and would leave the eleventh covered by argument alone. Its
+    ground is --card / --v2-card, both members of their skin's surface tuple,
+    so the argument was sound — but a covered-by-construction button is not a
+    measured one, and this is a file about measuring.
+    """
+    accent = "#ffe9a8"
+    plant(live_app, skin, accent=accent)
+    response = page.goto(f"{live_app.base_url}{route}")
+    assert response.status == 200, route
+    sentinels = ring_values_in(response.text(), skin)
+    assert sentinels, (
+        f"{skin}: the sweep needs a colour the derivation PAINTS a ring for; "
+        f"accent={accent} produced none, so half (a) would have no needle"
+    )
+    assert all(value != accent for value in sentinels), (
+        "a ring equal to the raw accent would also match every primary "
+        "button's border-coloured neighbours by coincidence"
+    )
+    if route == "/muokkaa/sivu":
+        page.wait_for_selector(DIRECT_FIELD)
+
+    swept = page.evaluate(
+        _SWEEP_RINGS,
+        ["rgb({}, {}, {})".format(*hex_to_rgb(value)) for value in sentinels],
+    )
+    hits, buttons = swept["hits"], swept["buttons"]
+
+    # (a) every painted ring is on a ground it clears.
+    assert hits, (
+        f"{skin} {route}: not one painted ring resolved to {sentinels} — "
+        "either the override never reached the page or the rules were "
+        "reverted"
+    )
+    assert all(hit["ground"] for hit in hits), [
+        hit["what"] for hit in hits if not hit["ground"]
+    ]
+    strays = [
+        f"{hit['what']} {ratio(rgb(hit['colour']), rgb(hit['ground'])):.4f}:1 "
+        f"({hit['colour']} on {hit['ground']})"
+        for hit in hits
+        if ratio(rgb(hit["colour"]), rgb(hit["ground"])) < 3.0
+    ]
+    assert not strays, (
+        f"{skin} {route}: a derived ring is painted on a ground it does not "
+        "clear — " + "; ".join(strays)
+    )
+
+    # (b) every primary button in the document carries the boundary — the
+    # hidden ones included, because a dialog submit behind `hidden` has
+    # resolved computed colours and those are what it paints when opened.
+    assert len(buttons) == RING_SWEEP_COUNTS[skin][route], (
+        f"{skin} {route}: {len(buttons)} primary buttons, not "
+        f"{RING_SWEEP_COUNTS[skin][route]} — "
+        + "; ".join(button["selector"] for button in buttons)
+    )
+    assert any(button["rendered"] for button in buttons), (
+        f"{skin} {route}: every primary button has a zero box"
+    )
+    failures = [
+        failure
+        for button in buttons
+        for failure in (
+            ring_claim(button, f"{skin} {route} {button['selector']}"),
+        )
+        if failure
+    ]
+    assert not failures, "; ".join(failures)

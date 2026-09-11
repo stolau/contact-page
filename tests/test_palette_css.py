@@ -1,8 +1,11 @@
-"""Source-text fences over the stylesheets' half of USR-COP-2 and LLM-COP-40.
+"""Source-text fences over the stylesheets' half of USR-COP-2, LLM-COP-40
+and LLM-COP-44.
 
-app/palette.py writes nine `:root` declarations into a `<style>` block. That
-block is worth nothing unless two things are true of the stylesheets, and
-neither is visible from Python's side of the change:
+app/palette.py writes eleven `:root` declarations into a `<style>` block on
+V1 and twelve on V2 — nine scalar tokens on either skin, plus one ring per
+ground a primary button is painted on (LLM-COP-44), of which V1 has two and
+V2 three. That block is worth nothing unless two things are true of the
+stylesheets, and neither is visible from Python's side of the change:
 
 * every token it writes is DECLARED, with a default that is exactly the
   literal or the `var()` that supplied the value before this change — which
@@ -44,7 +47,7 @@ import pytest
 
 from tests.test_direct_edit_css import STATIC, _declarations, _rules
 
-# --- the thirteen new tokens -----------------------------------------------
+# --- the eighteen new tokens -----------------------------------------------
 #
 # (stylesheet, token, the declared default, the literal it resolves to).
 #
@@ -89,6 +92,71 @@ NEW_TOKENS = (
     # outlines all named directly before they were pointed at a token.
     ("style.css", "--accent-edge", "var(--accent)", "#1f6f5c"),
     ("style-v2.css", "--v2-rust-edge", "var(--v2-rust)", "#a8431c"),
+    # LLM-COP-44's five rings, and their fourth column has a THIRD
+    # provenance — or rather none. The eleven above replaced a declaration
+    # that existed; the two edges froze the colour their retargeted sites
+    # rendered at 78d5d8e. NOTHING rendered a ring before this change: there
+    # was no box-shadow on any button in either stylesheet. So all five rows
+    # below are :root PINS and not regression pins, and the third and fourth
+    # columns are the same string by construction — the declared default IS
+    # the literal, because there is no var() and no earlier value to resolve
+    # back to. What they buy is still the thing this table exists for: the
+    # declared default cannot drift without somebody being told, and
+    # test_the_ring_defaults_are_what_the_derivation_would_write below is
+    # what says those defaults are the RIGHT ones rather than merely stable.
+    #
+    # Four of the five are `transparent`, which is the derivation's identity
+    # case reaching :root: both shipped accents already clear 3:1 on those
+    # grounds, so a page that has chosen no colour paints no ring and renders
+    # what it rendered before. --v2-rust-ring-navy is the ONE deliberate
+    # exception in either stylesheet and the whole reason LLM-COP-44 exists:
+    # the shipped rust is 2.1987:1 on the navy contact card at rest and
+    # 1.6753:1 on hover, so #c05b34 is painted there by default.
+    ("style.css", "--accent-ring", "transparent", "transparent"),
+    ("style.css", "--accent-ring-header", "transparent", "transparent"),
+    ("style-v2.css", "--v2-rust-ring", "transparent", "transparent"),
+    ("style-v2.css", "--v2-rust-ring-navy", "#c05b34", "#c05b34"),
+    ("style-v2.css", "--v2-rust-ring-header", "transparent", "transparent"),
+)
+
+# --- LLM-COP-44: the five rules that paint the ring ------------------------
+#
+# (stylesheet, selector, the box-shadow the rule must declare).
+#
+# NOT part of RETARGETED, because no rule was retargeted: these five
+# declarations are new, on selectors two of which are new as well. The shape
+# asserted is the whole value — `0 0 0 1px var(<token>)` — because all three
+# of its parts carry the claim. `0 0 0` is no offset and no blur, so the ring
+# is a crisp line rather than a shadow; `1px` is a spread, which is what puts
+# the ring OUTSIDE the border box where its ground is the container and not
+# the button's own fill; and the var() is what makes the colour the derived
+# one instead of a literal somebody chose by eye.
+#
+# THE TWO OVERRIDES ARE MORE SPECIFIC THAN THE BASE, which is what lets the
+# base rule serve every primary button that walks to a light surface while
+# the header's and the navy card's take their own ground. `.v2-header
+# .button.primary` and `.site-header .button.primary` are (0,3,0) against
+# `.button.primary`'s (0,2,0), so they win whatever the source order — and
+# test_each_ring_rule_names_its_token asserts the LAST value anyway, so a
+# later re-declaration at equal specificity would be caught too.
+RING_RULES = (
+    ("style.css", ".button.primary", "0 0 0 1px var(--accent-ring)"),
+    (
+        "style.css",
+        ".site-header .button.primary",
+        "0 0 0 1px var(--accent-ring-header)",
+    ),
+    ("style-v2.css", ".button.primary", "0 0 0 1px var(--v2-rust-ring)"),
+    (
+        "style-v2.css",
+        ".v2-contact-card .button.primary",
+        "0 0 0 1px var(--v2-rust-ring-navy)",
+    ),
+    (
+        "style-v2.css",
+        ".v2-header .button.primary",
+        "0 0 0 1px var(--v2-rust-ring-header)",
+    ),
 )
 
 # --- the retargeted rules --------------------------------------------------
@@ -191,7 +259,7 @@ RETARGETED = (
 # later fails here rather than winning silently in the cascade.
 #
 # THIS IS A REGRESSION GUARD WITH A MEASURED PRICE ATTACHED. app/palette.py's
-# own site list used to call style.css:69 and style-v2.css:97
+# own site list used to call style.css:95 and style-v2.css:131
 # `.button.secondary`; they are the BARE `.button`, which the primary variant
 # inherits too. Retargeting them would have put the edge token on every
 # primary button's border. The v2 primary button's grounds are --v2-navy
@@ -279,7 +347,7 @@ def _values_for(filename, selector, prop):
     return found
 
 
-# --- the thirteen new tokens -----------------------------------------------
+# --- the eighteen new tokens -----------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -312,20 +380,23 @@ def test_each_new_token_defaults_to_what_it_replaced(
     assert _resolve(root, declared) == literal
 
 
-def test_the_thirteen_tokens_are_all_of_them():
-    """A count, so a fourteenth token added without a row here is noticed.
+def test_the_eighteen_tokens_are_all_of_them():
+    """A count, so a nineteenth token added without a row here is noticed.
 
     Cheap and worth it: the failure this file exists to catch is a token
     nobody wired up, and a token nobody listed is the same mistake one step
-    earlier. The two numbers are 7 and 6 — USR-COP-2's 6 and 5, where V1
+    earlier. The two numbers are 9 and 9 — USR-COP-2's 6 and 5, where V1
     needed the --header-bg split and V2 did not, plus one edge token each
-    from LLM-COP-40.
+    from LLM-COP-40, plus LLM-COP-44's rings: TWO on V1 and THREE on V2,
+    one per ground a primary button is painted on. The two files land on the
+    same number by arithmetic and not by symmetry — V1 is 7 + 2 and V2 is
+    6 + 3 — so they are written as two assertions rather than one.
     """
     per_file = {}
     for filename, token, _, _ in NEW_TOKENS:
         per_file.setdefault(filename, []).append(token)
-    assert len(per_file["style.css"]) == 7
-    assert len(per_file["style-v2.css"]) == 6
+    assert len(per_file["style.css"]) == 9
+    assert len(per_file["style-v2.css"]) == 9
     for filename, tokens in per_file.items():
         declared = _root(filename)
         assert len(set(tokens)) == len(tokens)
@@ -393,6 +464,148 @@ def test_every_token_the_override_writes_is_read_by_some_rule(skin):
     ):
         token = ROLE_TOKENS[skin][role]
         assert f"var({token})" in rules_only, (skin, role, token)
+    # The rings row has its own loop because it has its own shape: a list of
+    # (token, grounds) pairs rather than a scalar name (LLM-COP-44). A ring
+    # token nobody reads is the same dead declaration as any other, and it
+    # would be a worse one — the ring is the only boundary a primary button
+    # has on a ground its fill cannot clear.
+    for token, _ in ROLE_TOKENS[skin]["rings"]:
+        assert f"var({token})" in rules_only, (skin, token)
+
+
+# --- LLM-COP-44: the rules that paint the ring, and the value they paint ----
+
+
+@pytest.mark.parametrize(
+    "filename,selector,expected",
+    RING_RULES,
+    ids=[f"{f.split('.')[0]}-{s}" for f, s, _ in RING_RULES],
+)
+def test_each_ring_rule_names_its_token(filename, selector, expected):
+    """The five declarations that turn a derived colour into a boundary.
+
+    THE LAST VALUE WINS, exactly as in test_each_retargeted_rule_names_its_
+    token: CSS of equal specificity is decided by source order, so a later
+    `.button.primary` re-declaring box-shadow would leave the token unread
+    while a membership test still passed.
+
+    THE WHOLE VALUE IS ASSERTED, not just the var(). `0 0 0 1px` is the
+    claim's geometry and each part of it is load-bearing — no offset and no
+    blur, so the edge is crisp rather than a shadow, and a 1px SPREAD, which
+    is what puts the ring outside the border box where its ground is the
+    container. A rule that kept the token but wrote `0 0 4px var(--...)`
+    would paint a soft halo whose colour is measured against a ground it is
+    not actually sitting on, and every ratio test in the suite would still
+    be green.
+
+    THE PROPERTY IS NOT re-declared BY EITHER :hover RULE, which is why the
+    ring survives into the state the fill is worst in. That is asserted below
+    rather than here, because it is a claim about a rule that must NOT exist.
+    """
+    values = _values_for(filename, selector, "box-shadow")
+    assert values, f"{filename} has no top-level rule `{selector}`"
+    assert values[-1] == expected, (
+        f"{filename} `{selector}` resolves box-shadow to {values[-1]!r}, so "
+        f"the derived ring never reaches it through {expected}"
+    )
+
+
+def test_no_hover_rule_re_declares_the_ring():
+    """THE RING SURVIVES :hover, and this is the assertion that says so from
+    the source text.
+
+    The hover fill is the WORSE of the two — the shipped rust is 2.1987:1 on
+    the navy card and its hand-picked hover #8b3715 is 1.6753:1 — so a ring
+    that vanished under the pointer would vanish exactly where the boundary
+    is doing all the work. Both hover rules re-declare `background`, and V2's
+    re-declares `border-color` as well, so a box-shadow among them is a
+    plausible edit and not a fanciful one.
+
+    Asserted as the EMPTY list, the same idiom
+    test_the_button_borders_that_must_stay_the_owners_own_still_do uses: the
+    claim is that no such declaration exists at all, and a declaration added
+    later is the shape of the change this catches.
+    """
+    for filename in ("style.css", "style-v2.css"):
+        assert _values_for(filename, ".button.primary:hover", "box-shadow") == [], (
+            f"{filename} `.button.primary:hover` declares box-shadow, so the "
+            "derived ring is replaced in the state the fill is worst in"
+        )
+
+
+# The hand-picked hover literal each stylesheet ships, and the token it lives
+# in. shade()'s own docstring in app/palette.py says in terms that it does
+# NOT reproduce these — they are a designer's colours, chosen before the
+# derivation existed — so a ring default that agreed with shade() and
+# disagreed with these would be right about a page nobody serves.
+HOVER_LITERALS = (
+    ("v1", "style.css", "--accent-dark", "#17594a"),
+    ("v2", "style-v2.css", "--v2-rust-dark", "#8b3715"),
+)
+
+
+@pytest.mark.parametrize(
+    "skin,filename,hover_token,hover_literal",
+    HOVER_LITERALS,
+    ids=("v1", "v2"),
+)
+def test_the_ring_defaults_are_what_the_derivation_would_write(
+    skin, filename, hover_token, hover_literal
+):
+    """THE TWO SIDES AGREE, at the one rendering no derivation can influence.
+
+    A site that has chosen nothing serves NO <style> block at all — not an
+    empty one, none — so each ring's `:root` default IS the whole of its
+    rendering on the shipped page. That makes the defaults a second,
+    hand-written copy of what ring_on would derive for the skin's own
+    default accent, and a second copy of anything is a copy that goes stale.
+    This is the test that fails when either side moves without the other.
+
+    COMPUTED TWICE, WITH TWO DIFFERENT HOVER FILLS, and that is the point of
+    the parametrisation rather than decoration. ring_on takes (accent,
+    hover), and on a live request the hover fill is shade(accent). On the
+    SHIPPED page it is neither — it is the literal the stylesheet's own
+    :root carries, #17594a and #8b3715, which shade()'s own docstring
+    records as deliberately not reproduced by it. They are different
+    colours: shade("#1f6f5c") is #19594a, not #17594a. So the default has to
+    be right for both, and it is: #8b3715 is 1.6753 on navy (still under 3,
+    still painted, still #c05b34), 6.3181 on the v2 header and 6.7512 worst on
+    V2_SURFACES (still transparent); #17594a is 7.6635 worst on V1_SURFACES
+    and 8.1895 on the default header ground (still transparent).
+
+    WHAT IT WOULD CATCH. Recolour --v2-rust-dark to something that clears
+    the navy card and the shipped page would keep painting a ring for no
+    reason — this goes red and names the token. Recolour --v2-navy, or
+    --v2-rust itself, and #c05b34 stops being a 3:1 answer to anything; this
+    goes red too. Neither would move a single ratio assertion anywhere else
+    in the suite, because a page that has chosen no colour has no derived
+    value to measure.
+    """
+    from app.palette import MAIN, ROLE_TOKENS, ring_on, shade
+
+    root = _root(filename)
+    tokens = ROLE_TOKENS[skin]
+    accent, main = tokens["default_accent"], tokens["default_main"]
+    assert _resolve(root, root[hover_token]) == hover_literal, (
+        f"{filename} :root declares {hover_token} as "
+        f"{root.get(hover_token)!r}; the ring defaults below were derived "
+        f"against {hover_literal}"
+    )
+    assert shade(accent) != hover_literal, (
+        "the two hover fills have become the same colour, so this test now "
+        "computes the same thing twice and proves half of what it says"
+    )
+    for hover in (shade(accent), hover_literal):
+        for token, grounds in tokens["rings"]:
+            bound = tuple(main if g == MAIN else g for g in grounds)
+            expected = ring_on((accent, hover), bound)
+            declared = _resolve(root, root[token])
+            assert declared == expected, (
+                f"{filename} :root declares {token} as {declared!r}, but "
+                f"ring_on(({accent}, {hover}), {bound}) is {expected!r} — "
+                "the shipped page and the derivation disagree, and the "
+                "shipped page is the one a visitor who chose nothing sees"
+            )
 
 
 # --- the fence -------------------------------------------------------------
@@ -457,7 +670,7 @@ def test_the_button_borders_that_must_stay_the_owners_own_still_do(
     """THE REGRESSION GUARD FOR THE MISTAKE THIS CHANGE NEARLY MADE.
 
     app/palette.py's enumeration of the unconstrained non-text sites named
-    style.css:69 and style-v2.css:97 as `.button.secondary`. They are the
+    style.css:95 and style-v2.css:131 as `.button.secondary`. They are the
     BARE `.button` rule, which the primary variant inherits. A retarget aimed
     at the site list as written would therefore have repainted every primary
     button's border with the edge token — and the edge token is derived
