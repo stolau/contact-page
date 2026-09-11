@@ -190,6 +190,16 @@ def test_the_shipped_list_is_the_pinned_corpus():
     the same commit, so the file and the record never disagree. The last
     assertion below is what makes forgetting the second half impossible.
 
+    ALSO UPDATE, and nothing here can check it for you: the line count, the
+    byte count, the zlib figure and the mojibake tally in that same SOURCE
+    file — 21 lines above U+007F, 358 characters, 818 bytes, 27 code points,
+    3 lines with a control character. Those four mojibake figures are the
+    only numbers in the record no test pins, which is precisely why they are
+    the ones that will go stale. They were wrong once already, in the commit
+    that introduced them, and a wrong number in a paragraph whose whole job
+    is to stop a reader concluding the file is corrupt does the opposite of
+    its job.
+
     RED ILLEGITIMATELY, and these must be fixed rather than re-pinned: a
     checkout that rewrote LF to CRLF (.gitattributes pins the file -text
     precisely so this cannot happen, and test_the_file_has_no_carriage_returns
