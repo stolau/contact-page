@@ -108,9 +108,10 @@ def _require_existing_parent(name, path):
     costs one mkdir -p, once, when a deployment path is genuinely new.
 
     ValueError is the repo idiom for "the value you gave is wrong"
-    (app/sections.py:91, app/palette.py:202). flask.cli.find_best_app
-    catches only TypeError, so under `flask --app app run` this surfaces
-    as a traceback ending in this message rather than one clean line;
+    (app/sections.py:91 in site_chrome, app/palette.py:219 in readable_on).
+    flask.cli.find_best_app catches only TypeError, so under
+    `flask --app app run` this surfaces as a traceback ending in this
+    message rather than one clean line;
     accepted, because the message is the last thing printed and the
     in-process callers of create_app can assert on the exception.
     """

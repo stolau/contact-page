@@ -1018,10 +1018,14 @@ def test_the_frozen_defaults_are_still_the_stylesheets_own(
     is declared `var(--card)`, so --card is where the literal actually lives,
     and asserting against the indirection would assert nothing.
 
-    WHAT THIS DOES NOT FENCE, and app/palette.py says the same beside
-    V2_SURFACES: the surface VALUES are fenced, the surface SET is not. A
-    future rule painting accent-coloured text on a dark band would pass every
-    test in this file.
+    WHAT THIS DOES NOT FENCE: the surface VALUES are fenced, the surface SET
+    is not. A future rule painting accent-coloured text on a dark band would
+    pass every test in this file. The SET is fenced elsewhere since
+    LLM-COP-47 — tests/test_palette_css.py's
+    test_the_surface_elimination_is_still_exhaustive holds the enumeration
+    beside V2_SURFACES to the stylesheet — but what that still cannot say is
+    which of those backgrounds accent-coloured text is painted on, which is
+    the gap app/palette.py records beside V2_SURFACES.
 
     SINCE LLM-COP-44 THE RING GROUNDS ARE FENCED THE SAME WAY, and they need
     it more than the surfaces do. A ring's ground is written into ROLE_TOKENS

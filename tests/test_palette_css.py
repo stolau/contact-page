@@ -45,6 +45,7 @@ import re
 
 import pytest
 
+from app.palette import V1_SURFACES, V2_SURFACES
 from tests.test_direct_edit_css import STATIC, _declarations, _rules
 
 # --- the eighteen new tokens -----------------------------------------------
@@ -287,12 +288,14 @@ RETARGETED = (
 # later fails here rather than winning silently in the cascade.
 #
 # THIS IS A REGRESSION GUARD WITH A MEASURED PRICE ATTACHED. app/palette.py's
-# own site list used to call style.css:95 and style-v2.css:131
-# `.button.secondary`; they are the BARE `.button`, which the primary variant
-# inherits too. Retargeting them would have put the edge token on every
-# primary button's border. The v2 primary button's grounds are --v2-navy
-# #14324a on the contact card and --v2-header #d9e8f2 in the header, neither
-# of which is in V2_SURFACES; v1's sits on --paper, which IS in V1_SURFACES,
+# own site list, the one under THE SITES beside V2_SURFACES, used to call
+# these `.button.secondary`. They are the bare `.button` rule in each
+# stylesheet — `border: 1px solid var(--accent)` on V1, `var(--v2-rust)` on
+# V2 — which the primary variant inherits too. Retargeting them would have
+# put the edge token on every primary button's border. The v2 primary
+# button's grounds are --v2-navy #14324a on the contact card and
+# --v2-header #d9e8f2 in the header, neither of which is in V2_SURFACES;
+# v1's sits on --paper, which IS in V1_SURFACES,
 # so the ground argument is v2's alone and the reason that covers both skins
 # is that the border equals its own fill. Measured: the navy card falls from
 # 11.0249:1 to 3.7287:1 for a pale pick and 4.8397:1 to 3.7691:1 for a mid
@@ -318,7 +321,7 @@ NOT_RETARGETED = (
 # owner's pick, so a `color: #fff` on them is a label that can become white
 # on pale yellow.
 #
-# V2's `.brand-avatar` (style-v2.css:124) and `.v2-contact-kicker` (:456)
+# V2's `.brand-avatar` (style-v2.css:181) and `.v2-contact-kicker` (:550)
 # still read `color: #fff` and are RIGHT to: their grounds are --v2-navy and
 # the navy contact card, neither of which is an owner role, and neither
 # moves when a colour is chosen. A fence that failed on them would be a
@@ -707,13 +710,15 @@ def test_the_button_borders_that_must_stay_the_owners_own_still_do(
 ):
     """THE REGRESSION GUARD FOR THE MISTAKE THIS CHANGE NEARLY MADE.
 
-    app/palette.py's enumeration of the unconstrained non-text sites named
-    style.css:95 and style-v2.css:131 as `.button.secondary`. They are the
-    BARE `.button` rule, which the primary variant inherits. A retarget aimed
-    at the site list as written would therefore have repainted every primary
-    button's border with the edge token — and the edge token is derived
-    against --paper/--card and --v2-page/--v2-card/--v2-tint, of which
-    neither of the v2 primary button's grounds is among them.
+    app/palette.py's enumeration of the unconstrained non-text sites, the
+    list under THE SITES beside V2_SURFACES, named these `.button.secondary`.
+    They are the bare `.button` rule in each stylesheet — `border: 1px solid
+    var(--accent)` on V1, `var(--v2-rust)` on V2 — which the primary variant
+    inherits. A retarget aimed at the site list as written would therefore
+    have repainted every primary button's border with the edge token — and
+    the edge token is derived against --paper/--card and
+    --v2-page/--v2-card/--v2-tint, of which neither of the v2 primary
+    button's grounds is among them.
 
     THE GROUND ARGUMENT IS V2'S ALONE, said precisely because the loose form
     is false: V1's hero primary button sits on --paper #faf7f2, which IS in
@@ -804,3 +809,142 @@ def test_the_direct_edit_fills_that_stay_the_owners_raw_pick():
     assert _values_for(
         "direct-edit.css", ".direct-field-tag", "background"
     ) == ["var(--accent)"]
+
+
+# --- LLM-COP-47: the elimination that made the surface tuples -------------
+
+# WHAT SURVIVES THE ELIMINATION app/palette.py runs beside V1_SURFACES and
+# V2_SURFACES, as (selector, value) in source order. Frozen as a LIST rather
+# than counted, so the day a new band arrives the failure names the rule that
+# brought it rather than saying nine became ten.
+UNACCOUNTED = {
+    "v1": [(".dialog-backdrop", "rgba(34, 51, 59, 0.55)")],
+    "v2": [
+        (".brand-avatar", "var(--v2-navy)"),
+        (
+            ".v2-hero-photo",
+            "linear-gradient(170deg, #7d99ad 0%, #94a98c 45%, #6f8663 100%)",
+        ),
+        (
+            ".v2-hero-fade",
+            (
+                "linear-gradient(to bottom, rgba(247, 250, 252, 0) 0%,"
+                " rgba(247, 250, 252, 0.75) 72%, var(--v2-page) 100%)"
+            ),
+        ),
+        (
+            ".v2-hero-rule",
+            (
+                "linear-gradient( to right, rgba(20, 50, 74, 0) 0%,"
+                " rgba(20, 50, 74, 0.38) 22%, rgba(20, 50, 74, 0.38) 78%,"
+                " rgba(20, 50, 74, 0) 100% )"
+            ),
+        ),
+        (".portrait", "#eceff1"),
+        (".v2-contact-card", "var(--v2-navy)"),
+        (
+            ".v2-contact-form input, .v2-contact-form textarea",
+            "rgba(255, 255, 255, 0.07)",
+        ),
+        (".v2-footer", "var(--v2-navy-deep)"),
+        (".dialog-backdrop", "rgba(12, 31, 46, 0.58)"),
+    ],
+}
+
+
+def _owner_role_tokens(skin):
+    """Every token name ROLE_TOKENS[skin] owns: its `--…` scalar values plus
+    the token name of each row in `rings`."""
+    from app.palette import ROLE_TOKENS
+
+    role = ROLE_TOKENS[skin]
+    scalars = {
+        value
+        for value in role.values()
+        if isinstance(value, str) and value.startswith("--")
+    }
+    return scalars | {token for token, _grounds in role["rings"]}
+
+
+def _unaccounted_backgrounds(filename, surfaces, skin):
+    """The `background` declarations the elimination does not account for."""
+    owner = _owner_role_tokens(skin)
+    root = _root(filename)
+    survivors = []
+    for _at_rules, selectors, body in _rules(_source(filename)):
+        for prop, value in _declarations(body):
+            if prop != "background":
+                continue
+            if value in ("none", "transparent"):
+                continue
+            match = _VAR.match(value)
+            if match is not None and match.group(1) in owner:
+                continue
+            if _resolve(root, value).casefold() in surfaces:
+                continue
+            survivors.append((", ".join(selectors), value))
+    return survivors
+
+
+@pytest.mark.parametrize(
+    "filename,surfaces,skin",
+    (
+        ("style.css", V1_SURFACES, "v1"),
+        ("style-v2.css", V2_SURFACES, "v2"),
+    ),
+    ids=["v1", "v2"],
+)
+def test_the_surface_elimination_is_still_exhaustive(filename, surfaces, skin):
+    """The SET is fenced here, which is what test_palette.py's value fence
+    and app/palette.py's own comment both say is fenced since LLM-COP-47.
+
+    THE FILTER, pinned, because a fence over an enumeration is only worth
+    what its recipe is worth:
+
+    Over every rule `_rules(source)` returns, INCLUDING RULES NESTED IN
+    AT-RULES, take each declaration whose property is exactly `background`
+    (the shorthand; no `background-*` longhand), then drop, in order:
+
+    1. values `none` and `transparent` — they paint nothing;
+    2. values of the exact form `var(--T)` where `--T` is an OWNER-ROLE
+       token of that skin — every `--…` scalar value of `ROLE_TOKENS[skin]`
+       plus each ring token name from its `rings` row — because those
+       grounds are derived *from* the owner's pick and the accent is never
+       drawn as text on itself;
+    3. whatever `_resolve(_root(file), value)` yields, case-folded, that is
+       a member of the skin's `SURFACES` tuple.
+
+    What survives is the set the elimination-list comment enumerates.
+
+    MEASURED, by running the filter over the shipped files:
+
+    * style.css — 22 background declarations, of which 11 surface, 4
+      owner-role, 1 transparent and 5 none are dropped, leaving the ONE the
+      V1 comment names: the login dialog's scrim, which carries no text.
+    * style-v2.css — 27 declarations, of which 6 surface, 4 owner-role, 1
+      transparent and 7 none are dropped, leaving the NINE the V2 comment
+      lists.
+
+    THE FOUR-WAY RECONCILIATION with the eleven entries that list used to
+    carry, 11 − 3 + 1 == 9, recorded because a reader who counts will
+    otherwise find three of them missing and one they never saw:
+
+    * `.portrait.has-image` and the phone-breakpoint `.v2-contact-band` are
+      `background: none` and go at step 1;
+    * `.v2-band-media-left .v2-section-label::after` takes
+      `var(--v2-rust-edge)`, which IS `ROLE_TOKENS["v2"]["accent_edge"]`, so
+      it goes at step 2 — and it was equally an owner role, `var(--v2-rust)`,
+      on the day the list was written;
+    * `.brand-avatar` survives every step and was absent from the list: its
+      rule predates the list rather than postdating it, so the enumeration
+      was incomplete when written.
+
+    WHAT THIS STILL CANNOT SAY is which of these grounds accent-coloured
+    text is actually painted on — no stylesheet answers that, and
+    app/palette.py records the gap and the rendered-DOM shape that would
+    close it.
+    """
+    assert (
+        _unaccounted_backgrounds(filename, surfaces, skin)
+        == UNACCOUNTED[skin]
+    )
