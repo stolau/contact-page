@@ -1332,8 +1332,498 @@ def test_the_v2_direct_edit_page_draws_no_author_outline_at_all(
     assert os.path.getsize(path) > 0
 
 
+# --- LLM-COP-42: the five direct-edit chrome sites, driven -----------------
+
+# The heading the chrome is driven from. It is the one h1 carrying a
+# data-field on either template (page.html:57, page_v2.html:137) and it is
+# `"title": {"type": "plain"}` in app/fields.py:17 — which is why the
+# toolbar test below has exactly one enabled button to hover.
+DIRECT_HEADING = "h1[data-field]"
+
+# THE GROUND THAT IS NOT FROZEN, the same sentinel idea app/palette.py's
+# MAIN is. Two of the three text sites sit on --card, a frozen literal; the
+# third sits on the owner's own pick, which has no literal until a case
+# names one.
+OWN_ACCENT = "<the owner's own pick>"
+
+# The three TEXT sites LLM-COP-42 retargeted, with the ground each is
+# actually read against and the TOKEN whose derived value must land there.
+#
+# THE GROUNDS ARE THE CLAIM, which is why each one is asserted before its
+# ratio. --accent-fg is readable_on(accent, V1_SURFACES), so the first two
+# are only covered while they really sit on a member of that tuple — both
+# are inside a chrome bar whose `background: var(--card)` is the frozen
+# #ffffff no owner role can move.
+#
+# .direct-field-tag is the ODD ONE, and the reason it takes --accent-ink
+# rather than --accent-fg: its ground is its OWN `background: var(--accent)`,
+# so the surface under it is whatever the owner picked — which is why its
+# ground is OWN_ACCENT rather than a literal, and why the ground assertion
+# below is a real check rather than a restatement. --accent-fg says nothing
+# about legibility there, and the three picks make that concrete rather than
+# arguable: on #ffe9a8 it is #856f2e at 4.0536:1 ON THE ACCENT, on #4fb3bf
+# it is #197d89 at 1.9679:1, and on #3b1f47 it is the accent ITSELF at
+# 1.0000:1 — a fresh SC 1.4.3 failure at every one of the three picks, two
+# of them total. --accent-ink is on_color(accent) and is >= 4.5826:1 against
+# every admissible colour.
+DIRECT_TEXT_SITES = (
+    (".direct-esikatsele", (255, 255, 255), "fg"),
+    (".direct-changes", (255, 255, 255), "fg"),
+    (".direct-field-tag", OWN_ACCENT, "ink"),
+)
+
+# THE THREE OWNER PICKS every V1 site below is driven at. Three different
+# JOBS for the derivation rather than three colours, and each is stated
+# because a pick that leaves the derivation nothing to do proves nothing
+# about it.
+#
+# #ffe9a8 PALE is kept from the single-colour form of these tests. It is the
+# defect LLM-COP-42 was filed for — raw, 1.2019:1 against the chrome bars'
+# --card — and every measured number in the plan and in app/palette.py's
+# site list is this colour's. Changing it would orphan all of them.
+#
+# #4fb3bf MID is a colour nothing else in this file or in the app depends
+# on, and it is the one pick of the three that makes BOTH walks run: raw it
+# is 2.4611:1 on --card, which fails SC 1.4.3's 4.5 AND SC 1.4.11's 3.0, so
+# --accent-fg has to move it (to #197d89, 4.8432:1) and --accent-edge has to
+# move it too, and to a DIFFERENT place (#389ca8, 3.2363:1). The pale pick
+# exercises both as well, but from so far out that a derivation overshooting
+# wildly would still land somewhere legible. A mid pick is what catches a
+# walk that stops one constant short, because 2.4611 is under 3 without
+# being absurd.
+#
+# #3b1f47 DARK is the IDENTITY case, and its value is the opposite claim:
+# the derivation must leave a colour that ALREADY reads alone. Raw it is
+# 14.2572:1 on --card, so --accent-fg and --accent-edge must both hand back
+# #3b1f47 untouched, and any ratio here that is not 14.2572 is this module
+# rewriting the owner's own colour. It is also the only pick of the three
+# where on_color flips: --accent-ink is #ffffff, not #000000, so
+# .direct-field-tag's label is proved at BOTH polarities across the set.
+#
+# WHAT THE DARK PICK CANNOT DO, stated here rather than left to be found.
+# Because the derivation is the identity at #3b1f47, --accent-fg,
+# --accent-edge and the raw --accent are one and the same colour there, and
+# --accent-ink is the same #ffffff the pre-LLM-COP-42 `color: #fff` literal
+# computed to. So reverting any one of the five retargeted declarations
+# leaves the dark case GREEN. The dark case is a DOES-NO-HARM proof, not a
+# revert guard. The revert guard is the pale and mid cases, where all five
+# go red — and a derivation that stopped returning the identity is caught
+# here and nowhere else.
+DIRECT_CASES = ("#ffe9a8", "#4fb3bf", "#3b1f47")
+
+# What app/palette.py must derive from each pick, for the three tokens these
+# five sites read. WRITTEN OUT — not imported, not recomputed — for exactly
+# the reason this file's docstring gives about the ratios: a table built by
+# calling readable_on / on_color / visible_on would agree with those
+# functions whatever they did, and the point of a value pin is that it can
+# DISAGREE with the module under proof. Every triple below was read back out
+# of Chrome, off the element that owns the declaration.
+DIRECT_DERIVED = {
+    # the owner's pick: --accent-fg, --accent-ink, --accent-edge
+    "#ffe9a8": {"fg": (133, 111, 46), "ink": (0, 0, 0),
+                "edge": (163, 141, 76)},
+    "#4fb3bf": {"fg": (25, 125, 137), "ink": (0, 0, 0),
+                "edge": (56, 156, 168)},
+    "#3b1f47": {"fg": (59, 31, 71), "ink": (255, 255, 255),
+                "edge": (59, 31, 71)},
+}
+
+
+def direct_ground(where, accent):
+    """A text site's ground: the frozen literal, or the owner's own pick."""
+    return hex_to_rgb(accent) if where == OWN_ACCENT else where
+
+# The toolbar button the hover test drives, and the un-hovered control it is
+# measured against. See that test's docstring for why the control is a
+# disabled button and what that does and does not prove.
+DIRECT_UNDO = ".direct-toolbar button.direct-undo"
+DIRECT_UNHOVERED = ".direct-toolbar button.direct-list"
+
+# The colours a chosen #ffe9a8 can produce, on EITHER skin: the raw pick and
+# every value app/palette.py derives from it (--accent / --v2-rust and their
+# -dark, -ink, -dark-ink, -fg, -edge, -ring and header variants). Written
+# out rather than imported, so the V2 test's "nothing here came from the
+# override" is a statement this file makes ABOUT that module rather than one
+# it borrows from it.
+ACCENT_DERIVED_FFE9A8 = frozenset(
+    {
+        (255, 233, 168),  # --accent / --v2-rust, the raw pick
+        (204, 186, 134),  # -dark
+        (0, 0, 0),        # -ink, -dark-ink
+        (138, 116, 51),   # --header-accent
+        (133, 111, 46),   # --accent-fg
+        (163, 141, 76),   # --accent-edge, --accent-ring
+        (169, 147, 82),   # --accent-ring-header
+        (122, 100, 35),   # --v2-header-accent
+        (127, 105, 40),   # --v2-rust-fg
+        (156, 134, 69),   # --v2-rust-edge, --v2-rust-ring
+        (151, 129, 64),   # --v2-rust-ring-header
+    }
+)
+
+
+def open_direct_chrome(page, live_app, skin, accent):
+    """Drive the chrome into existence the way a person does.
+
+    NOTHING BELOW IS MEASURED ON A HIDDEN ELEMENT, and that is not a
+    precaution — it is the difference between a proof and a vacuous one.
+    .direct-field-tag, .direct-toolbar and .direct-changes all ship `hidden`
+    (direct_edit_chrome.html:31, :34, :53). getComputedStyle on a
+    display:none element still returns a `color`, so a test that skipped the
+    click and the keystroke would read three colours off three elements
+    nobody can see and go green. That hazard is already recorded for these
+    two elements in test_typing_updates_the_change_count_and_the_field_counter.
+
+    The click runs direct-edit.js's activate(), which unhides the tag and
+    the toolbar; the keystroke runs updateChanges(), which unhides the badge
+    on the first real change. Both are the product's own code doing its own
+    job — no fixture sets hidden = false.
+
+    `accent` is a parameter rather than a constant because the five sites
+    are derived per colour: one pick proves the wiring, three prove the
+    derivation. See DIRECT_CASES for what each of the three is for.
+    """
+    plant(live_app, skin, accent=accent)
+    page.goto(f"{live_app.base_url}/muokkaa/sivu")
+    assert_skin(page, skin)
+    page.wait_for_selector(DIRECT_HEADING)
+    page.click(DIRECT_HEADING)
+    page.keyboard.type("X")
+
+
+@pytest.mark.parametrize("accent", DIRECT_CASES, ids=("pale", "mid", "dark"))
+def test_the_direct_edit_chrome_text_clears_four_and_a_half_to_one(
+    page, expect, live_app, shots, accent
+):
+    """THE THREE TEXT SITES OF LLM-COP-42, driven and measured on V1, at a
+    PALE, a MID and a DARK owner pick.
+
+    Before this change all three rendered the owner's raw pick: with
+    #ffe9a8 chosen, .direct-esikatsele and .direct-changes were
+    rgb(255,233,168) on the chrome bars' #ffffff and .direct-field-tag was
+    rgb(255,255,255) on the accent itself — 1.2019:1 at every one of them,
+    three SC 1.4.3 failures on the page an owner spends their editing time
+    in. After it, at the three picks in order: 4.8718 / 4.8432 / 14.2572 for
+    .direct-esikatsele and .direct-changes, and 17.4730 / 8.5328 / 14.2572
+    for .direct-field-tag.
+
+    ONE PICK PROVED THE WIRING; THREE PROVE THE DERIVATION. --accent-fg and
+    --accent-ink are computed per colour, so a single colour can only say
+    that some value arrived. Whether the walk that produced it actually
+    clears 4.5:1 for a colour it had to move a long way (pale), a short way
+    (mid) or not at all (dark) is three separate questions, and DIRECT_CASES
+    says which one each pick asks.
+
+    EVERY COLOUR IS READ OFF THE ELEMENT THAT OWNS THE DECLARATION, never
+    off .direct-topbar or .direct-publishbar. That is USR-COP-2's ancestor
+    hazard, stated in this file's own docstring: an earlier draft of that
+    plan read `color` off .site-header and would have gone green while the
+    brand rendered at 1.07:1. A container's ink is not the ink of a child
+    that sets its own.
+
+    THE GROUND IS ASSERTED PER PICK, and for .direct-field-tag it MOVES with
+    the pick — its ground is its own `background: var(--accent)`, one of the
+    two fills LLM-COP-42 deliberately left raw. So this test also proves,
+    three times over, that that fill is still the owner's pick and not a
+    derived value: if the background had been retargeted too, --accent-ink
+    would be on_color of a colour nobody is looking at, and the ground
+    assertion says so before any ratio is taken.
+
+    The visibility expectations come FIRST, before any measurement, for the
+    reason open_direct_chrome gives.
+
+    The ratio is asserted BEFORE the exact triple, deliberately: on a revert
+    the ratio reports the number the site collapsed to (1.2019 at the pale
+    pick, 2.4611 at the mid one) rather than only that a literal moved, and
+    the triple after it catches a right-ratio-wrong-token wiring error the
+    ratio alone would accept.
+    """
+    open_direct_chrome(page, live_app, "v1", accent)
+    expect(page.locator(".direct-field-tag")).to_be_visible()
+    expect(page.locator(".direct-changes")).to_be_visible()
+
+    derived = DIRECT_DERIVED[accent]
+    seen = measure(page, [site for site, _, _ in DIRECT_TEXT_SITES])
+    for selector, where, token in DIRECT_TEXT_SITES:
+        ground = direct_ground(where, accent)
+        row = seen[selector]
+        assert row["found"], f"{selector} is not on the page"
+        assert row["rendered"], f"{selector} rendered at zero size"
+        assert rgb(row["background"]) == ground, (
+            f"{accent} {selector} is read against {row['background']}, not "
+            f"the {ground} the derivation was computed for"
+        )
+        measured = ratio(rgb(row["color"]), ground)
+        assert measured >= 4.5, (
+            f"{accent} {selector} is {measured:.4f}:1 "
+            f"({row['color']} on {row['background']})"
+        )
+        assert rgb(row["color"]) == derived[token], (
+            f"{accent} {selector}: {row['color']}, not the "
+            f"{derived[token]} --accent-{token} must derive to"
+        )
+
+    path = os.path.join(
+        shots, f"direct-chrome-text-v1-{accent.lstrip('#')}.png"
+    )
+    page.screenshot(path=path)
+    assert os.path.getsize(path) > 0
+
+
+@pytest.mark.parametrize("accent", DIRECT_CASES, ids=("pale", "mid", "dark"))
+def test_the_direct_edit_change_badge_border_reaches_three_to_one(
+    page, expect, live_app, accent
+):
+    """The publish bar's change badge is a pill DRAWN in the accent.
+
+    Its border was `1px solid var(--accent)` — 1.2019:1 against the bar's
+    #ffffff, a line nobody can see. It is now var(--accent-edge): 3.2449:1
+    at the pale pick, 3.2363:1 at the mid one and 14.2572:1 at the dark one,
+    where visible_on returns the identity and there was never a defect.
+
+    THREE PICKS, because --accent-edge is derived per colour and 3:1 is a
+    claim about each derived value, not about the token's name. The mid pick
+    is the load-bearing one for this site: raw #4fb3bf is 2.4611:1, under
+    SC 1.4.11 without being visibly absurd, which is the shape of failure a
+    pale-only test passes over. DIRECT_CASES says what each pick is for and
+    is explicit that the dark one cannot catch a revert here.
+
+    THE BADGE DOES NOT EXIST UNTIL SOMETHING CHANGES. It ships `hidden` and
+    updateChanges() unhides it on the first edit, so the keystroke inside
+    open_direct_chrome is what produces the element this measures, and the
+    to_be_visible is what proves that worked.
+
+    assert_painted runs before the ratio and IS the CI-safe form of the
+    precondition: a predicate (width > 0, style not none/hidden), never a
+    width literal. Pinning a UA-supplied width is what took LLM-COP-40 green
+    locally and red on CI — the incident is recorded in full in
+    test_the_v2_direct_edit_page_draws_no_author_outline_at_all's docstring
+    above. Nothing in this test or its sibling pins borderTopWidth.
+    """
+    open_direct_chrome(page, live_app, "v1", accent)
+    expect(page.locator(".direct-changes")).to_be_visible()
+
+    spec = (".direct-changes", "borderTopColor", None, "border")
+    row = measure_edges(page, (spec,))[".direct-changes"]
+    assert_painted(row, "border", f"v1 {accent} change badge")
+    for ground in edge_grounds(row, "border"):
+        measured = ratio(rgb(row["value"]), rgb(ground))
+        assert measured >= 3.0, (
+            f"{accent} .direct-changes border is {measured:.4f}:1 "
+            f"({row['value']} on {ground})"
+        )
+    assert rgb(row["value"]) == DIRECT_DERIVED[accent]["edge"], (
+        f"{accent} .direct-changes border is {row['value']}, not the "
+        f"{DIRECT_DERIVED[accent]['edge']} --accent-edge must derive to"
+    )
+
+
+@pytest.mark.parametrize("accent", DIRECT_CASES, ids=("pale", "mid", "dark"))
+def test_the_direct_edit_toolbar_hover_border_reaches_three_to_one(
+    page, expect, live_app, shots, accent
+):
+    """The format toolbar's hover edge, produced by a REAL page.hover(), at
+    a PALE, a MID and a DARK owner pick.
+
+    Same three picks and the same reason as the badge above: --accent-edge
+    is derived per colour, so 3:1 is a claim about each derived value.
+    3.2449:1, 3.2363:1 and 14.2572:1 in DIRECT_CASES order.
+
+    The rule is `.direct-toolbar button:hover:not(:disabled)`, so two things
+    must be true before a measurement means anything, and both are asserted
+    rather than assumed. The toolbar has to be unhidden — the click in
+    open_direct_chrome runs activate(), which does that — and the button
+    under the pointer has to be ENABLED, because :not(:disabled) would
+    otherwise void the selector in silence and leave this test measuring the
+    base rule while reporting on the hover one.
+
+    THE BUTTON IS .direct-undo AND THE CHOICE IS FORCED. activate() sets
+    `button.disabled = !field.rich` on the three .direct-command buttons
+    (direct-edit.js:164) and app/fields.py:17 declares "title" as a PLAIN
+    field, so B / I / Linkki are all disabled here; .direct-list ships
+    disabled in the template (direct_edit_chrome.html:38). .direct-undo is
+    the only enabled button on a plain field. Hovering any other one would
+    be vacuous.
+
+    THE VACUITY GUARD, and what it does NOT prove. A second, un-hovered
+    button is measured in the same evaluate and must still read
+    rgb(228,221,211), the --line grey of the base `.direct-toolbar button`
+    rule. That proves the base value is DISTINGUISHABLE from the hover
+    value, so a test that failed to produce a hover at all would read the
+    grey and go red rather than pass on the wrong colour — which is the
+    whole job of the guard. It does NOT prove the hover was scoped to one
+    button: the control, .direct-list, is a DISABLED sibling, and a disabled
+    button keeps the base border whether or not :hover leaked to it
+    (`.direct-toolbar button:disabled` sets only opacity and cursor). On a
+    plain field there is no enabled un-hovered sibling to use instead —
+    .direct-command x3 are disabled by direct-edit.js:164 and .direct-list
+    by the template — so the choice of control is forced too, and this says
+    so rather than implying the guard is stronger than it is.
+
+    THE CONTROL'S GREY IS NOT DERIVED, so it does not move with the pick:
+    --line is #e4ddd3, a frozen literal on V1 that no ROLE_TOKENS row emits.
+    That is what lets one hardcoded rgb(228,221,211) serve all three cases,
+    and it is also why the guard still works at the dark pick, where the
+    hover value is the raw accent — the two are still far apart.
+
+    A SCREENSHOT PER PICK, because this hovered edge is the one of the five
+    sites no resting shot can show.
+    """
+    open_direct_chrome(page, live_app, "v1", accent)
+    expect(page.locator(".direct-toolbar")).to_be_visible()
+    assert not page.locator(DIRECT_UNDO).is_disabled(), (
+        "Kumoa is disabled, so :hover:not(:disabled) can never match and "
+        "this test would measure the base border while claiming the hover"
+    )
+
+    page.hover(DIRECT_UNDO)
+    rows = (
+        (DIRECT_UNDO, "borderTopColor", None, "border"),
+        (DIRECT_UNHOVERED, "borderTopColor", None, "border"),
+    )
+    seen = measure_edges(page, rows)
+    hovered, control = seen[DIRECT_UNDO], seen[DIRECT_UNHOVERED]
+
+    assert_painted(hovered, "border", f"v1 {accent} toolbar hover")
+    for ground in edge_grounds(hovered, "border"):
+        measured = ratio(rgb(hovered["value"]), rgb(ground))
+        assert measured >= 3.0, (
+            f"{accent}: the hovered toolbar border is {measured:.4f}:1 "
+            f"({hovered['value']} on {ground})"
+        )
+    assert rgb(hovered["value"]) == DIRECT_DERIVED[accent]["edge"], (
+        f"{accent}: the hovered toolbar border is {hovered['value']}, not "
+        f"the {DIRECT_DERIVED[accent]['edge']} --accent-edge must derive to"
+    )
+    assert rgb(control["value"]) == (228, 221, 211), (
+        f"the un-hovered control reads {control['value']}, not the --line "
+        "grey — the base and the hover values are no longer distinguishable, "
+        "so the assertion above could be satisfied with no hover at all"
+    )
+
+    path = os.path.join(
+        shots, f"direct-chrome-hover-v1-{accent.lstrip('#')}.png"
+    )
+    page.screenshot(path=path)
+    assert os.path.getsize(path) > 0
+
+
+def test_the_v2_direct_edit_chrome_takes_no_colour_from_the_override(
+    page, expect, live_app, shots
+):
+    """A RECORDED DEFECT, PINNED HONESTLY — and a live revert guard.
+
+    direct-edit.css speaks V1's token vocabulary. style-v2.css declares none
+    of --accent, --accent-fg, --accent-ink, --accent-edge, --card or --line,
+    so every rule LLM-COP-42 touched is invalid at computed-value time on V2
+    and the owner's pick reaches NONE of these five sites. That is what this
+    pins. LLM-COP-42 does not fix it: that is a different bug — "the file
+    speaks a vocabulary V2 does not declare" — with its own argument to make,
+    and it is filed separately rather than bundled in here.
+
+    READ THE 6.4593:1 BELOW AS AN ACCIDENT, BECAUSE THAT IS WHAT IT IS.
+    `color` is an INHERITED property. A declaration whose var() names an
+    undeclared custom property is invalid at computed-value time, so it
+    becomes `unset` — and `unset` on an inherited property is `inherit`, NOT
+    a fall-through to the next declaration in the cascade. .direct-chrome is
+    a direct child of body (page_v2.html:387) and style-v2.css:115 is
+    `body { color: var(--v2-body) }` = #3d5f77, on --v2-page #f7fafc. So the
+    tag lands on 6.4593:1 BY FAILURE MODE. It is NOT a claim app/palette.py
+    makes, and no derivation guarantees it. Before LLM-COP-42
+    .direct-field-tag's `color: #fff` was a valid literal and computed white
+    — 1.0482:1 — so this site became legible on V2 as a SIDE EFFECT of the
+    retarget.
+
+    It will change the day V2 gets the token vocabulary. REPLACE THIS TEST
+    THEN with the 4.5:1 assertions
+    test_the_direct_edit_chrome_text_clears_four_and_a_half_to_one makes.
+
+    Meanwhile the pin is more than a defect record: reverting
+    .direct-field-tag's color to #fff turns it RED with rgb(255,255,255)
+    printed, so site 2 of the five is guarded here as well as on V1.
+
+    IT STAYS ON ONE COLOUR while its three V1 siblings run at three, and
+    that is deliberate rather than an omission. Those three assert a
+    DERIVATION, which is a different function of every pick and therefore
+    has to be sampled. This one asserts a CASCADE ACCIDENT: the value it
+    pins, #3d5f77, is body's --v2-body and is the same whatever the owner
+    picks, because not one declaration here resolves. Driving it at three
+    picks would produce three identical measurements and read as three
+    proofs. The one thing that IS pick-shaped is the stray set below, and
+    ACCENT_DERIVED_FFE9A8 is written out for this colour precisely so the
+    negative can be made without importing the derivation.
+
+    THE TWO NEGATIVES ARE PREDICATES, NEVER WIDTH LITERALS — the exact
+    negation of assert_painted. Border and outline widths are UA-supplied
+    when the feature is off: Chrome 142 collapses to 0px, Chrome 152 reports
+    the UA default and lets `style: none` be what suppresses the edge.
+    Pinning one of those is what went green locally and red on CI in
+    LLM-COP-40.
+    """
+    open_direct_chrome(page, live_app, "v2", "#ffe9a8")
+    expect(page.locator(".direct-field-tag")).to_be_visible()
+    expect(page.locator(".direct-changes")).to_be_visible()
+
+    values = []
+    seen = measure(page, [site for site, _, _ in DIRECT_TEXT_SITES])
+    for selector, _v1_ground, _v1_token in DIRECT_TEXT_SITES:
+        row = seen[selector]
+        assert row["found"] and row["rendered"], selector
+        assert rgb(row["color"]) == (61, 95, 119), (
+            f"{selector} is {row['color']}, not body's inherited --v2-body "
+            "— V2's cascade has moved and this pin is out of date"
+        )
+        assert rgb(row["background"]) == (247, 250, 252), row["background"]
+        measured = ratio(rgb(row["color"]), rgb(row["background"]))
+        assert round(measured, 4) == 6.4593, f"{selector}: {measured:.4f}:1"
+        values.append(rgb(row["color"]))
+
+    # The tag's `background: var(--accent)` is invalid here too, so it has no
+    # fill at all — body-coloured text on the page ground, legible but no
+    # longer looking like a tag. Asserted because it is the other half of why
+    # the 6.4593:1 above is luck: on V1 this site's ground IS the owner's
+    # pick, which is what makes --accent-ink the right token there.
+    assert seen[".direct-field-tag"]["backgroundOwn"] == "rgba(0, 0, 0, 0)", (
+        seen[".direct-field-tag"]["backgroundOwn"]
+    )
+
+    page.hover(DIRECT_UNDO)
+    rows = (
+        (".direct-changes", "borderTopColor", None, "border"),
+        (DIRECT_UNDO, "borderTopColor", None, "border"),
+    )
+    edges = measure_edges(page, rows)
+    for selector, _property, _pseudo, _kind in rows:
+        row = edges[selector]
+        assert row["found"] and row["rendered"], selector
+        painted = (
+            row["borderTopStyle"] not in ("none", "hidden")
+            and float(row["borderTopWidth"].rstrip("px")) > 0
+        )
+        assert not painted, (
+            f"{selector} now draws a border on V2 "
+            f"({row['borderTopWidth']} {row['borderTopStyle']} "
+            f"{row['value']}). That is the fix this test was written to "
+            "notice: replace it with the 3:1 assertions the V1 edge tests "
+            "make"
+        )
+        values.append(rgb(row["value"]))
+
+    # All five retargeted sites, and not one of them carries a colour the
+    # override could have produced on either skin.
+    assert len(values) == 5, values
+    strays = [value for value in values if value in ACCENT_DERIVED_FFE9A8]
+    assert not strays, (
+        f"V2's edit chrome now takes colour from the owner's pick: {strays}"
+    )
+
+    path = os.path.join(shots, "direct-chrome-text-v2.png")
+    page.screenshot(path=path)
+    assert os.path.getsize(path) > 0
+
+
 def test_the_edge_token_never_reaches_the_admin_inbox(page, live_app, skin):
-    """style.css:112 now reads --accent-edge, and inbox.html links style.css.
+    """style.css:116 now reads --accent-edge, and inbox.html links style.css.
 
     /yllapito/viestit renders .button.secondary and receives no site_chrome
     spread, so no <style> block reaches it whatever an owner picks — which
@@ -1503,12 +1993,23 @@ def test_no_edge_is_drawn_on_a_surface_the_tuple_does_not_name(
     #ffe9a8 becomes #a38d4c on V1 and #9c8645 on V2. Without it the sweep
     would pass on a page where nothing was derived at all — and worse, it
     would start matching the sites that deliberately KEEP the raw accent
-    (every .button.primary border, and .direct-changes at
-    direct-edit.css:180), which sit on grounds no tuple names, and go red
-    for a reason with nothing to do with the fence.
+    (every .button.primary border), which sit on grounds no tuple names,
+    and go red for a reason with nothing to do with the fence.
+
+    .direct-changes USED to be named in that list and no longer belongs to
+    it: LLM-COP-42 retargeted its border to var(--accent-edge), so it is a
+    hit this sweep is supposed to find rather than one it must avoid. Its
+    ground is .direct-publishbar's --card, rgb(255,255,255), which IS in
+    V1_SURFACES, so the fence is satisfied and this test stays green.
 
     The NON-EMPTY GUARD: a sweep that finds nothing proves nothing. Measured
-    here: 6 hits on V1's `/`, 45 on V1's /muokkaa/sivu, 5 and 21 on V2's.
+    here: 6 hits on V1's `/`, 49 on V1's /muokkaa/sivu, 5 and 21 on V2's.
+    The V1 edit route was 45 before LLM-COP-42; the four new hits are
+    span.direct-changes' border-top/right/bottom/left, which the walk finds
+    without any typing because _SWEEP_EDGES has no visibility check and
+    Chrome reports the border on a `hidden` element. V2 gains none — every
+    rule in direct-edit.css naming --accent-edge is invalid there, on a skin
+    that declares no such token.
 
     WHAT IT CANNOT DO, said rather than implied: it sees only the
     backgrounds these two routes actually render. The retarget table in the

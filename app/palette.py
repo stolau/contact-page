@@ -441,10 +441,10 @@ V2_SURFACES = ("#f7fafc", "#ffffff", "#e6eef6")
 #
 #   RETARGETED to the edge token, on SC 1.4.11 proper — a boundary a user
 #   must perceive:
-#     style.css     :112 .button.secondary   border-color: var(--accent-edge)
+#     style.css     :116 .button.secondary   border-color: var(--accent-edge)
 #     style-v2.css  :154 .button.secondary   border-color: var(--v2-rust-edge)
-#     direct-edit.css :14 body.direct-edit [data-field]   the idle dashed
-#                          affordance, and :28 the focus/active ring — a
+#     direct-edit.css :32 body.direct-edit [data-field]   the idle dashed
+#                          affordance, and :46 the focus/active ring — a
 #                          STATE indicator, on the one page that both
 #                          receives the override and draws its own ring.
 #
@@ -456,16 +456,79 @@ V2_SURFACES = ("#f7fafc", "#ffffff", "#e6eef6")
 #     style-v2.css  :388 .v2-section-label::after   the short rust bar
 #   These three are NOT claimed as 1.4.11 cases: the cards' perceivable
 #   boundary is their 1px var(--line) frame, cards 2-4 take fixed literals by
-#   ordinal position (style.css:203-205, :251-252), and the bar is deleted
+#   ordinal position (style.css:207-209, :255-256), and the bar is deleted
 #   outright at the phone breakpoint (style-v2.css:721-722, `content: none`).
+#
+#   LLM-COP-42 — the five direct-edit.css sites the override reached and
+#   nothing constrained, split by the same two claims. All five measured at
+#   1.2019:1 on V1 with #ffe9a8 planted, before that change.
+#
+#   RETARGETED as TEXT, on SC 1.4.3's 4.5:1 — and the split between the two
+#   ink tokens is the whole of the care here:
+#     direct-edit.css :114 .direct-esikatsele  color: var(--accent-fg)
+#                     :211 .direct-changes     color: var(--accent-fg)
+#   Both sit on --card, which is NOT an owner role on V1 (ROLE_TOKENS["v1"]
+#   emits --header-bg as main_bg and nothing else touches it), so --card
+#   #ffffff and --line #e4ddd3 are frozen literals and readable_on's
+#   V1_SURFACES is the right tuple with no new surface added. Measured after:
+#   4.8718:1 each.
+#     direct-edit.css :128 .direct-field-tag   color: var(--accent-ink)
+#   This one takes the INK token, not the fg token, because its GROUND is the
+#   accent itself (`background: var(--accent)`, :129) — the .button.primary
+#   case. --accent-fg is readable_on(accent, V1_SURFACES) and makes no claim
+#   about legibility ON the accent: for #ffe9a8 it is #856f2e, which on
+#   #ffe9a8 measures 4.0536:1 and FAILS. --accent-ink is on_color(accent) and
+#   rides the theorem's 4.5826:1 floor instead. Measured after: 17.4730:1.
+#
+#   RETARGETED on the weaker, separately stated ground above — a line drawn
+#   in a colour nobody can see is not a line — and deliberately NOT on
+#   1.4.11 proper:
+#     direct-edit.css :212 .direct-changes     border: 1px solid
+#                                              var(--accent-edge)
+#                     :158 .direct-toolbar button:hover:not(:disabled)
+#                                              border-color: var(--accent-edge)
+#   The badge is framing around text that carries its own meaning, and
+#   .direct-toolbar button keeps a permanent 1px solid var(--line) in every
+#   state (:149), so the hover is a COLOUR CHANGE on an existing boundary and
+#   not the appearance of one. Claiming 1.4.11 here would be the mistake the
+#   .button.primary:hover paragraph above exists to prevent. Measured after:
+#   3.2449:1 against --card, both.
+#
+#   The two fills in that file stay the owner's RAW pick, and both are
+#   recorded rather than omitted (tests/test_palette_css.py,
+#   test_the_direct_edit_fills_that_stay_the_owners_raw_pick):
+#   .direct-field-tag's background IS the ground --accent-ink is derived
+#   against and must stay raw, and .direct-dot (:105-110) is aria-hidden and
+#   redundant with the <span class="direct-mode"> text beside it, so it is
+#   not a graphical object required to understand the content. After
+#   LLM-COP-42 every raw var(--accent) left in direct-edit.css is a FILL, and
+#   every TEXT and EDGE in it reads a derived token.
+#
+#   ON V2, FOUR OF THE FIVE ARE INERT AND ONE IS NOT, by failure mode rather
+#   than by derivation, and this is the same invalidity the --v2-rust-ring
+#   comment below already records for .direct-publishbar. style-v2.css
+#   declares none of --accent, --accent-fg, --accent-ink, --accent-edge,
+#   --card or --line, so every direct-edit.css rule naming one is invalid at
+#   computed-value time there: both borders paint nothing (0px none, before
+#   and after) and both --accent-fg colours already inherited. But
+#   .direct-field-tag's old `#fff` was a VALID literal and computed white on
+#   --v2-page #f7fafc — 1.0482:1 — while var(--accent-ink) is invalid, and an
+#   invalid declaration of an INHERITED property becomes `unset`, which for
+#   color is `inherit`, NOT a fall-through to the next rule in the cascade.
+#   So the tag now takes body's --v2-body #3d5f77 and measures 6.4593:1.
+#   THAT IS AN ACCIDENT OF THE CASCADE AND NOT A CLAIM THIS MODULE MAKES; no
+#   derivation here guarantees it, and it will change the day V2 is given the
+#   token vocabulary. It is pinned as such, as a defect record rather than a
+#   proof, in
+#   test_the_v2_direct_edit_chrome_takes_no_colour_from_the_override.
 #
 #   NOT RETARGETED, deliberately, and this is a decision rather than an
 #   omission:
-#     style.css     :95  .button           border: 1px solid var(--accent)
+#     style.css     :99  .button           border: 1px solid var(--accent)
 #     style-v2.css  :131 .button           border: 1px solid var(--v2-rust)
 #     style-v2.css  :153 .button.primary:hover  border-color: var(--v2-rust-dark)
 #   On every element these actually paint alone — the primary buttons — the
-#   border is byte-identical to the fill (style.css:110, style-v2.css:152-153),
+#   border is byte-identical to the fill (style.css:114, style-v2.css:152-153),
 #   so it is not a boundary anyone perceives, and contrast(x, x) is 1.0 for
 #   every colour there is: an assertion that can never pass is proof the site
 #   is misidentified, not proof of a defect.
@@ -566,14 +629,14 @@ ROLE_TOKENS = {
             # sites, all on a surface of V1_SURFACES: the hero .cta-contact
             # (page.html:65) and the yhteydenotto section's .cta-contact
             # (page.html:159), both of which walk to body's --paper because
-            # neither .hero (style.css:157) nor .contact (:267) declares a
+            # neither .hero (style.css:161) nor .contact (:271) declares a
             # background; .cd-submit and .login-submit on --card; and
             # direct-edit's .direct-julkaise, which sits in
-            # .direct-publishbar (direct-edit.css:173, NOT the topbar) on
+            # .direct-publishbar (direct-edit.css:205, NOT the topbar) on
             # that rule's var(--card).
             ("--accent-ring", V1_SURFACES),
             # .site-header .button.primary (page.html:180), whose ground is
-            # --header-bg (style.css:121) — main_bg, the owner's own colour,
+            # --header-bg (style.css:125) — main_bg, the owner's own colour,
             # which is why this ground is MAIN and not a literal.
             ("--accent-ring-header", (MAIN,)),
         ),
@@ -596,7 +659,7 @@ ROLE_TOKENS = {
             # (page_v2.html:146) on --v2-card, .cd-submit and .login-submit
             # on --v2-card, and direct-edit's Julkaise, whose ground walks
             # all the way to body's --v2-page because .direct-publishbar's
-            # `background: var(--card)` (direct-edit.css:173) is invalid on
+            # `background: var(--card)` (direct-edit.css:205) is invalid on
             # a skin that declares no --card — the same invalidity
             # tests/browser/test_browser_colors.py records for
             # .direct-topbar in its SWEEP_ROUTES comment. That last site is

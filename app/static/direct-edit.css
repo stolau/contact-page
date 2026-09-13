@@ -5,8 +5,26 @@
 
    The dashed affordance hangs off body.direct-edit, so it cannot reach
    the public page or the draft preview: no element carries an inline
-   style and no rule here applies without that class. Tokens come from
-   style.css, which loads first in the same document. */
+   style and no rule here applies without that class.
+
+   TOKENS COME FROM style.css, which loads first in the same document, and
+   this file declares none of its own. The ones it reads are --card, --line,
+   --ink and --muted for the chrome's own furniture, and the owner-derived
+   --accent, --accent-fg, --accent-ink and --accent-edge for everything the
+   chosen colour reaches (LLM-COP-40 and LLM-COP-42). --card and --line are
+   frozen literals on V1 — no ROLE_TOKENS["v1"] row emits either — which is
+   what makes readable_on's V1_SURFACES the right tuple for the text sites
+   here with no new surface added.
+
+   THAT VOCABULARY IS V1'S, AND THE BOUNDARY IS KNOWN. style-v2.css
+   declares not one of those eight, so every rule below naming one is
+   invalid at computed-value time on V2: the edit chrome there draws no
+   borders and takes no colour from the owner's pick at all. That is a
+   defect of its own rather than something this file's retargets caused or
+   fixed, and it is recorded, not repaired — see app/palette.py's site list
+   and test_the_v2_direct_edit_chrome_takes_no_colour_from_the_override.
+   Giving V2 the vocabulary means a fallback at each site, which repaints
+   its edit chrome for every owner including those who chose nothing. */
 
 /* --- the editable affordance --- */
 
@@ -70,6 +88,20 @@ body.direct-edit { padding: 3.4rem 0 4.4rem; }
    below it is a content-dependent literal — see there. */
 body.direct-edit .site-header { top: 65px; }
 
+/* One of the two fills that KEEP the owner's raw pick (LLM-COP-42), and
+   the exclusion is a decision rather than an omission. The dot renders at
+   the same 1.2019:1 against --card as the five sites that change here, but
+   it is aria-hidden="true" (direct_edit_chrome.html:19) and sits directly
+   before <span class="direct-mode">Muokkaustila</span> (:20), which carries
+   the whole of the meaning in text. SC 1.4.11 covers graphical objects
+   REQUIRED to understand the content; a decorative dot redundant with the
+   words beside it is not one.
+
+   The other fill is .direct-field-tag's background below: that one is the
+   GROUND --accent-ink is derived against, so it must stay raw or the
+   label's floor would be a claim about a colour it is no longer painted
+   on. Both are recorded in tests/test_palette_css.py, in
+   test_the_direct_edit_fills_that_stay_the_owners_raw_pick. */
 .direct-dot {
   width: 0.55rem;
   height: 0.55rem;
@@ -79,7 +111,7 @@ body.direct-edit .site-header { top: 65px; }
 .direct-mode { font-weight: bold; }
 .direct-breadcrumb { color: var(--muted); }
 .direct-topbar-spacer { flex: 1; }
-.direct-esikatsele { color: var(--accent); }
+.direct-esikatsele { color: var(--accent-fg); }
 
 /* --- the floating field chrome --- */
 
@@ -93,7 +125,7 @@ body.direct-edit .site-header { top: 65px; }
 .direct-field-tag {
   font-size: 0.68rem;
   letter-spacing: 0.09em;
-  color: #fff;
+  color: var(--accent-ink);
   background: var(--accent);
   border-radius: 0.25rem;
   padding: 0.05rem 0.4rem;
@@ -123,7 +155,7 @@ body.direct-edit .site-header { top: 65px; }
   padding: 0.15rem 0.5rem;
   cursor: pointer;
 }
-.direct-toolbar button:hover:not(:disabled) { border-color: var(--accent); }
+.direct-toolbar button:hover:not(:disabled) { border-color: var(--accent-edge); }
 .direct-toolbar button:disabled { opacity: 0.45; cursor: default; }
 
 /* --- the hint and the section names --- */
@@ -176,8 +208,8 @@ body.direct-edit .site-header { top: 65px; }
   font-size: 0.85rem;
 }
 .direct-changes {
-  color: var(--accent);
-  border: 1px solid var(--accent);
+  color: var(--accent-fg);
+  border: 1px solid var(--accent-edge);
   border-radius: 999px;
   padding: 0.05rem 0.6rem;
 }

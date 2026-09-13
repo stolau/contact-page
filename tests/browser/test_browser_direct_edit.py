@@ -81,8 +81,8 @@ def test_header_contact_hit_tests_to_itself_when_scrolled(page, expect, live_app
     style.css, so it loses to .direct-topbar's z-index: 30 and, once
     scrolled, is clipped until the centre of "Ota yhteyttä" resolves to
     BUTTON.direct-poistu — an owner aiming at the contact button is
-    thrown out of edit mode instead. direct-edit.css:71 pins the header
-    below the bar; direct-edit.css:54-70 is the app's own account of the
+    thrown out of edit mode instead. direct-edit.css:89 pins the header
+    below the bar; direct-edit.css:72-88 is the app's own account of the
     defect.
 
     This asks the browser the question the owner's mouse asks. It fails

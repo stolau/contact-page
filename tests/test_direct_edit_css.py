@@ -210,7 +210,7 @@ def test_every_selector_stays_inside_direct_edit_mode():
     """FORWARD fence: passes on the pre-change file, and on every file before
     it — which is precisely what makes it worth writing now.
 
-    This stylesheet opens (direct-edit.css:1-9) by promising it cannot reach
+    This stylesheet opens (direct-edit.css:1-27) by promising it cannot reach
     the public page or the draft preview: everything hangs off body.direct-edit
     or a .direct- class, and nothing here applies without them. R2's rule is
     the first in the file's history to name a public-page selector at all
