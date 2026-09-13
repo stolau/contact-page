@@ -355,36 +355,51 @@ def ring_on(fills, grounds):
 # member of its skin's tuple, re-verified rule by rule in that change.
 #
 # V1: --paper and --card. Enumerated by elimination, not by assumption —
-# `grep -n background app/static/style.css`, minus every `var(--card)` and
-# `var(--paper)`, minus `none`, `transparent` and the `background-*`
-# longhands, leaves exactly ONE line: :285, the login dialog's
-# rgba(34,51,59,0.55) scrim, which carries no text at all.
+# `grep -n background app/static/style.css` answers 22 declarations. Minus
+# the ELEVEN that resolve to `var(--card)` or `var(--paper)`, minus the five
+# `none` and the one `transparent`, minus the four owner-role grounds
+# (`var(--accent)` twice, `var(--accent-dark)`, `var(--header-bg)`), exactly
+# ONE is left: :353, the login dialog's rgba(34,51,59,0.55) scrim, which
+# carries no text at all. 11 + 5 + 1 + 4 + 1 == 22, so the recipe can be
+# re-checked against that one grep.
 V1_SURFACES = ("#faf7f2", "#ffffff")
 
 # V2: --v2-page, --v2-card and --v2-tint. The same elimination, run against
-# style-v2.css, leaves ELEVEN non-token backgrounds rather than one, and
-# every one of them is listed here because "no rust text sits on any of
-# them" is a claim about a set, and a set stated loosely is a set nobody can
-# re-check:
+# style-v2.css, leaves NINE non-token backgrounds rather than one, and every
+# one of them is listed here because "no rust text sits on any of them" is a
+# claim about a set, and a set stated loosely is a set nobody can re-check:
 #
-#   :164 .v2-hero-photo      gradient standing in for the hero photograph;
+#   1. :186 .brand-avatar    --v2-navy; its label is a frozen `color: #fff`
+#                            on the same rule, so no accent text sits on it
+#   2. :226 .v2-hero-photo   gradient standing in for the hero photograph;
 #                            the card that carries the text floats OVER it
-#                            on --v2-card (:194)
-#   :178 .v2-hero-fade       the fade at the foot of the band — no text
-#   :219 .v2-hero-rule       a 1px gradient rule — no text
-#   :326 .v2-section-label::after   the short rust bar — no text; it is one
-#                            of the non-text-contrast sites this change
-#                            deliberately leaves unconstrained (below)
-#   :403 .portrait           #eceff1; its placeholder text is --v2-muted
-#   :426 .portrait.has-image `background: none` — the photograph itself
-#   :479 .v2-contact-card    --v2-navy; its one <a>, .gdpr-open, is
-#                            overridden to #c3d5e3 at :546, and its result
-#                            and error lines to #eaf2f8 / #ffb4a2
-#   :533 .v2-contact-form input/textarea  rgba(255,255,255,0.07); the field
-#                            text is #eaf2f8
-#   :583 .v2-footer          --v2-navy-deep; its link is #b8cbdb at :597
-#   :670 .v2-contact-band    `background: none` inside the phone breakpoint
-#   :691 .dialog-backdrop    the scrim — no text
+#                            on --v2-card (:256)
+#   3. :240 .v2-hero-fade    the fade at the foot of the band — no text
+#   4. :281 .v2-hero-rule    a 1px gradient rule — no text
+#   5. :465 .portrait        #eceff1; its placeholder text is --v2-muted
+#                            (:473)
+#   6. :541 .v2-contact-card --v2-navy; its one <a>, .gdpr-open, is
+#                            overridden to #c3d5e3 at :608, and its result
+#                            and error lines to #eaf2f8 (:612) and #ffb4a2
+#                            (:613)
+#   7. :595 .v2-contact-form input/textarea  rgba(255,255,255,0.07); the
+#                            field text is #eaf2f8
+#   8. :645 .v2-footer       --v2-navy-deep; its link is #b8cbdb at :659
+#   9. :753 .dialog-backdrop the scrim — no text
+#
+# SUBTRACTED BY THE RECIPE, LISTED BECAUSE A READER WILL LOOK FOR THEM —
+# these three stood in the eleven-item list this replaces and are gone from
+# the nine because the recipe removes them, not because they vanished:
+#
+#   :388 .v2-band-media-left .v2-section-label::after   var(--v2-rust-edge),
+#        an owner role — and var(--v2-rust), also an owner role, on the day
+#        the old list was written
+#   :488 .portrait.has-image   `background: none`
+#   :732 .v2-contact-band      `background: none`, in the phone breakpoint
+#
+# .brand-avatar was never in this list: its rule landed in 874c685
+# (2026-09-01) and the list in 88ca8c6 (2026-09-08), so the enumeration was
+# incomplete the day it was written rather than drifting into incompleteness.
 #
 # So the rust colour renders as text on --v2-page, --v2-card and --v2-tint,
 # and on nothing else.
@@ -393,10 +408,25 @@ V2_SURFACES = ("#f7fafc", "#ffffff", "#e6eef6")
 # WHAT IS FENCED AND WHAT IS NOT, said plainly because the gap outlives this
 # change. tests/test_palette.py fences the VALUES above against drift: it
 # reads each stylesheet's :root and fails the day somebody recolours a skin
-# without coming here. NOTHING FENCES THE SET. A future rule that puts
-# accent-coloured text on --v2-navy, or on a new dark band, would pass every
-# test in this change while rendering at roughly 1.5:1, because no test can
-# ask a STYLESHEET which of its backgrounds a colour is ever painted on.
+# without coming here.
+#
+# THE BACKGROUND SET IS FENCED TOO, since LLM-COP-47. In
+# tests/test_palette_css.py, test_the_surface_elimination_is_still_exhaustive
+# re-runs the elimination above against the stylesheet and fails when a
+# background appears that no entry accounts for. A new dark band therefore
+# cannot arrive in silence UNLESS its ground is an owner-role token, it
+# lives in direct-edit.css, or it is written as a background-* longhand:
+# step 2 drops the first, this test reads only the two skins, and it takes
+# only the `background` shorthand. No longhand exists in any stylesheet
+# today (`grep -rE 'background-[a-z]+' app/static/*.css` is empty). Every
+# other new background survives elimination and reddens the list until
+# somebody comes here and says which of the two lists it belongs in.
+#
+# WHAT IS STILL NOT FENCED is the other half of the claim: WHICH of those
+# backgrounds accent-coloured text is ever actually painted on. No test can
+# ask a STYLESHEET that, so a rule putting accent-coloured text on --v2-navy
+# — a ground the list above already names — still renders at roughly 1.5:1
+# with every test in this change green.
 #
 # A rendered DOM, though, can be asked, and the boundary is worth stating
 # precisely rather than despairing at. tests/browser/test_browser_colors.py
@@ -423,10 +453,14 @@ V2_SURFACES = ("#f7fafc", "#ffffff", "#e6eef6")
 #
 # FIRST, A CORRECTION TO USR-COP-2's OWN ENUMERATION, because it very nearly
 # cost this change a regression. The list here used to name style.css:57 and
-# style-v2.css:84 as `.button.secondary`. They were the BARE `.button`, which
-# both button variants inherit. `.button.secondary` declared no border
-# property at all. Retargeting the bare rule would therefore have repainted
-# every PRIMARY button's border too. The v2 primary button's grounds —
+# style-v2.css:84 as `.button.secondary`. Those two numbers are as of
+# 88ca8c6 and stay as written, because renumbering a claim about a past file
+# makes it false (today the same two declarations are style.css:99 and
+# style-v2.css:131, enumerated at the NOT RETARGETED block below). They were
+# the BARE `.button`, which both button variants inherit.
+# `.button.secondary` declared no border property at all. Retargeting the
+# bare rule would therefore have repainted every PRIMARY button's border
+# too. The v2 primary button's grounds —
 # --v2-navy #14324a on the contact card, --v2-header #d9e8f2 in the header —
 # are in neither surface tuple; v1's hero primary sits on --paper, which IS
 # in V1_SURFACES, so the ground argument is v2's alone and the reason that
@@ -451,13 +485,15 @@ V2_SURFACES = ("#f7fafc", "#ffffff", "#e6eef6")
 #   RETARGETED on the weaker and separately stated ground that a line drawn
 #   in a colour nobody can see is not a line — an owner picks a colour in
 #   order to see it, and the same token costs no extra derivation:
-#     style.css     :198 .fact-card          border-top
-#                   :247 .service-card       border-top
+#     style.css     :202 .fact-card          border-top
+#                   :251 .service-card       border-top
 #     style-v2.css  :388 .v2-section-label::after   the short rust bar
 #   These three are NOT claimed as 1.4.11 cases: the cards' perceivable
-#   boundary is their 1px var(--line) frame, cards 2-4 take fixed literals by
-#   ordinal position (style.css:207-209, :255-256), and the bar is deleted
-#   outright at the phone breakpoint (style-v2.css:721-722, `content: none`).
+#   boundary is their 1px var(--line) frame, fixed literals are taken by
+#   ordinal position — fact cards 2-4 (style.css:207-209) and service cards
+#   2-3 (:255-256), which is every such rule the file declares — and the
+#   bar is deleted outright at the phone breakpoint (style-v2.css:721-722,
+#   `content: none`).
 #
 #   LLM-COP-42 — the five direct-edit.css sites the override reached and
 #   nothing constrained, split by the same two claims. All five measured at
@@ -498,10 +534,11 @@ V2_SURFACES = ("#f7fafc", "#ffffff", "#e6eef6")
 #   recorded rather than omitted (tests/test_palette_css.py,
 #   test_the_direct_edit_fills_that_stay_the_owners_raw_pick):
 #   .direct-field-tag's background IS the ground --accent-ink is derived
-#   against and must stay raw, and .direct-dot (:105-110) is aria-hidden and
-#   redundant with the <span class="direct-mode"> text beside it, so it is
-#   not a graphical object required to understand the content. After
-#   LLM-COP-42 every raw var(--accent) left in direct-edit.css is a FILL, and
+#   against and must stay raw, and .direct-dot (direct-edit.css:105-110) is
+#   aria-hidden and redundant with the <span class="direct-mode"> text
+#   beside it, so it is not a graphical object required to understand the
+#   content. After LLM-COP-42 every raw var(--accent) left in
+#   direct-edit.css is a FILL, and
 #   every TEXT and EDGE in it reads a derived token.
 #
 #   ON V2, FOUR OF THE FIVE ARE INERT AND ONE IS NOT, by failure mode rather
@@ -586,6 +623,16 @@ V2_SURFACES = ("#f7fafc", "#ffffff", "#e6eef6")
 # constrains. Outline-against-the-ADJACENT-FILL is not, and no tuple over
 # ancestor backgrounds can constrain it: .cta-contact is itself a
 # [data-field] whose own fill can be the raw accent.
+#
+# THAT 23 IS `grep -o 'data-field="' app/templates/page.html | wc -l`.
+# tests/test_direct_edit.py's BOUND_SCALAR_COUNT is also 23 today, and it is
+# a DIFFERENT measurement: it counts the FIELDS scalars whose
+# data-section/data-field pair appears in the rendered /muokkaa/sivu
+# document, not data-field attributes in this template. They coincide
+# because every one of these 23 attributes carries a distinct
+# (section, field) pair — 19 distinct field names over 23 occurrences,
+# with section_label appearing five times and every other name once.
+# Either can move without the other.
 
 ROLE_TOKENS = {
     # Per skin: the nine scalar token names the override writes, the "rings"

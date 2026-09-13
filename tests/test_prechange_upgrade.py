@@ -2106,7 +2106,7 @@ def test_the_style_value_changes_nothing_until_it_names_another_template(
         # the way to the head. Written as len(MIGRATIONS) rather than a
         # literal, the house form for a premise — the head itself is pinned
         # as a literal in exactly one place, test_db.py's
-        # test_the_migration_head_is_thirteen. It was a literal 11 here, which
+        # test_the_migration_head_is_fifteen. It was a literal 11 here, which
         # made this test go red for USR-COP-4's migration 12 without having
         # anything to say about it.
         assert version == len(database.MIGRATIONS)
