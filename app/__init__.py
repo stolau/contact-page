@@ -34,6 +34,7 @@ from .security import (
 from .seed import seed_if_empty
 from .shapes import resolve_shape
 from .styles import template_for
+from .telephone import tel_href
 from .wizard import bp as wizard_bp
 from .wizard import login_target
 
@@ -236,6 +237,13 @@ def create_app(instance_path=None):
     # (app/edit.py) and direct edit (app/direct_edit.py) all render through
     # template_for, so there is one filter registry between them.
     app.add_template_filter(contact_notice, "contact_notice")
+
+    # The contact card's call button: the `tel:` href for the stored phone
+    # field, or "" when the field is not a number and the element renders
+    # as a link to nowhere rather than to something wrong (LLM-COP-45).
+    # Registered here for the reason contact_notice's registration gives
+    # directly above — one filter registry covers all three renderers.
+    app.add_template_filter(tel_href, "tel_href")
 
     # How a section's own picture is cropped (LLM-COP-28), resolved from the
     # stored value and never trusted raw (app/shapes.py). Registered here for

@@ -266,13 +266,36 @@
    click on any [data-field], so editing the label opens no dialog.
 
    The card's body paragraph and caveat line are yhteydenotto.body and
-   .caveat, and the two action rows beside the primary button are .phone
-   and .email: LLM-COP-25 declared all four, so the addresses
+   .caveat, and the two rows beside the primary button are .phone and
+   .email: LLM-COP-25 declared all four, so the addresses
    v2-cp-section-contact.contact-band.contact-card describes are satisfied
    from the store rather than reported unsatisfied. Every one of them is
    emitted UNCONDITIONALLY, empty or not — a conditional element removes
    the binding the in-place editor needs, and a migrated store has all four
-   empty. #}
+   empty.
+
+   THE PHONE ROW IS THE SPEC'S contact-call-button (LLM-COP-45) — an
+   outlined button under the primary one, which is the element both
+   documents draw and which was rendering as a <p>. It is an <a> rather
+   than a <button> because it navigates to a tel: URL, and because
+   direct-edit.js:302-315 already special-cases a bound <a>: role=textbox,
+   aria-multiline and draggable=false, so the editor was written
+   anticipating exactly this element.
+
+   ONLY THE href IS CONDITIONAL, and the invariant above is why: the
+   element, its class and its binding are emitted whatever is stored, and
+   the href appears only when the field IS a number (app/telephone.py
+   decides, and its docstring carries the argument). A field holding prose,
+   opening hours or a trunk-zero form renders the owner's text with nothing
+   to dial — deliberately, because a visitor tapping a wrong number is
+   worse than a button that does not dial. href="tel:" on a fresh site
+   would be a dead link shipped by default.
+
+   NOT .v2-contact-action-row any more: that row draws a translucent white
+   border which composites to 1.9910:1 on this card. Decorative framing on
+   a <p>, a real SC 1.4.11 failure on a link. The .button.secondary edge it
+   takes instead is derived against the navy ground (--v2-rust-edge-navy /
+   --v2-rust-fg-navy, app/palette.py's "darks" table). #}
 {% macro yhteydenotto(p, sid='') -%}
 <section id="{{ anchors['yhteydenotto'] }}" class="v2-band v2-contact-band" data-section="{{ sid }}" data-kind="yhteydenotto">
   <div class="v2-contact-card">
@@ -294,7 +317,8 @@
     </div>
     <div class="v2-contact-actions">
       <button type="button" class="button primary v2-contact-primary cta-contact" data-section="{{ sid }}" data-field="send_label">{{ p.send_label }}</button>
-      <p class="v2-contact-action-row v2-contact-phone" data-section="{{ sid }}" data-field="phone">{{ p.phone }}</p>
+      {% set phone_href = p.phone|tel_href %}
+      <a class="button secondary v2-contact-call v2-contact-phone" {% if phone_href %}href="{{ phone_href }}" {% endif %}data-section="{{ sid }}" data-field="phone">{{ p.phone }}</a>
       <p class="v2-contact-action-row v2-contact-email" data-section="{{ sid }}" data-field="email">{{ p.email }}</p>
     </div>
   </div>

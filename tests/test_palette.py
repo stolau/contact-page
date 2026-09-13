@@ -854,6 +854,55 @@ def test_no_ring_ground_tuple_can_reach_the_raise():
         assert contrast(on_color(main), main) >= 4.5826, main
 
 
+def test_no_dark_ground_tuple_can_reach_the_raise():
+    """THE SAME FENCE over LLM-COP-45's dark grounds, and it is STRICTER by
+    one clause and one constant.
+
+    A dark row derives TWO tokens against its grounds — an edge through
+    visible_on at 3.0 and an ink through readable_on at 4.5 — so the
+    endpoint has to clear the HIGHER of the two, and 4.5 is what is asserted
+    here. It implies the 3.0 the edge needs; the reverse does not hold, and
+    a fence written at 3.0 would pass a table whose ink raises on the public
+    page.
+
+    NO MAIN, and that clause has no counterpart in the rings fence: a ring
+    ground can be the owner's own colour (the header sits on it), but a dark
+    ground is a card the design paints from a frozen literal. MAIN in this
+    table would be a ground that is dark only until the owner picks white,
+    and readable_on would then raise at 4.5 with no endpoint at all —
+    on_color's >= 4.5826 guarantee is about the ink ON main, not about a
+    black-or-white pick clearing main at 4.5 for an arbitrary accent.
+
+    THE ENDPOINT CLAUSE IS NOT VACUOUS: white clears #14324a at 13.2503,
+    and that margin is pinned, so a lighter card colour added to the tuple
+    is told about here rather than in a 500.
+
+    ABLE TO FAIL: put #ffffff into the v2 tuple beside #14324a and this goes
+    red naming the tuple, before any page 500s.
+    """
+    frozen = []
+    for skin in sorted(ROLE_TOKENS):
+        for edge, ink, grounds in ROLE_TOKENS[skin]["darks"]:
+            assert grounds, (skin, edge)
+            assert MAIN not in grounds, (
+                f"{skin} {edge}/{ink} takes {grounds}: a dark ground is a "
+                "frozen literal, and the owner's main colour is not dark "
+                "until the owner says so — readable_on would raise at 4.5"
+            )
+            margins = [
+                min(contrast(end, ground) for ground in grounds)
+                for end in ("#000000", "#ffffff")
+            ]
+            assert max(margins) >= 4.5, (
+                f"{skin} {edge}/{ink} takes {grounds}: neither black nor "
+                f"white clears every one of them at 4.5, the ratio the ink "
+                f"token is derived at (best margins {margins})"
+            )
+            frozen.append((grounds, round(max(margins), 4)))
+
+    assert frozen == [(("#14324a",), 13.2503)], frozen
+
+
 # The block palette_css returned at ba0e93d, for the pair
 # test_the_block_it_writes_is_legible_at_every_derived_site already drives.
 # A LITERAL, read off `git show ba0e93d:app/palette.py` and run — not
@@ -890,24 +939,48 @@ _RINGS_APPENDED = {
     ),
 }
 
+# And what LLM-COP-45 appends after THOSE — the dark-ground pair for the
+# contact card's outlined call button. V1's is the EMPTY STRING and that is
+# the assertion doing the most work in this table: V1 has no dark card, its
+# "darks" table is empty, and its rendered block is therefore byte-identical
+# to the one it wrote before this change. The pair is two tokens because a
+# secondary button's border is a boundary (3:1) and its label is text
+# (4.5:1); at this accent both walk to the identity, which is the INVERSION
+# the navy ground introduces — on a light surface #ffe9a8 is the pick that
+# gets moved, on navy it is the one that already clears.
+_DARKS_APPENDED = {
+    "v1": "",
+    "v2": "--v2-rust-edge-navy:#ffe9a8;--v2-rust-fg-navy:#ffe9a8;",
+}
+
 
 @pytest.mark.parametrize("skin", sorted(ROLE_TOKENS))
 def test_the_block_is_the_pre_change_one_with_the_rings_appended(skin):
     """BYTE IDENTITY OF WHAT DID NOT CHANGE.
 
     Nine values came out of palette_css before LLM-COP-44 and the same nine
-    come out now, in the same order, with the rings after them. This is the
-    assertion that goes red on a reordering, on a re-derivation of any
-    existing token, and on a ring interleaved among them rather than
-    appended — none of which any ratio test in this file could see, because
-    all nine would still be legible colours and every ratio would still hold.
+    come out now, in the same order, with the rings after them and
+    LLM-COP-45's dark-ground pair after those. This is the assertion that
+    goes red on a reordering, on a re-derivation of any existing token, and
+    on a ring or a dark token interleaved among them rather than appended —
+    none of which any ratio test in this file could see, because all nine
+    would still be legible colours and every ratio would still hold.
+
+    V1'S HALF IS THE ONE TO READ TWICE: its dark table is empty, so its
+    appended string is "" and this asserts V1's block is byte-for-byte what
+    it was. A skin with no dark card gets no dark tokens.
 
     The left-hand side is a LITERAL from ba0e93d, not a regeneration: a test
     that built the expected string by calling the module would pass on a
     module that had changed every value in it.
     """
     block = palette_css(skin, "#1a1a2e", "#ffe9a8")
-    assert block == _BA0E93D_BLOCK[skin][:-1] + _RINGS_APPENDED[skin] + "}"
+    assert block == (
+        _BA0E93D_BLOCK[skin][:-1]
+        + _RINGS_APPENDED[skin]
+        + _DARKS_APPENDED[skin]
+        + "}"
+    )
     # And the pre-change block really is a prefix, said separately so a
     # failure names which half moved.
     assert block.startswith(_BA0E93D_BLOCK[skin][:-1])
@@ -1083,6 +1156,13 @@ def test_every_token_the_override_writes_is_declared_by_its_stylesheet(skin):
         assert ROLE_TOKENS[skin][role] in declarations, (skin, role)
     for token, _ in ROLE_TOKENS[skin]["rings"]:
         assert token in declarations, (skin, token)
+    # The dark rows carry TWO token names apiece (LLM-COP-45), and both are
+    # written by the override, so both have to be declared or the rule that
+    # reads them falls back — border-color to currentColor, which is a
+    # boundary nobody derived.
+    for edge, ink, _ in ROLE_TOKENS[skin]["darks"]:
+        assert edge in declarations, (skin, edge)
+        assert ink in declarations, (skin, ink)
 
 
 # --- palette_css: the string that reaches a <style> block ------------------
@@ -1140,7 +1220,12 @@ def test_every_block_it_does_write_is_inside_the_closed_alphabet(
     # surfaces, the navy contact card and the header's). A number that was
     # the same for both is exactly the kind of thing somebody "fixes" by
     # widening it to >= 9, so it is written as two literals.
-    assert ruleset.count(";") == {"v1": 11, "v2": 12}[skin]
+    #
+    # V2 GAINS TWO MORE AT LLM-COP-45 and V1 gains none: the dark-ground
+    # table writes an edge and an ink per row, V2 has one row (the navy
+    # contact card) and V1 has no dark card at all. The gap between the two
+    # numbers is the whole of what "V1 is untouched" means here.
+    assert ruleset.count(";") == {"v1": 11, "v2": 14}[skin]
 
 
 @pytest.mark.parametrize("skin", sorted(ROLE_TOKENS))

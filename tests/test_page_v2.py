@@ -743,6 +743,116 @@ def test_the_v2_contact_card_renders_its_four_stored_values(app):
         assert cls in empty, cls
 
 
+# --- LLM-COP-45: the phone row IS the spec's call button --------------------
+#
+# v2-cp-section-contact.contact-band.contact-card lists six children and a
+# phone ROW is not among them: the card's phone field is contact-call-button,
+# the outlined button under the primary one, and it was rendering as a <p>.
+#
+# THE HREF IS THE ONLY CONDITIONAL PART, which is what these tests are really
+# about. app/telephone.py decides whether the stored field is a dialable
+# number — tests/test_telephone.py owns that decision and every string it is
+# made from — and what is asserted here is the RENDERING of it: the element,
+# its classes and its binding are on the page whatever is stored, and the
+# href comes and goes.
+
+
+def call_button(html):
+    """The card's call button, as raw source text. Exactly one, always."""
+    found = [tag for tag in tags(html, "a") if "v2-contact-call" in tag]
+    assert len(found) == 1, found
+    return found[0]
+
+
+def test_the_v2_cards_phone_row_is_an_outlined_call_button(v2_html):
+    """The element the spec draws, in the shape the rest of the suite needs.
+
+    A LINK AND NOT A BUTTON, because it navigates to a tel: URL — and
+    because direct-edit.js:302-315 already special-cases a bound <a>,
+    setting role="textbox" and draggable="false" with a comment saying why.
+    Reported as a spec delta: both documents give this element kind
+    "button".
+
+    .button.secondary AND NEVER .primary: RING_SWEEP_COUNTS in
+    tests/browser/test_browser_colors.py pins the exact number of primary
+    buttons per route, and a primary one here would make three of those
+    numbers wrong.
+
+    NO .cta-contact, which tests/browser/test_browser_contact_submit.py
+    would see as a second dialog opener inside the section, and no
+    desktop-only/phone-only, which the fence above forbids on a bound field
+    V1 leaves visible. The v2-contact-phone class STAYS: the unconditional
+    emission test looks for exactly that string.
+
+    data-section and data-field stay ADJACENT and in that order, for the
+    reason the card's primary button gives: BINDING at the top of this file
+    reads them as one pattern.
+    """
+    tag = call_button(v2_html)
+    assert 'class="button secondary v2-contact-call v2-contact-phone"' in tag, tag
+    assert re.search(r'data-section="\d+"\s+data-field="phone"', tag), (
+        "data-section and data-field must stay adjacent and in that order"
+    )
+    assert "primary" not in tag, tag
+    assert "cta-contact" not in tag, (
+        "the call button dials; it must not also be a dialog opener"
+    )
+    for hidden in ("desktop-only", "phone-only"):
+        assert hidden not in tag, (
+            f"{hidden} hides a bound field V1 leaves visible at that width"
+        )
+
+
+def test_the_call_button_links_only_when_the_field_is_a_number(app):
+    """THE ELEMENT IS UNCONDITIONAL AND THE href IS NOT.
+
+    Each row plants a SHAPE the test chose — a clean number, a number with
+    a prefix, the standard Finnish trunk-zero form, an empty field — and
+    asks the same three questions of the document that comes back. The
+    planted strings are probes, not owner data: what they are here to
+    separate is "the field is a number" from "the field contains one".
+
+    "+358 (0)40 123 4567" IS THE ROW THAT MATTERS. An earlier version of
+    this rule turned that field into tel:+3580401234567, welding the trunk
+    zero into the middle of an E.164 number, and it is the single most
+    likely real value this field will ever hold. "Soita 040 123 4567" —
+    the design's own sample label — is DELIBERATELY unlinked too; see
+    app/telephone.py for the trade and do not "fix" it back.
+
+    The unseeded case is asserted by the FIRST row of all: a fresh store
+    holds the seeded placeholder, which is prose, so a new site ships a
+    call button with nothing to dial rather than a dead tel: link.
+    """
+    seeded = call_button(render_public(app, V2_TEMPLATE))
+    assert "href=" not in seeded, seeded
+
+    for planted, expected in (
+        ("040 123 4567", 'href="tel:0401234567"'),
+        ("+358 40 123 4567", 'href="tel:+358401234567"'),
+        ("+358 (0)40 123 4567", None),
+        ("Soita 040 123 4567", None),
+        ("040 123 4567 (arkisin 9-16)", None),
+        ("", None),
+    ):
+        edit_published_payload(
+            app, "yhteydenotto", lambda p, v=planted: p.update(phone=v)
+        )
+        tag = call_button(render_public(app, V2_TEMPLATE))
+        # The element, the class and the binding survive every one of them.
+        assert "v2-contact-phone" in tag, (planted, tag)
+        assert re.search(r'data-section="\d+"\s+data-field="phone"', tag), (
+            planted,
+            tag,
+        )
+        if expected is None:
+            assert "href=" not in tag, (
+                f"{planted!r} produced a link; the whole field must BE the "
+                "number, or the visitor taps something nobody typed"
+            )
+        else:
+            assert expected in tag, (planted, tag)
+
+
 # --- USR-COP-4: the availability notice, on V2 ------------------------------
 #
 # The V1 siblings of these live in tests/test_page.py. BOTH sets are needed
