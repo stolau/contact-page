@@ -687,6 +687,13 @@ ROLE_TOKENS = {
             # which is why this ground is MAIN and not a literal.
             ("--accent-ring-header", (MAIN,)),
         ),
+        # THE DARK GROUNDS (LLM-COP-45): rows of (edge token, ink token,
+        # grounds) for a .button.secondary that is painted on a dark card
+        # rather than on one of `surfaces`. V1 HAS NO DARK CARD — its
+        # contact section is a light band — so this table is empty, and an
+        # empty table is the code saying so rather than an omission. It also
+        # keeps V1's rendered block byte-identical to what it was.
+        "darks": (),
     },
     "v2": {
         "default_main": "#d9e8f2",   # --v2-header
@@ -723,6 +730,23 @@ ROLE_TOKENS = {
             # (style-v2.css:165), whose ground is main_bg — the owner's own
             # colour, hence MAIN.
             ("--v2-rust-ring-header", (MAIN,)),
+        ),
+        # THE FIFTH DERIVATION GROUND (LLM-COP-45). .v2-contact-call, the
+        # card's outlined call button, is a .button.secondary on
+        # --v2-navy — a ground no member of V2_SURFACES names, so the two
+        # light-surface tokens it would otherwise read land at 2.1987:1
+        # there for the shipped rust, on BOTH the border and the label. TWO
+        # tokens per row and not one: on a secondary button the border is
+        # the only boundary there is (3:1, SC 1.4.11) and the label is text
+        # (4.5:1, SC 1.4.3), and a single token cannot answer both.
+        #
+        # ONE GROUND, A FROZEN LITERAL, so this can never reach
+        # readable_on's raise: white clears #14324a at 13.2503, which is
+        # over the 4.5 the ink is asked for and therefore over the 3.0 the
+        # edge is. tests/test_palette.py fences that off the table itself,
+        # the way it already does for the rings.
+        "darks": (
+            ("--v2-rust-edge-navy", "--v2-rust-fg-navy", ("#14324a",)),
         ),
     },
 }
@@ -811,6 +835,19 @@ def palette_css(style, main, accent):
             ),
         )
         for token, grounds in tokens["rings"]
+    ) + tuple(
+        # APPENDED AFTER THE RINGS, for the reason the rings are appended
+        # after the nine: everything written before stays where it was, so
+        # the byte-identity pins keep meaning what they say. Two
+        # declarations per row — the edge at 3:1 and the ink at 4.5:1
+        # against the same dark ground — and no MAIN substitution, because
+        # a dark ground is a frozen literal by definition.
+        declaration
+        for edge, ink, grounds in tokens["darks"]
+        for declaration in (
+            (edge, visible_on(effective_accent, grounds)),
+            (ink, readable_on(effective_accent, grounds)),
+        )
     )
     body = "".join(f"{name}:{value};" for name, value in declarations)
     return ":root{" + body + "}"

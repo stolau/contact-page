@@ -2801,3 +2801,551 @@ def test_every_primary_button_in_the_document_carries_the_boundary(
         if failure
     ]
     assert not failures, "; ".join(failures)
+
+
+# --- 10: LLM-COP-45, the outlined call button on the navy card --------------
+#
+# EVERYTHING BELOW IS ADDITIVE, the discipline sections 6 to 9 each state.
+# Not one line above is edited — and in particular
+# test_no_edge_is_drawn_on_a_surface_the_tuple_does_not_name is left exactly
+# as it stands, because it is THIS CHANGE'S OWN FALSIFIER: converting the
+# card's phone <p> into a .button.secondary without the navy derivation
+# turns it red on both v2 routes, naming the element, the colour and the
+# ground (measured: 2 failed, 2 passed). A sibling sweep for the new token
+# is added beside it rather than the existing one being generalised.
+#
+# WHY THE CARD NEEDS ITS OWN ASSERTIONS AT ALL, rather than a row in
+# TEXT_SITES. `measure` uses document.querySelector, so TEXT_SITES'
+# ".button.secondary" has always meant the FIRST one in document order —
+# the hero card's, three sections above this one. The 4.5:1 text fence would
+# stay green with a rust-on-navy label sitting unmeasured on the contact
+# card. The selectors below name the card's own button; generalising
+# `measure` to querySelectorAll is a finding reported to the author, not a
+# rewrite smuggled into this change.
+
+# The card, its two buttons, and the ground they are both painted on.
+CONTACT_CARD = ".v2-contact-card"
+CALL_BUTTON = ".v2-contact-card .v2-contact-call"
+CONTACT_PRIMARY = ".v2-contact-card .v2-contact-primary"
+CALL_ROW = (CALL_BUTTON, "borderTopColor", None, "border")
+
+# --v2-navy, #14324a, as Chrome reports it. Written out rather than imported:
+# the claim is about what is actually under the button, and a value read from
+# the module that derives against it would make the assertion agree with
+# itself.
+NAVY = (20, 50, 74)
+
+# What the two dark tokens resolve to with NOTHING chosen — the :root
+# defaults, which are the whole rendering on a site that has picked no
+# colour. Frozen literals for the reason SKIN_DEFAULT_ACCENT is one.
+DEFAULT_NAVY_EDGE = (192, 91, 52)   # --v2-rust-edge-navy: #c05b34
+DEFAULT_NAVY_INK = (225, 124, 85)   # --v2-rust-fg-navy:   #e17c55
+
+# The two widths the card is drawn at. At 390 the band loses its tint and
+# the card loses its radius, but it KEEPS `background: var(--v2-navy)` — so
+# the ground is asserted at both rather than assumed to carry over.
+VIEWPORTS = ((VIEWPORT, "desktop"), (PHONE_VIEWPORT, "phone"))
+
+# Values the TEST plants to probe the normalisation SHAPE. None of these is
+# owner data and none is read back out of the store: the owner's number and
+# the owner's label are theirs, and what is asserted here is which SHAPES
+# get a link — never what the shipped site says.
+DIALABLE_PLANT = "040 123 4567"
+# Written out by hand and NOT computed by calling tel_href, for the reason
+# edge_token_in's docstring gives about visible_on: an expectation derived
+# from the module under proof is satisfied by a wrong module too.
+DIALABLE_HREF = "tel:0401234567"
+NO_LINK_PLANTS = (
+    # THE STRING THAT KILLED THE SECOND RULE. Under it this page would have
+    # shipped a link dialling +3580401234567 — the Finnish trunk zero welded
+    # into the middle of an E.164 number.
+    ("+358 (0)40 123 4567", "the trunk-zero convention"),
+    # The design's own sample label. Refusing a prefix is DELIBERATE and the
+    # plan's Decision 3 retracts the earlier argument for accepting it: a
+    # visitor tapping a wrong number is worse than a button that does not
+    # dial. DO NOT "FIX" THIS.
+    ("Soita 040 123 4567", "a prefix of any kind"),
+    # A fresh or migrated store. href="tel:" here would be a dead link
+    # shipped by default.
+    ("", "an empty field"),
+)
+
+
+def plant_phone(live_app, value):
+    """Put a value in yhteydenotto.phone, draft and published at once."""
+    edit_published_payload(
+        live_app, "yhteydenotto", lambda p: p.update(phone=value)
+    )
+
+
+def call_button_row(page):
+    """The card's call button, measured the way section 6 measures an edge.
+
+    One row gives all four things this section asserts: the computed
+    border colour (`value`), the computed label colour (`color`), the
+    element's own fill (`own`, transparent here) and the walked ground
+    (`under`) — plus the painted-edge precondition assert_painted needs.
+    """
+    return measure_edges(page, (CALL_ROW,))[CALL_BUTTON]
+
+
+def navy_ground(row, where):
+    """The ground under the call button, ASSERTED to be the navy card.
+
+    Called before any ratio in this section, deliberately and in that
+    order: a ratio taken against whatever happens to be under the button
+    is a claim about that, not about the card the derivation was computed
+    for. `background: transparent` on .button.secondary means the walked
+    ancestor is the only honest answer, and it has to be #14324a.
+    """
+    assert not is_opaque(row["own"]), (
+        f"{where}: the call button has an opaque fill of its own "
+        f"({row['own']}), so it is no longer the transparent secondary "
+        "button the navy derivation is about"
+    )
+    ground = row["under"]
+    assert ground and rgb(ground) == NAVY, (
+        f"{where}: the call button sits on {ground}, not the card's "
+        f"rgb{NAVY} — every ratio below would be about the wrong ground"
+    )
+    return rgb(ground)
+
+
+def call_button_ratios(row, ground):
+    """(border ratio, label ratio), from the COMPUTED colours.
+
+    This file's own arithmetic, from the rgb() triples the browser
+    returned. app/palette.py is not imported for it — a ratio computed
+    with the curve of the module under proof is a statement about that
+    module rather than about the screen.
+    """
+    return (
+        ratio(rgb(row["value"]), ground),
+        ratio(rgb(row["color"]), ground),
+    )
+
+
+@pytest.mark.parametrize("viewport,label", VIEWPORTS, ids=("desktop", "phone"))
+def test_the_shipped_call_button_is_legible_on_the_navy_card(
+    browser, live_app, shots, viewport, label
+):
+    """A. THE SHIPPED DEFAULT, NOTHING CHOSEN — the element the spec draws,
+    rendered, painted, and legible on the ground it lands on.
+
+    A site that has chosen no colour emits no <style> block at all, so both
+    colours here resolve through the two new :root defaults. That makes this
+    the baseline every ratio below is measured against, and the only test in
+    this section that pins the two values exactly.
+
+    THE ORDER OF THE ASSERTIONS IS LOAD-BEARING, twice over. The painted
+    precondition runs first, because `border-*-color`'s initial value is
+    `currentColor` and a value pin passes green on an element that draws no
+    border at all — the hazard section 6 exists to close. Then the GROUND is
+    asserted to be rgb(20, 50, 74), before either ratio: the claim is about
+    the navy card, and a ratio against whatever else happened to be under
+    the button would be a different, easier claim.
+
+    DOCUMENT ORDER IS PART OF THE SPEC and is asserted here rather than
+    assumed: both documents draw contact-call-button UNDER the primary
+    contact-form-button, and a flex column renders in document order.
+
+    ABLE TO FAIL, run once each:
+    * revert `.v2-contact-card .button.secondary`'s border-color -> the
+      border reads the light-surface token and this goes red at 2.1987:1;
+    * revert its color -> the label goes red at 2.1987:1;
+    * change either :root default -> the exact-value pins go red first.
+    """
+    plant(live_app, "v2")
+    context = browser.new_context(viewport=viewport)
+    visitor = context.new_page()
+    try:
+        response = visitor.goto(f"{live_app.base_url}/")
+        assert response.status == 200
+        assert_skin(visitor, "v2")
+        assert "<style" not in response.text(), (
+            "a site that chose nothing must serve no block at all, so these "
+            "two values are the :root defaults and nothing else"
+        )
+
+        row = call_button_row(visitor)
+        assert_painted(row, "border", f"v2 default {label}")
+
+        order = visitor.evaluate(
+            """([first, second]) => {
+              const a = document.querySelector(first);
+              const b = document.querySelector(second);
+              if (!a || !b) return null;
+              return Boolean(
+                a.compareDocumentPosition(b)
+                & Node.DOCUMENT_POSITION_FOLLOWING
+              );
+            }""",
+            [CONTACT_PRIMARY, CALL_BUTTON],
+        )
+        assert order is True, (
+            "the call button is not under the primary one in document "
+            "order, which is the stacking both spec documents draw"
+        )
+
+        assert rgb(row["value"]) == DEFAULT_NAVY_EDGE, (
+            f"the call button's border is {row['value']}, not the "
+            "--v2-rust-edge-navy default a site with no colour renders"
+        )
+        assert rgb(row["color"]) == DEFAULT_NAVY_INK, (
+            f"the call button's label is {row['color']}, not the "
+            "--v2-rust-fg-navy default a site with no colour renders"
+        )
+
+        ground = navy_ground(row, f"v2 default {label}")
+        edge, ink = call_button_ratios(row, ground)
+        assert edge >= 3.0, (
+            f"v2 default {label}: the call button's only boundary is "
+            f"{edge:.4f}:1 on the card ({row['value']} on {row['under']})"
+        )
+        assert ink >= 4.5, (
+            f"v2 default {label}: the call button's label is {ink:.4f}:1 on "
+            f"the card ({row['color']} on {row['under']})"
+        )
+
+        path = os.path.join(shots, f"cop45-{label}-default.png")
+        visitor.locator(CONTACT_CARD).screenshot(path=path)
+        assert os.path.getsize(path) > 0
+    finally:
+        context.close()
+
+
+@pytest.mark.parametrize("accent", EDGE_CASES, ids=lambda v: v.lstrip("#"))
+@pytest.mark.parametrize("viewport,label", VIEWPORTS, ids=("desktop", "phone"))
+def test_the_call_button_clears_its_navy_ground_at_every_owner_pick(
+    browser, live_app, shots, accent, viewport, label
+):
+    """B. THREE OWNER PICKS x TWO WIDTHS, from the computed colour.
+
+    The border must reach 3:1 (SC 1.4.11 — on a transparent secondary
+    button the border is the ONLY boundary there is) and the label 4.5:1
+    (SC 1.4.3), against the card's own navy, at both widths.
+
+    BOTH WIDTHS ASSERT THE GROUND, and that is not ceremony: at 390 the
+    band drops its tint and goes `background: none`, and the card drops its
+    radius and goes `display: block`. What it keeps is
+    `background: var(--v2-navy)` — so the phone rendering is a second real
+    question about what is under the button, and it is asked rather than
+    inherited.
+
+    THE HONEST FALSIFIER TABLE, measured, and it is written here so that
+    nobody later deletes a case believing another covers it:
+
+        with the BORDER override reverted   3.7287 (pale, GREEN)
+                                            3.7691 (mid,  GREEN)
+                                            1.2873 (dark, RED)
+        with the LABEL override reverted    2.4946 (pale, RED)
+                                            2.5030 (mid,  RED)
+                                            1.2873 (dark, RED)
+
+    Read that twice. THE PALE AND MID PICKS DO NOT HOLD THE BORDER — on a
+    LIGHT surface the pale pick is the one the derivation walks and the dark
+    one is the identity, and on the navy card it is the exact opposite. Only
+    the DARK pick here, and the shipped default in proof A above, go red
+    when the border half is reverted. Delete either and the border override
+    is unguarded at three of the four picks that matter.
+
+    The label half is the stronger guard and is red at all three, which is
+    why the plan put it in scope: the counterfactual suite — border fixed,
+    label left on --v2-rust-fg — was MEASURED at 10 passed, so nothing that
+    existed before this change would ever have reported a 2.1987:1 label on
+    this card.
+
+    ABLE TO FAIL: the two mutations above, each run once.
+    """
+    plant(live_app, "v2", accent=accent)
+    context = browser.new_context(viewport=viewport)
+    visitor = context.new_page()
+    where = f"v2 {accent} {label}"
+    try:
+        response = visitor.goto(f"{live_app.base_url}/")
+        assert response.status == 200
+        assert_skin(visitor, "v2")
+        assert "<style" in response.text(), "the colour never reached the page"
+
+        row = call_button_row(visitor)
+        assert_painted(row, "border", where)
+        ground = navy_ground(row, where)
+        edge, ink = call_button_ratios(row, ground)
+
+        assert edge >= 3.0, (
+            f"{where}: the call button's only boundary is {edge:.4f}:1 on "
+            f"the card ({row['value']} on {row['under']})"
+        )
+        assert ink >= 4.5, (
+            f"{where}: the call button's label is {ink:.4f}:1 on the card "
+            f"({row['color']} on {row['under']})"
+        )
+
+        path = os.path.join(shots, f"cop45-{label}-{accent.lstrip('#')}.png")
+        visitor.locator(CONTACT_CARD).screenshot(path=path)
+        assert os.path.getsize(path) > 0
+    finally:
+        context.close()
+
+
+def test_a_field_that_is_a_number_renders_a_real_tel_link(page, live_app):
+    """C, first half. The button DIALS — proved by the browser's own URL
+    parser, not by re-running the rule that wrote the href.
+
+    The value planted is one the TEST chose to probe a shape. The owner's
+    number is theirs and is never pinned; what is asserted is that the
+    LABEL is whatever was stored and the HREF is that same field's digits,
+    which is the whole property app/telephone.py is built around.
+
+    `el.protocol` is Chrome resolving the attribute as a URL and answering
+    "tel:" — an <a> whose href is text rather than a link answers "" or the
+    page's own scheme. Chrome cannot place a call, so what is provable here
+    is that the navigation is OFFERED with the right target, and that is
+    what is claimed.
+
+    ABLE TO FAIL, run once: hardcode the href in the template and this goes
+    red at 'tel:0401234568' against the field's own 'tel:0401234567'.
+
+    MEASURED AND WORTH SAYING: hardcoding the RIGHT number leaves this test
+    green — the planted value is what the rule would produce anyway. What
+    catches that is the refused-shapes proof below, where the same hardcoded
+    href appears on a field that is not a number at all. Neither half is
+    sufficient alone, which is why both are here.
+    """
+    plant(live_app, "v2")
+    plant_phone(live_app, DIALABLE_PLANT)
+    with anonymous(page.context.browser, live_app) as (visitor, response):
+        assert response.status == 200
+        assert_skin(visitor, "v2")
+        button = visitor.locator(CALL_BUTTON)
+        assert button.count() == 1, "the card has no single call button"
+        assert button.get_attribute("href") == DIALABLE_HREF, (
+            f"the call button's href is {button.get_attribute('href')!r}, "
+            "not the field's own digits"
+        )
+        assert button.text_content() == DIALABLE_PLANT, (
+            "the label is not the stored field — the product is supplying "
+            "copy of its own, which is owner content it does not own"
+        )
+        assert button.evaluate("el => el.protocol") == "tel:", (
+            "Chrome does not parse the href as a tel: URL, so the anchor "
+            "is text that looks like a link"
+        )
+        assert button.get_attribute("data-field") == "phone"
+
+
+@pytest.mark.parametrize(
+    "value,why", NO_LINK_PLANTS, ids=("trunk-zero", "prefix", "empty")
+)
+def test_a_field_that_is_not_a_number_renders_the_button_with_no_href(
+    page, live_app, value, why
+):
+    """C, second half. THE REFUSED SHAPES — the element survives, the link
+    does not.
+
+    This is the round-2 break at the browser level and the most valuable
+    assertion in the section: under the rule that was rejected, the
+    trunk-zero row below would have SHIPPED A LINK DIALLING +3580401234567,
+    a number nobody has, from the standard Finnish business-card form.
+
+    Four things must still hold for every one of these, because the
+    template's standing invariant is that the element is unconditional and
+    only the href comes and goes: the button is there, it still carries
+    data-field="phone" (so the in-place editor still binds it), it still
+    PAINTS its border (so it is still the outlined button the spec draws),
+    and it has NO href attribute at all — not href="tel:", which on a fresh
+    site would be a dead link shipped by default.
+
+    THE PREFIX ROW IS DELIBERATE. "Soita 040 123 4567" is the design's own
+    sample label and it gets no link; the plan's Decision 3 retracts the
+    earlier argument for accepting a prefix and says why — prefix support is
+    a convenience, faithfulness is a safety property, and two rules bought
+    the first with the second. DO NOT "FIX" THIS ROW.
+
+    ABLE TO FAIL: admit parentheses to the grammar and the trunk-zero row
+    goes red carrying tel:+3580401234567.
+    """
+    plant(live_app, "v2")
+    plant_phone(live_app, value)
+    with anonymous(page.context.browser, live_app) as (visitor, response):
+        assert response.status == 200
+        assert_skin(visitor, "v2")
+        button = visitor.locator(CALL_BUTTON)
+        assert button.count() == 1, (
+            f"{why}: the call button is gone — the element is emitted "
+            "unconditionally and only the href is conditional"
+        )
+        assert button.get_attribute("href") is None, (
+            f"{why}: the call button offers {button.get_attribute('href')!r} "
+            f"for a field that is not a number ({value!r})"
+        )
+        assert button.get_attribute("data-field") == "phone", (
+            f"{why}: the binding the in-place editor needs is gone"
+        )
+        row = call_button_row(visitor)
+        assert_painted(row, "border", f"v2 {why}")
+        navy_ground(row, f"v2 {why}")
+
+
+def test_clicking_the_call_button_in_the_editor_edits_it_and_does_not_dial(
+    page, live_app, expect
+):
+    """C, third half. THE EDITOR'S OWN CLICK, on a link that really has an
+    href — the collision a bound <a> creates, proved rather than argued.
+
+    direct-edit.js's capture-phase listener on the document
+    preventDefault()s and stopPropagation()s any click inside a
+    [data-field]. It is what already stops V1's bound
+    <a class="button secondary cta-services" href="#palvelut"> from
+    navigating; this asserts it covers the new element too. The number
+    planted is a DIALABLE one on purpose — with no href there would be no
+    navigation to prevent and the test would prove nothing.
+
+    WHY defaultPrevented AND NOT page.url ALONE, and this is a correction
+    made after MEASURING the mutation rather than assuming it. Exempting
+    tel: links from the guard leaves BOTH of the obvious assertions green:
+    the caret and the toolbar come from `mousedown`, which the guard never
+    touched, so .direct-field-tag appears either way; and headless Chrome
+    has no handler for the tel: scheme, so the navigation it would attempt
+    changes no URL. A test resting on those two would have been a test that
+    cannot fail. The event's own defaultPrevented flag is the thing that
+    actually moves — read from a second CAPTURE listener on the document,
+    registered after the product's, which still runs because
+    stopPropagation() does not silence other listeners on the same node.
+
+    ABLE TO FAIL, run once: exempt `a[href^="tel:"]` from the guard and this
+    goes red with prevented=False, while the two assertions below it stay
+    green — which is exactly why it is here.
+    """
+    plant(live_app, "v2")
+    plant_phone(live_app, DIALABLE_PLANT)
+    page.goto(f"{live_app.base_url}/muokkaa/sivu")
+    page.wait_for_selector(DIRECT_FIELD)
+    before = page.url
+
+    # A probe, not a stub: it changes nothing about the click and only
+    # reports what the real event carried by the time it had passed the
+    # product's own listener.
+    page.evaluate(
+        """() => {
+          window.__cop45_clicks = [];
+          document.addEventListener('click', (event) => {
+            window.__cop45_clicks.push({
+              prevented: event.defaultPrevented,
+              what: event.target.className,
+            });
+          }, true);
+        }"""
+    )
+
+    button = page.locator(CALL_BUTTON)
+    expect(button).to_have_attribute("href", DIALABLE_HREF)
+    button.scroll_into_view_if_needed()
+    button.click()
+
+    seen = page.evaluate("() => window.__cop45_clicks")
+    assert seen, "the click never reached the document at all"
+    assert seen[0]["prevented"] is True, (
+        f"the editor let the click keep its default action ({seen[0]}), so "
+        "clicking the call button in edit mode would place a call instead "
+        "of opening the field"
+    )
+    expect(page.locator(".direct-field-tag")).to_be_visible()
+    assert page.url == before, (
+        f"the click followed the link: {before} -> {page.url}"
+    )
+
+
+def dark_edge_token_in(document):
+    """The value the page's own <style> block gave --v2-rust-edge-navy.
+
+    READ OFF THE SERVED DOCUMENT, exactly as edge_token_in reads the
+    light-surface one and for the same reason: the needle has to be the
+    colour that actually reached the browser. Deriving it by calling
+    visible_on would make this sweep agree with app/palette.py by
+    construction, and a wrong derivation would simply be hunted for under
+    its own wrong value.
+    """
+    from app.palette import ROLE_TOKENS
+
+    token = ROLE_TOKENS["v2"]["darks"][0][0]
+    found = re.search(rf"{token}:(#[0-9a-f]{{6}});", document)
+    assert found, f"{token} is in no <style> block on this page"
+    return found.group(1)
+
+
+@pytest.mark.parametrize("route", SWEEP_ROUTES, ids=lambda r: r.strip("/"))
+def test_no_dark_edge_is_drawn_on_anything_but_the_navy_card(
+    page, live_app, route
+):
+    """D. THE SIBLING SWEEP — the same fence as
+    test_no_edge_is_drawn_on_a_surface_the_tuple_does_not_name, asked of the
+    fifth derivation ground.
+
+    That test is NOT generalised and NOT touched. It is this change's own
+    falsifier: with the phone <p> converted to a .button.secondary and no
+    navy derivation it goes red on both v2 routes, naming the element, the
+    colour and rgb(20, 50, 74). A change may not edit the test that proves
+    it was needed, so the new ground gets its own sweep beside it, using the
+    same _SWEEP_EDGES helper and the same ground rule.
+
+    V2 ONLY, because the table is v2 only. V1 has no dark card, its "darks"
+    table is empty, and its rendered block is byte-identical to what it was.
+
+    WHY #1a1a2e AND NOT #ffe9a8, measured: at #ffe9a8 the navy edge is the
+    IDENTITY, so the needle would be the raw accent and would match every
+    .button.primary border — which deliberately KEEPS the raw accent on
+    grounds no tuple names — and the sweep would go red for a reason with
+    nothing to do with the fence. That is the same trap the existing sweep's
+    vacuity guard documents. At #1a1a2e the navy edge is #77778b, distinct
+    from the raw accent, from --v2-rust-edge (#1a1a2e) and from every other
+    written value except --v2-rust-ring-navy, which is a box-shadow and is
+    not read by _SWEEP_EDGES at all.
+
+    THE THREE GUARDS, none decoration. The needle must be a colour the
+    derivation MOVES (else it is the raw accent and the hits are false); the
+    sweep must find something (a sweep that finds nothing proves nothing,
+    and "0 results" on a page that certainly has this button is a bug in the
+    sweep, not a pass); and every hit must have had a ground at all.
+
+    ABLE TO FAIL: point the override at --v2-rust-edge instead and the
+    needle stops matching anything, so the non-empty guard goes red; give a
+    second, light-ground element the navy token and it is named as a stray
+    with its own ground printed.
+    """
+    accent = "#1a1a2e"
+    plant(live_app, "v2", accent=accent)
+
+    response = page.goto(f"{live_app.base_url}{route}")
+    assert response.status == 200, route
+    edge = dark_edge_token_in(response.text())
+    assert edge != accent, (
+        "the sweep needs a colour the derivation MOVES; this one is the "
+        "identity, so the needle is the raw accent and every site that "
+        "deliberately keeps it would be a false hit"
+    )
+    if route != "/":
+        page.wait_for_selector(DIRECT_FIELD)
+
+    sentinel = "rgb({}, {}, {})".format(*hex_to_rgb(edge))
+    hits = page.evaluate(_SWEEP_EDGES, sentinel)
+    assert hits, (
+        f"v2 {route}: not one painted edge resolved to {edge} — either the "
+        "override never reached the page or it was retargeted away from the "
+        "navy token"
+    )
+    strays = [
+        (hit["what"], hit["kind"], ground)
+        for hit in hits
+        for ground in hit["grounds"]
+        if rgb(ground) != NAVY
+    ]
+    assert not strays, (
+        f"v2 {route}: the dark edge token is drawn somewhere that is not "
+        "the navy card — " + "; ".join(
+            f"{what} ({kind}) on {ground}" for what, kind, ground in strays
+        )
+    )
+    assert all(hit["grounds"] for hit in hits), [
+        hit["what"] for hit in hits if not hit["grounds"]
+    ]

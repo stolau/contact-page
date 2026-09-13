@@ -48,7 +48,7 @@ import pytest
 from app.palette import V1_SURFACES, V2_SURFACES
 from tests.test_direct_edit_css import STATIC, _declarations, _rules
 
-# --- the eighteen new tokens -----------------------------------------------
+# --- the twenty new tokens -------------------------------------------------
 #
 # (stylesheet, token, the declared default, the literal it resolves to).
 #
@@ -118,6 +118,52 @@ NEW_TOKENS = (
     ("style-v2.css", "--v2-rust-ring", "transparent", "transparent"),
     ("style-v2.css", "--v2-rust-ring-navy", "#c05b34", "#c05b34"),
     ("style-v2.css", "--v2-rust-ring-header", "transparent", "transparent"),
+    # LLM-COP-45's dark-ground pair, and their fourth column has the same
+    # provenance as the rings' — none. NOTHING rendered a secondary button
+    # on the navy card before this change: the card's phone row was a <p>
+    # with a translucent white frame, so there is no earlier value for
+    # either token to resolve back to and both rows are :root PINS. They
+    # are written like --v2-rust-ring-navy's, which this table already
+    # calls "the ONE deliberate" changed default, and for the same reason:
+    # the light-surface pair is 2.1987:1 on that ground at the shipped
+    # accent, on the border and on the label alike.
+    #
+    # NEITHER IS `transparent`, and neither can be. A ring has an identity
+    # case — a fill that already clears 3:1 needs no ring — but a secondary
+    # button has no fill, so its border is the only boundary there is, and
+    # its label is text that has to be read.
+    ("style-v2.css", "--v2-rust-edge-navy", "#c05b34", "#c05b34"),
+    ("style-v2.css", "--v2-rust-fg-navy", "#e17c55", "#e17c55"),
+)
+
+# --- LLM-COP-45: the rule that paints the dark-ground pair -----------------
+#
+# (stylesheet, selector, property, the var() the rule must name).
+#
+# ONE SELECTOR, TWO PROPERTIES, and both are asserted because they fail
+# differently and only one of them fails loudly. Drop the border-color and
+# the existing edge sweep in tests/browser/test_browser_colors.py goes red
+# with the ground printed. Drop the COLOR and nothing in this repository
+# says a word: the 4.5:1 text fence measures `.button.secondary` with
+# document.querySelector, which finds the hero card's button and never this
+# one. A 2.1987:1 label would have shipped in silence.
+#
+# (0,3,0) AGAINST THE BASE'S (0,2,0), so the override wins whatever the
+# source order — and test_each_dark_rule_names_its_token asserts the LAST
+# value anyway, so a later re-declaration at equal specificity is caught too.
+DARK_RULES = (
+    (
+        "style-v2.css",
+        ".v2-contact-card .button.secondary",
+        "border-color",
+        "var(--v2-rust-edge-navy)",
+    ),
+    (
+        "style-v2.css",
+        ".v2-contact-card .button.secondary",
+        "color",
+        "var(--v2-rust-fg-navy)",
+    ),
 )
 
 # --- LLM-COP-44: the five rules that paint the ring ------------------------
@@ -388,7 +434,7 @@ def _values_for(filename, selector, prop):
     return found
 
 
-# --- the eighteen new tokens -----------------------------------------------
+# --- the twenty new tokens -------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -421,23 +467,31 @@ def test_each_new_token_defaults_to_what_it_replaced(
     assert _resolve(root, declared) == literal
 
 
-def test_the_eighteen_tokens_are_all_of_them():
-    """A count, so a nineteenth token added without a row here is noticed.
+def test_the_twenty_tokens_are_all_of_them():
+    """A count, so a twenty-first token added without a row here is noticed.
 
     Cheap and worth it: the failure this file exists to catch is a token
     nobody wired up, and a token nobody listed is the same mistake one step
-    earlier. The two numbers are 9 and 9 — USR-COP-2's 6 and 5, where V1
+    earlier. The two numbers are 9 and 11 — USR-COP-2's 6 and 5, where V1
     needed the --header-bg split and V2 did not, plus one edge token each
-    from LLM-COP-40, plus LLM-COP-44's rings: TWO on V1 and THREE on V2,
-    one per ground a primary button is painted on. The two files land on the
-    same number by arithmetic and not by symmetry — V1 is 7 + 2 and V2 is
-    6 + 3 — so they are written as two assertions rather than one.
+    from LLM-COP-40, plus LLM-COP-44's rings (TWO on V1 and THREE on V2, one
+    per ground a primary button is painted on), plus LLM-COP-45's dark
+    ground (TWO on V2, an edge and an ink for the navy card's secondary
+    button, and NONE on V1, which has no dark card). V1 is 7 + 2 and V2 is
+    6 + 3 + 2, which is arithmetic and not symmetry, so they are written as
+    two assertions rather than one.
+
+    THE NAME CARRIES THE COUNT ON PURPOSE. This file's way of making a token
+    added without a row cost somebody a deliberate edit is that the name
+    goes stale, and a name left at eighteen over twenty tokens is the exact
+    drift it exists to catch — so the rename is the point rather than a
+    chore.
     """
     per_file = {}
     for filename, token, _, _ in NEW_TOKENS:
         per_file.setdefault(filename, []).append(token)
     assert len(per_file["style.css"]) == 9
-    assert len(per_file["style-v2.css"]) == 9
+    assert len(per_file["style-v2.css"]) == 11
     for filename, tokens in per_file.items():
         declared = _root(filename)
         assert len(set(tokens)) == len(tokens)
@@ -512,6 +566,12 @@ def test_every_token_the_override_writes_is_read_by_some_rule(skin):
     # has on a ground its fill cannot clear.
     for token, _ in ROLE_TOKENS[skin]["rings"]:
         assert f"var({token})" in rules_only, (skin, token)
+    # And the dark rows, which carry two token names apiece (LLM-COP-45).
+    # An unread edge token leaves border-color falling back to currentColor
+    # — a boundary the same colour as the label, derived against nothing.
+    for edge, ink, _ in ROLE_TOKENS[skin]["darks"]:
+        assert f"var({edge})" in rules_only, (skin, edge)
+        assert f"var({ink})" in rules_only, (skin, ink)
 
 
 # --- LLM-COP-44: the rules that paint the ring, and the value they paint ----
@@ -572,6 +632,81 @@ def test_no_hover_rule_re_declares_the_ring():
             f"{filename} `.button.primary:hover` declares box-shadow, so the "
             "derived ring is replaced in the state the fill is worst in"
         )
+
+
+# --- LLM-COP-45: the rule that reads the dark-ground pair ------------------
+
+
+@pytest.mark.parametrize(
+    "filename,selector,prop,expected",
+    DARK_RULES,
+    ids=[f"{f.split('.')[0]}-{p}" for f, _, p, _ in DARK_RULES],
+)
+def test_each_dark_rule_names_its_token(filename, selector, prop, expected):
+    """The two declarations that make the card's call button legible on the
+    ground it is actually painted on.
+
+    THE LAST VALUE WINS, exactly as in test_each_ring_rule_names_its_token:
+    the override is (0,3,0) against the base .button.secondary's (0,2,0) and
+    wins whatever the source order, but a later re-declaration at equal
+    specificity would leave the token unread while a membership test still
+    passed, so the resolved value is what is asserted.
+
+    BOTH PROPERTIES, and the colour is the one to keep. Reverting the border
+    is caught by the existing edge sweep in the browser suite, which prints
+    the ground it found. Reverting the colour is caught NOWHERE else: the
+    4.5:1 text fence reads `.button.secondary` through
+    document.querySelector, which returns the hero card's button in document
+    order and never reaches this one.
+    """
+    values = _values_for(filename, selector, prop)
+    assert values, f"{filename} has no top-level rule `{selector}`"
+    assert values[-1] == expected, (
+        f"{filename} `{selector}` resolves {prop} to {values[-1]!r}, so the "
+        f"colour derived against the navy card never reaches it through "
+        f"{expected}"
+    )
+
+
+def test_the_dark_defaults_are_what_the_derivation_would_write():
+    """THE TWO SIDES AGREE at the one rendering no derivation can influence,
+    the twin of test_the_ring_defaults_are_what_the_derivation_would_write.
+
+    A site that has chosen nothing serves NO <style> block at all, so these
+    two `:root` literals ARE the whole of this button's colour on the
+    shipped page. NEW_TOKENS pins them as strings and the browser suite
+    reads them back, but neither asks whether they are the RIGHT values —
+    only whether they are stable. This is the test that asks.
+
+    NO HOVER FILL IN IT, and that is the difference from the ring twin: a
+    secondary button's colours are derived from the accent alone
+    (.button.secondary has no fill and its hover rule re-declares neither
+    property), so there is no second state to be right about.
+
+    WHAT IT WOULD CATCH: recolour --v2-rust, or --v2-navy, and #c05b34 and
+    #e17c55 stop being the 3:1 and 4.5:1 answers to anything. Neither would
+    move a ratio assertion anywhere else in the suite, because a page that
+    has chosen no colour has no derived value to measure.
+    """
+    from app.palette import MAIN, ROLE_TOKENS, readable_on, visible_on
+
+    root = _root("style-v2.css")
+    tokens = ROLE_TOKENS["v2"]
+    accent = tokens["default_accent"]
+    assert tokens["darks"], "V2's dark table is empty; this test proves nothing"
+    for edge, ink, grounds in tokens["darks"]:
+        assert MAIN not in grounds, (edge, grounds)
+        for token, expected in (
+            (edge, visible_on(accent, grounds)),
+            (ink, readable_on(accent, grounds)),
+        ):
+            declared = _resolve(root, root[token])
+            assert declared == expected, (
+                f"style-v2.css :root declares {token} as {declared!r}, but "
+                f"the derivation against {grounds} writes {expected!r} — "
+                "the shipped page and the derivation disagree, and the "
+                "shipped page is the one a visitor who chose nothing sees"
+            )
 
 
 # The hand-picked hover literal each stylesheet ships, and the token it lives

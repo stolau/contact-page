@@ -105,6 +105,21 @@
   --v2-rust-ring: transparent;        /* every light surface of the skin */
   --v2-rust-ring-navy: #c05b34;       /* the contact card — the one changed default */
   --v2-rust-ring-header: transparent; /* the owner's header ground */
+  /* THE DARK GROUND (LLM-COP-45). The contact card's call button is a
+     .button.secondary painted on --v2-navy, and the two tokens it would
+     otherwise read — --v2-rust-edge and --v2-rust-fg above — are derived
+     against the three LIGHT surfaces only. On the navy card the shipped
+     rust reaches 2.1987:1 on BOTH of them: an SC 1.4.11 failure on the
+     border, which is the only boundary a secondary button has, and an SC
+     1.4.3 failure on the label. So the ground gets its own pair, derived
+     against #14324a alone — 3.0206:1 for the edge and 4.5529:1 for the
+     label at the shipped accent. TWO tokens and not one because the two
+     ratios are different: a boundary needs 3:1 and text needs 4.5:1, and
+     one value cannot be the answer to both without over-walking one of
+     them. Neither can be `transparent` the way a ring can — an edge that
+     is not painted is not an edge. */
+  --v2-rust-edge-navy: #c05b34;       /* the contact card's outlined button */
+  --v2-rust-fg-navy: #e17c55;         /* and its label */
 }
 
 * { box-sizing: border-box; }
@@ -154,6 +169,13 @@ h1, h2 { font-family: var(--v2-serif); color: var(--v2-ink); font-weight: 400; }
 .button.secondary { background: transparent; color: var(--v2-rust-fg); border-color: var(--v2-rust-edge); }
 .v2-contact-card .button.primary { box-shadow: 0 0 0 1px var(--v2-rust-ring-navy); }
 .v2-header .button.primary { box-shadow: 0 0 0 1px var(--v2-rust-ring-header); }
+/* The secondary button on the navy card (LLM-COP-45) takes the pair derived
+   against that ground instead of the light-surface pair the base rule reads.
+   (0,3,0) against the base's (0,2,0), so it wins whatever the source order —
+   the same argument the two ring overrides above make. BOTH properties, not
+   just the border: leaving the label on --v2-rust-fg would ship a 2.1987:1
+   label on the element this rule exists to make legible. */
+.v2-contact-card .button.secondary { border-color: var(--v2-rust-edge-navy); color: var(--v2-rust-fg-navy); }
 
 /* ---- header (v2-cp-hero.nav, v2-cp-phone-hero.header) ---------------- */
 
@@ -625,6 +647,10 @@ h1, h2 { font-family: var(--v2-serif); color: var(--v2-ink); font-weight: 400; }
 .contact-dialog-form[hidden] { display: none; }
 .v2-contact-actions { display: flex; flex-direction: column; gap: 0.8rem; }
 .v2-contact-primary { width: 100%; padding: 0.85rem 1.5rem; }
+/* The call button under it (LLM-COP-45), stacked the way the design draws
+   the two: the same width and the same padding as the primary, so the pair
+   reads as one column of actions rather than as a button and a link. */
+.v2-contact-call { width: 100%; padding: 0.85rem 1.5rem; }
 .v2-contact-action-row {
   margin: 0;
   padding: 0.7rem 0.9rem;
