@@ -145,6 +145,32 @@ body.direct-edit .site-header { top: 65px; }
   border-radius: 0.4rem;
   box-shadow: 0 2px 8px rgba(34, 51, 59, 0.12);
 }
+/* An author `display:` beats the UA sheet's [hidden] { display: none }
+   whatever its specificity, so the `display: flex` above left the toggle in
+   direct-edit.js inert — :167 clears toolbar.hidden, :177 sets it, and
+   neither changed anything on screen. The toolbar ships with the attribute
+   already set (direct_edit_chrome.html:34) and was drawn from first paint
+   regardless, floating beside whichever field the owner had last walked away
+   from. On both skins: page_v2.html:44 links this sheet and :387 includes the
+   same chrome, so the defect was live twice and this one line settles both.
+   Specificity does the work. .direct-toolbar is (0,1,0), this is (0,2,0),
+   same sheet and later in source — so no !important, which here would be the
+   only one reachable from the public route. Not written as a
+   `.direct-chrome [hidden]` descendant, though the toolbar does sit in that
+   wrapper: the script already lifts pieces out of it — the section names at
+   direct-edit.js:72, the portrait pill at :79 — and a descendant rule stops
+   applying the moment an element moves, without a word. Not prefixed
+   body.direct-edit either; :60 adds that class at boot, so the toolbar would
+   flash before the script ran. And not the blanket [hidden] rule
+   wizard.css:12-18 takes: .direct-field-tag and .direct-counter above set no
+   display of their own and the UA sheet already hides them, so a blanket
+   would cover the one element that needs this without ever naming it.
+   style-v2.css:620-623 records the project hitting this collision four times
+   and judges a dead selector cheap next to a fifth. The fifth arrived here.
+   The tally is in fact longer than that note knew: edit.css:52, :241, :260
+   and :283, sections.css:78-79 and :236, style.css:322-323,
+   style-v2.css:624-625, and wizard.css:18. */
+.direct-toolbar[hidden] { display: none; }
 .direct-toolbar button {
   border: 1px solid var(--line);
   background: var(--card);

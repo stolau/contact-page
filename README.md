@@ -511,7 +511,7 @@ Chrome is the whole story.
 `.venv/bin/pytest` with no arguments remains the whole gate and will stay
 that way. What the `browser` marker adds is a way to *leave tests out
 deliberately for a minute*, not a new default: `.venv/bin/pytest -m "not
-browser"` is the fast local loop, and it drops 89 tests — including the three
+browser"` is the fast local loop, and it drops 165 tests — including the three
 preconditions in `tests/browser/test_browser_gate.py` that assert Playwright
 is installed and Chrome is resolvable. A green fast loop is therefore a
 weaker claim than a green gate, and it is the gate that decides.
