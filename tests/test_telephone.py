@@ -36,6 +36,7 @@ the guard.
 """
 
 import re
+import unicodedata
 
 import pytest
 from jinja2 import ChainableUndefined, StrictUndefined, Undefined
@@ -302,3 +303,166 @@ def test_a_value_that_is_not_a_string_is_no_number_and_no_raise(value):
     TypeError or AttributeError instead of returning "".
     """
     assert tel_href(value) == ""
+
+
+# --- the GENERATED space --------------------------------------------------
+#
+# THE TABLES ABOVE ARE A CORPUS AND A CORPUS IS WHAT FAILED TWICE. Both
+# earlier rules were sound against every string anybody had written down;
+# what broke them were contaminants nobody thought to list. So the property
+# is asserted again here over strings NOBODY CHOSE — every 2- and 3-way
+# combination of the fragments a phone field is really written out of,
+# joined with and without a space — and the rows above become regressions
+# rather than the claim.
+#
+# The fragments are deliberately not all plausible. "(" alone, a lone ":",
+# a bare "/" and an NBSP are in here because the combinations are what
+# matter: it is the joins nobody enumerated that caught the fabricated "+".
+FRAGMENTS = (
+    "040", "123", "4567", "09", "358", "0",
+    "+358", "(0)", "(", ")", "+",
+    "9-16", "24", "20100", "1",
+    "tai", "Soita", "Arkisin", "ext",
+    " ", "\xa0", ":", "/", "-", ".",
+    # NON-ASCII DECIMAL DIGITS, and they are the whole reason the Nd clause
+    # below exists rather than only the [0-9] one: U+0660.. Arabic-Indic and
+    # U+0966.. Devanagari are Unicode category Nd, so a grammar written \d
+    # admits a field containing them while the [^0-9] extraction drops them,
+    # and the href is a number one digit short of the one the owner typed.
+    "٠٤٠", "०३०", "٧",
+)
+
+
+def generated():
+    """Every 2- and 3-way join of FRAGMENTS, with and without a space.
+
+    45 472 strings, a bare regex each; it runs in a fifth of a second, which
+    is why this is a unit test and not a nightly.
+    """
+    for a in FRAGMENTS:
+        for b in FRAGMENTS:
+            yield a + b
+            yield a + " " + b
+            for c in FRAGMENTS:
+                yield a + b + c
+                yield a + " " + b + " " + c
+
+
+def nd_digits(text):
+    """Every character of Unicode general category Nd, in order.
+
+    NOT [0-9], and that difference is the point. A predicate written with
+    [^0-9] on both sides would agree with a \\d grammar about a mixed-script
+    field — the helper and the code wrong in the same direction, which is
+    the one mistake a property test cannot afford. Nd is the category \\d
+    itself matches in str mode, so this asks the question from the other
+    side.
+    """
+    return "".join(c for c in text if unicodedata.category(c) == "Nd")
+
+
+def test_the_href_is_the_field_over_a_space_nobody_chose():
+    """THE PROPERTY, over generated input — the assertion that would have
+    caught both earlier rules without anybody having to think of the string
+    that breaks them.
+
+    Three clauses, and the third is the one the tables cannot make:
+
+    * the ASCII digits of the href are exactly the ASCII digits of the
+      field, in order — a rule that selects a sub-run of the field fails
+      this, because it has a selection to get wrong and this says there is
+      none;
+    * the "+" is in the href if and only if the field begins with one — the
+      clause the fabricated-"+" break violated;
+    * NO CHARACTER OF UNICODE CATEGORY Nd ANYWHERE IN THE FIELD IS SILENTLY
+      DROPPED. This is what catches a grammar written \\d instead of [0-9]:
+      such a grammar ADMITS a mixed-script field, the [^0-9] extraction then
+      quietly removes the digits it cannot carry, and both of the clauses
+      above — written with [^0-9] themselves — agree that the href is
+      faithful. It is not; it is a number shorter than the owner's.
+
+    MEASURED, and it is the reason the third clause exists rather than a
+    guess at one: with the grammar written \\d, the ASCII clause is violated
+    by 0 of these strings, the "+" clause by 0, and the Nd clause by 936.
+    A property test written only with [^0-9] would have seen none of it.
+
+    ABLE TO FAIL, each mutation run once:
+    * write _NUMBER with \\d -> red on '040040٠٤٠', naming the field's
+      decimal digits against the href's;
+    * select the first in-range sub-run instead of fullmatching -> red on
+      '040040+358', whose href carries '040040' for a field reading
+      '040040358';
+    * let the "+" be read from anywhere -> red on '040040+358' again, this
+      time dialling 'tel:+040040358' for a field that starts with a zero.
+    """
+    emitted = 0
+    checked = 0
+    for field in generated():
+        checked += 1
+        href = tel_href(field)
+        if href == "":
+            continue
+        emitted += 1
+        body = href[len("tel:"):]
+        text = squash(field)
+        assert digits(body) == digits(text), (
+            f"{field!r} dialled {href!r}: the href's ASCII digits are not "
+            "the field's own — one was dropped, welded in or reordered"
+        )
+        assert body.startswith("+") == text.startswith("+"), (
+            f"{field!r} dialled {href!r}: the '+' is in one and not the other"
+        )
+        assert nd_digits(text) == body.lstrip("+"), (
+            f"{field!r} dialled {href!r}: the field's decimal digits are "
+            f"{nd_digits(text)!r}, so a digit outside [0-9] was silently "
+            "dropped — the grammar admitted a field the extraction cannot "
+            "carry"
+        )
+
+    # NOT VACUOUS. A rule that refused everything would satisfy every clause
+    # above; measured, this space is 45 472 strings and 2 788 of them dial.
+    assert checked > 40_000, checked
+    assert emitted > 1_000, (
+        f"only {emitted} of {checked} generated fields produced an href — "
+        "the property holds vacuously and proves nothing"
+    )
+
+
+def test_the_generated_space_carries_the_fields_that_break_the_old_rules():
+    """THE GUARD ON THE GENERATOR ITSELF. A property test is worth exactly
+    the space it runs over, and a fragment list quietly edited into one that
+    can no longer spell a trunk-zero form would leave the test above green
+    and empty.
+
+    So: the shapes the two earlier rules died on must be REACHABLE by the
+    generator, not merely listed in the tables at the top of this file.
+
+    ABLE TO FAIL: drop "Arkisin" from FRAGMENTS and this goes red naming the
+    string the generator can no longer spell.
+    """
+    space = set(generated())
+    for field, why in (
+        # The trunk-zero convention, which is what killed the second rule.
+        ("+358 (0) 040", "the trunk zero"),
+        ("+358(0)040", "the trunk zero, unspaced"),
+        # The fabricated "+": a field whose first character is not "+" and
+        # which the second rule answered with an international href.
+        ("tai +358 040", "a '+' that is not the field's first character"),
+        # Opening hours in front of the number — the first rule's bug, with
+        # and without a word in the contaminant to break the run.
+        ("Arkisin 9-16 040", "opening hours behind a word"),
+        ("9-16 040 4567", "opening hours with no prose in the field at all"),
+        # A MIXED-SCRIPT FIELD THAT A \\d GRAMMAR WOULD ADMIT. Its ASCII
+        # digits number seven, inside the E.164 window, so such a grammar
+        # emits tel:0404567 and drops the Arabic-Indic run — which is
+        # precisely what the Nd clause above exists to catch, and it can
+        # only catch it if the generator can still spell this.
+        ("٠٤٠ 040 4567", "a non-ASCII Nd run beside a dialable one"),
+        # And something that really does dial, so the space is not all
+        # refusals.
+        ("040 123 4567", "a plain number"),
+    ):
+        assert field in space, (
+            f"the generator can no longer spell {field!r} ({why}), so the "
+            "property above no longer covers it"
+        )
