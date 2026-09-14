@@ -534,30 +534,39 @@ V2_SURFACES = ("#f7fafc", "#ffffff", "#e6eef6")
 #   recorded rather than omitted (tests/test_palette_css.py,
 #   test_the_direct_edit_fills_that_stay_the_owners_raw_pick):
 #   .direct-field-tag's background IS the ground --accent-ink is derived
-#   against and must stay raw, and .direct-dot (direct-edit.css:105-110) is
+#   against and must stay raw, and .direct-dot (direct-edit.css:144-149) is
 #   aria-hidden and redundant with the <span class="direct-mode"> text
 #   beside it, so it is not a graphical object required to understand the
 #   content. After LLM-COP-42 every raw var(--accent) left in
 #   direct-edit.css is a FILL, and
 #   every TEXT and EDGE in it reads a derived token.
 #
-#   ON V2, FOUR OF THE FIVE ARE INERT AND ONE IS NOT, by failure mode rather
-#   than by derivation, and this is the same invalidity the --v2-rust-ring
-#   comment below already records for .direct-publishbar. style-v2.css
-#   declares none of --accent, --accent-fg, --accent-ink, --accent-edge,
-#   --card or --line, so every direct-edit.css rule naming one is invalid at
-#   computed-value time there: both borders paint nothing (0px none, before
-#   and after) and both --accent-fg colours already inherited. But
-#   .direct-field-tag's old `#fff` was a VALID literal and computed white on
-#   --v2-page #f7fafc — 1.0482:1 — while var(--accent-ink) is invalid, and an
-#   invalid declaration of an INHERITED property becomes `unset`, which for
-#   color is `inherit`, NOT a fall-through to the next rule in the cascade.
-#   So the tag now takes body's --v2-body #3d5f77 and measures 6.4593:1.
-#   THAT IS AN ACCIDENT OF THE CASCADE AND NOT A CLAIM THIS MODULE MAKES; no
-#   derivation here guarantees it, and it will change the day V2 is given the
-#   token vocabulary. It is pinned as such, as a defect record rather than a
-#   proof, in
-#   test_the_v2_direct_edit_chrome_takes_no_colour_from_the_override.
+#   ON V2, ALL FIVE ARE LIVE — SINCE LLM-COP-43, AND NOT ONE DAY BEFORE IT.
+#   Until then style-v2.css declared none of --accent, --accent-fg,
+#   --accent-ink, --accent-edge, --card or --line, so every direct-edit.css
+#   rule naming one was invalid at computed-value time there: both borders
+#   painted nothing (0px none, before and after) and both --accent-fg
+#   colours simply inherited. direct-edit.css now maps those eight names
+#   onto V2's own tokens under `body.direct-edit.v2`, so the five sites
+#   listed above derive on V2 exactly as they do on V1. THE MAPPING ADDS NO
+#   DERIVATION HERE: every token on its right-hand side is one this module
+#   already emits for V2, or a frozen literal in style-v2.css that no row
+#   emits (--v2-card, --v2-line, --v2-ink, --v2-body).
+#
+#   THE CASCADE ACCIDENT THAT USED TO STAND WHERE THAT CLAIM NOW DOES is
+#   kept as history, because it is why what stood here was a defect record
+#   and never a proof. .direct-field-tag's old `#fff` was a VALID literal
+#   and computed white on --v2-page #f7fafc — 1.0482:1 — while
+#   var(--accent-ink) was invalid, and an invalid declaration of an
+#   INHERITED property becomes `unset`, which for color is `inherit`, NOT a
+#   fall-through to the next rule in the cascade. So the tag took body's
+#   --v2-body #3d5f77 and measured 6.4593:1. THAT WAS AN ACCIDENT OF THE
+#   CASCADE AND NEVER A CLAIM THIS MODULE MADE; the record said it would
+#   change the day V2 was given the token vocabulary, and that day was
+#   LLM-COP-43. The tag now takes var(--accent-ink) -> --v2-rust-ink, which
+#   IS derived here, against the ground it is derived for: its own fill.
+#   The V2 direct-edit chrome tests in tests/browser/test_browser_colors.py
+#   pin it positively now, in place of the defect record.
 #
 #   NOT RETARGETED, deliberately, and this is a decision rather than an
 #   omission:
@@ -679,7 +688,7 @@ ROLE_TOKENS = {
             # neither .hero (style.css:161) nor .contact (:271) declares a
             # background; .cd-submit and .login-submit on --card; and
             # direct-edit's .direct-julkaise, which sits in
-            # .direct-publishbar (direct-edit.css:205, NOT the topbar) on
+            # .direct-publishbar (direct-edit.css:270, NOT the topbar) on
             # that rule's var(--card).
             ("--accent-ring", V1_SURFACES),
             # .site-header .button.primary (page.html:180), whose ground is
@@ -711,14 +720,20 @@ ROLE_TOKENS = {
         "rings": (
             # The primary buttons on a light surface: the hero card's
             # (page_v2.html:146) on --v2-card, .cd-submit and .login-submit
-            # on --v2-card, and direct-edit's Julkaise, whose ground walks
-            # all the way to body's --v2-page because .direct-publishbar's
-            # `background: var(--card)` (direct-edit.css:205) is invalid on
-            # a skin that declares no --card — the same invalidity
-            # tests/browser/test_browser_colors.py records for
-            # .direct-topbar in its SWEEP_ROUTES comment. That last site is
-            # why this row takes the whole V2_SURFACES tuple rather than
-            # #ffffff alone.
+            # on --v2-card, and direct-edit's Julkaise. THIS ROW'S STATED
+            # REASON HAS EXPIRED, AND THE ROW HAS NOT. Julkaise's ground
+            # used to walk all the way to body's --v2-page, because
+            # .direct-publishbar's `background: var(--card)`
+            # (direct-edit.css:270) was invalid on a skin that declared no
+            # --card; since LLM-COP-43 direct-edit.css maps --card to
+            # --v2-card under `body.direct-edit.v2`, so that ground is
+            # #ffffff and every site in this row now lands there.
+            # The whole V2_SURFACES tuple stays anyway, deliberately:
+            # #ffffff is a member of it (see V2_SURFACES), so the row is
+            # still correct, and narrowing it to #ffffff alone would relax
+            # what ring_on has to clear and so change the shipped token for
+            # every owner — a derivation change, not a comment fix, and a
+            # separate decision from this one.
             ("--v2-rust-ring", V2_SURFACES),
             # .v2-contact-primary (page_v2.html:296) inside
             # .v2-contact-card, whose background is --v2-navy
