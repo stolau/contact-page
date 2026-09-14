@@ -852,8 +852,9 @@ PRIMARY_BORDERS = {
 # does not, and each closes a way a contrast assertion can be green and
 # meaningless:
 #
-# * borderTopWidth / borderTopStyle / outlineWidth / outlineStyle — the
-#   painted-edge precondition described above;
+# * borderTopWidth / borderTopStyle / borderBottomWidth / borderBottomStyle
+#   / outlineWidth / outlineStyle — the painted-edge precondition described
+#   above, on either horizontal side;
 # * `value` read through getComputedStyle(el, pseudo), so a ::after row
 #   measures the generated box and not its owner;
 # * `own` AND `under`, separately: a card's top rule is seen against the
@@ -870,6 +871,17 @@ PRIMARY_BORDERS = {
 # element's own background is a separate candidate already carried in `own`
 # — and for an outline, which sits at outline-offset OUTSIDE the border box,
 # the element's own fill is not what it is seen against at all.
+#
+# A ROW'S SIDE FOLLOWS THE ELEMENT'S OWN DECLARATION, and that is why both
+# horizontal pairs are returned rather than only the top one. Most rows here
+# name an element with `border` on all four sides, where the top pair is the
+# whole story. The two fixed direct-edit bars are not those: .direct-topbar
+# declares `border-bottom` and nothing else (direct-edit.css:106) and
+# .direct-publishbar declares `border-top` and nothing else (:271), so the
+# top bar's computed border-top is `0px none` and assert_painted(row,
+# "border", …) would fire on a bar that is painted exactly right. Pass
+# side="bottom" for such a row. The side a bar does NOT declare is a
+# UA-supplied value and is asserted nowhere — see assert_painted.
 _MEASURE_EDGES = """
 (rows) => rows.map(([selector, property, pseudo]) => {
   const el = document.querySelector(selector);
@@ -899,6 +911,8 @@ _MEASURE_EDGES = """
     color: own.color,
     borderTopWidth: target.borderTopWidth,
     borderTopStyle: target.borderTopStyle,
+    borderBottomWidth: target.borderBottomWidth,
+    borderBottomStyle: target.borderBottomStyle,
     outlineWidth: target.outlineWidth,
     outlineStyle: target.outlineStyle,
     own: own.backgroundColor,
@@ -925,25 +939,38 @@ def is_opaque(text):
     return len(parts) >= 3 and (len(parts) < 4 or parts[3] == 1.0)
 
 
-def assert_painted(row, kind, where):
+def assert_painted(row, kind, where, *, side="top"):
     """THE PRECONDITION. An edge nobody drew has no contrast to measure.
 
     Called before every ratio in this section, and it is what stops the
     currentColor hazard: an accent-TEXT element with no border computes
     borderTopColor as the shipped accent, so a value pin passes on it while
     a width of 0px and a style of `none` say plainly that nothing is drawn.
+
+    `side` is keyword-only and defaults to "top", so every caller that names
+    an element with a four-sided `border` reads exactly the pair it always
+    read. It exists for the two fixed direct-edit bars, which each declare
+    ONE horizontal side: the side a bar declares is the side asserted, and
+    the side it does not declare is never touched, because a border-width
+    on a side no author rule sets is a UA-supplied value — the class of
+    value that took LLM-COP-40 green here and red on CI.
+
+    IT IS STILL A PREDICATE, NEVER A WIDTH LITERAL: width > 0 and a style
+    that is not none/hidden, on whichever side the row names.
     """
     assert row["found"], f"{where}: {row['selector']} is not on the page"
     assert row["rendered"], f"{where}: {row['selector']} rendered at zero size"
     if kind == "border":
-        assert float(row["borderTopWidth"].rstrip("px")) > 0, (
-            f"{where}: {row['selector']} draws no top border "
-            f"(width {row['borderTopWidth']}), so its borderTopColor "
+        assert side in ("top", "bottom"), f"unknown border side {side!r}"
+        width = row["borderTopWidth" if side == "top" else "borderBottomWidth"]
+        style = row["borderTopStyle" if side == "top" else "borderBottomStyle"]
+        assert float(width.rstrip("px")) > 0, (
+            f"{where}: {row['selector']} draws no {side} border "
+            f"(width {width}), so its {row['property']} "
             f"{row['value']} is currentColor and not an edge"
         )
-        assert row["borderTopStyle"] not in ("none", "hidden"), (
-            f"{where}: {row['selector']} border-top-style is "
-            f"{row['borderTopStyle']}"
+        assert style not in ("none", "hidden"), (
+            f"{where}: {row['selector']} border-{side}-style is {style}"
         )
     elif kind == "outline":
         assert float(row["outlineWidth"].rstrip("px")) > 0, (
@@ -1274,64 +1301,6 @@ def test_the_direct_edit_focus_ring_reaches_three_to_one(
     assert os.path.getsize(path) > 0
 
 
-def test_the_v2_direct_edit_page_draws_no_author_outline_at_all(
-    page, live_app, shots
-):
-    """A RECORDED DEFECT, PINNED HONESTLY — this change does not fix it.
-
-    direct-edit.css is loaded by /muokkaa/sivu on both skins and names
-    --accent-edge, which style-v2.css does not declare (it declares
-    --v2-rust-edge; the same was true of --accent before this change). An
-    undeclared custom property makes the `outline` shorthand invalid at
-    computed-value time, so outline-style computes to `none` — v2's
-    direct-edit page has NO author focus ring, and had none before this
-    change either. Measured at 78d5d8e and again here.
-
-    So the assertion is what is TRUE, not what ought to be. It is written to
-    go RED the day somebody gives v2 a ring, which is the only honest way to
-    hold a defect open — and the ratio assertion that would replace it is one
-    line away. The screenshot is the picture of the gap.
-
-    IT ASSERTS NOT-PAINTED, NOT A WIDTH LITERAL, and that distinction cost a
-    red CI run. `outline-width` is a UA-supplied value when the outline is
-    off: Chrome 142 collapses it to `0px`, Chrome 152 reports the UA default
-    `3px` and lets `outline-style: none` be the thing that suppresses the
-    ring. Both draw nothing. So `outlineWidth == "0px"` was a claim about a
-    browser VERSION rather than about whether a ring is painted, and it went
-    red on a Chrome upgrade with the product unchanged. The predicate here is
-    the exact negation of assert_painted's — style not none/hidden AND a
-    non-zero width — so it still fires the day v2 gains a real ring, which is
-    the whole point of the tripwire.
-    """
-    plant(live_app, "v2", accent="#ffe9a8")
-    page.goto(f"{live_app.base_url}/muokkaa/sivu")
-    page.wait_for_selector(DIRECT_FIELD)
-    page.focus(DIRECT_FIELD)
-    row = measure_edges(page, (DIRECT_ROW,))[DIRECT_FIELD]
-    assert row["found"] and row["rendered"]
-    ring_is_painted = (
-        row["outlineStyle"] not in ("none", "hidden")
-        and float(row["outlineWidth"].rstrip("px")) > 0
-    )
-    assert not ring_is_painted, (
-        "v2's direct-edit page now draws an author focus ring "
-        f"({row['outlineWidth']} {row['outlineStyle']} {row['value']}). That "
-        "is the fix this test was written to notice: replace it with the 3:1 "
-        "assertion test_the_direct_edit_focus_ring_reaches_three_to_one makes"
-    )
-    # And the chrome's own secondary buttons DO take the edge token on v2,
-    # so the page is not simply missing the override.
-    chrome = (".direct-topbar .button.secondary", "borderTopColor", None,
-              "border")
-    button = measure_edges(page, (chrome,))[chrome[0]]
-    assert_painted(button, "border", "v2 direct chrome")
-    assert rgb(button["value"]) == (156, 134, 69), button["value"]
-    assert ratio(rgb(button["value"]), rgb(button["under"])) >= 3.0
-    path = os.path.join(shots, "edge-focus-v2.png")
-    page.screenshot(path=path)
-    assert os.path.getsize(path) > 0
-
-
 # --- LLM-COP-42: the five direct-edit chrome sites, driven -----------------
 
 # The heading the chrome is driven from. It is the one h1 carrying a
@@ -1597,8 +1566,9 @@ def test_the_direct_edit_change_badge_border_reaches_three_to_one(
     precondition: a predicate (width > 0, style not none/hidden), never a
     width literal. Pinning a UA-supplied width is what took LLM-COP-40 green
     locally and red on CI — the incident is recorded in full in
-    test_the_v2_direct_edit_page_draws_no_author_outline_at_all's docstring
-    above. Nothing in this test or its sibling pins borderTopWidth.
+    test_the_v2_direct_edit_focus_ring_reaches_three_to_one_on_every_ground's
+    docstring below, which inherited it from the V2 tripwire LLM-COP-43
+    replaced. Nothing in this test or its sibling pins borderTopWidth.
     """
     open_direct_chrome(page, live_app, "v1", accent)
     expect(page.locator(".direct-changes")).to_be_visible()
@@ -1708,118 +1678,648 @@ def test_the_direct_edit_toolbar_hover_border_reaches_three_to_one(
     assert os.path.getsize(path) > 0
 
 
-def test_the_v2_direct_edit_chrome_takes_no_colour_from_the_override(
-    page, expect, live_app, shots
+# --- LLM-COP-43: V2's direct-edit page, now that it speaks the vocabulary --
+
+# WHAT THE TWO TRIPWIRES ABOVE BECAME, recorded here because a tripwire
+# removed without its successor is how a fixed defect becomes an unwatched
+# one.
+#
+# test_the_v2_direct_edit_page_draws_no_author_outline_at_all had TWO halves.
+# The not-painted ring predicate is answered by the ring test below, which is
+# its exact positive — assert_painted plus a ratio on every ground, at four
+# owner states. Its second half measured `.direct-topbar .button.secondary`
+# and was the ONLY assertion in this suite on that element; it is carried into
+# V2_CHROME_EDGES as a second row, with its ground RE-MEASURED — the bar's own
+# fill moves from transparent to #ffffff, so the walked ground goes #f7fafc ->
+# #ffffff and the ratio 3.3902 -> 3.5536.
+#
+# test_the_v2_direct_edit_chrome_takes_no_colour_from_the_override had THREE
+# groups. The three text sites become the text test below, at three picks
+# instead of one. The two not-painted border predicates become the edges test
+# and the hover test, each the V2 twin of the V1 test the dead tripwire's own
+# failure message named. The third group — `len(values) == 5` and "no value is
+# a member of ACCENT_DERIVED_FFE9A8" — IS DELETED WITH NO NEGATIVE EQUIVALENT,
+# DELIBERATELY, AND THAT IS NOT AN OVERSIGHT. Its claim is now false by
+# design: at #ffe9a8 the chrome's values are exactly (127,105,40) and
+# (156,134,69), which are literal members of ACCENT_DERIVED_FFE9A8 (see the
+# --v2-rust-fg and --v2-rust-edge rows there). A negative saying "no chrome
+# value came from the owner's pick" cannot survive a change whose entire
+# purpose is to make chrome values come from the owner's pick. What replaces
+# it is FINER, not weaker: each successor pins the EXACT DERIVED TRIPLE per
+# pick, over the same five sites plus two the dead test never touched. "Not
+# one of eleven derived values" becomes "precisely the one value the
+# derivation owes". The document-wide class of defect was never held by that
+# check anyway — its `values` list was built inside the test from its own five
+# rows — and the two genuine whole-document sweeps
+# (test_no_edge_is_drawn_on_a_surface_the_tuple_does_not_name and
+# test_no_dark_edge_is_drawn_on_anything_but_the_navy_card) are untouched.
+
+# What direct-edit.css:55-64 now maps each pick onto, read back out of Chrome
+# off the element that owns each declaration. The V2 twin of DIRECT_DERIVED
+# above, and WRITTEN OUT for the identical reason: a table built by calling
+# readable_on / on_color / visible_on would agree with those functions
+# whatever they did, and the point of a value pin is that it can DISAGREE
+# with the module under proof.
+#
+# The pale row's two V2 values are the independent check that this table is
+# right: (127,105,40) and (156,134,69) are already written out, for #ffe9a8,
+# in ACCENT_DERIVED_FFE9A8 above, arrived at from the other direction.
+DIRECT_DERIVED_V2 = {
+    # the owner's pick: --v2-rust-fg, --v2-rust-ink, --v2-rust-edge
+    "#ffe9a8": {"fg": (127, 105, 40), "ink": (0, 0, 0),
+                "edge": (156, 134, 69)},
+    "#4fb3bf": {"fg": (18, 118, 130), "ink": (0, 0, 0),
+                "edge": (49, 149, 161)},
+    "#3b1f47": {"fg": (59, 31, 71), "ink": (255, 255, 255),
+                "edge": (59, 31, 71)},
+}
+
+# The three grounds a [data-field] actually sits on in V2's /muokkaa/sivu,
+# with the ground each is read against asserted rather than assumed. The
+# third is the one the whole .v2-contact-card line exists for: six fields sit
+# on --v2-navy #14324a, a ground no member of V2_SURFACES names.
+V2_DIRECT_GROUNDS = (
+    ("[data-field='title']", (255, 255, 255), "hero-card"),
+    ("[data-field='nostolause']", (247, 250, 252), "page"),
+    (".v2-contact-card [data-field='body']", (20, 50, 74), "navy-card"),
+)
+
+# FOUR OWNER STATES, NOT THREE, and the fourth is not decoration. "" is "the
+# owner chose nothing" — plant's signature already defaults accent="" and a
+# site that chose nothing emits no <style> block at all, so this is the
+# SHIPPED DEFAULT, which is also the state most owners are in.
+V2_DIRECT_STATES = ("",) + DIRECT_CASES
+
+# The two resting --accent-edge chrome edges on V2, both seen against a bar's
+# own #ffffff. Each row carries the side its element declares; both of these
+# declare `border` on all four, so both are "top". See the two bars below for
+# the rows where that is not true.
+V2_CHROME_EDGES = (
+    (".direct-changes", "borderTopColor", "top"),
+    (".direct-topbar .button.secondary", "borderTopColor", "top"),
+)
+
+# The two fixed bars and THE SIDE EACH ONE ACTUALLY DECLARES. .direct-topbar
+# is `border-bottom` and nothing else (direct-edit.css:106); .direct-publishbar
+# is `border-top` and nothing else (:271). The side a bar does not declare is
+# a UA-supplied value and is asserted nowhere at all.
+V2_DIRECT_BARS = (
+    (".direct-topbar", "borderBottomColor", "bottom"),
+    (".direct-publishbar", "borderTopColor", "top"),
+)
+
+
+@pytest.mark.parametrize(
+    "state", V2_DIRECT_STATES, ids=("default", "pale", "mid", "dark")
+)
+@pytest.mark.parametrize(
+    "selector,expected_ground,label",
+    V2_DIRECT_GROUNDS,
+    ids=[row[2] for row in V2_DIRECT_GROUNDS],
+)
+def test_the_v2_direct_edit_focus_ring_reaches_three_to_one_on_every_ground(
+    page, live_app, shots, selector, expected_ground, label, state
 ):
-    """A RECORDED DEFECT, PINNED HONESTLY — and a live revert guard.
+    """THE SITE THE ASK NAMES FIRST, now on the skin that never had it: a
+    focus indicator nobody can see is the same as no focus indicator.
 
-    direct-edit.css speaks V1's token vocabulary. style-v2.css declares none
-    of --accent, --accent-fg, --accent-ink, --accent-edge, --card or --line,
-    so every rule LLM-COP-42 touched is invalid at computed-value time on V2
-    and the owner's pick reaches NONE of these five sites. That is what this
-    pins. LLM-COP-42 does not fix it: that is a different bug — "the file
-    speaks a vocabulary V2 does not declare" — with its own argument to make,
-    and it is filed separately rather than bundled in here.
+    This is the positive of the tripwire it replaces. Until LLM-COP-43,
+    direct-edit.css named --accent-edge and style-v2.css declared no such
+    token, so the `outline` shorthand was invalid at computed-value time and
+    V2's direct-edit page drew NO author focus ring at all. That was pinned
+    honestly as a not-painted predicate; the block at direct-edit.css:55-66
+    is the fix it was written to notice, and this is the 3:1 assertion its
+    failure message said to replace it with.
 
-    READ THE 6.4593:1 BELOW AS AN ACCIDENT, BECAUSE THAT IS WHAT IT IS.
-    `color` is an INHERITED property. A declaration whose var() names an
-    undeclared custom property is invalid at computed-value time, so it
-    becomes `unset` — and `unset` on an inherited property is `inherit`, NOT
-    a fall-through to the next declaration in the cascade. .direct-chrome is
-    a direct child of body (page_v2.html:387) and style-v2.css:115 is
-    `body { color: var(--v2-body) }` = #3d5f77, on --v2-page #f7fafc. So the
-    tag lands on 6.4593:1 BY FAILURE MODE. It is NOT a claim app/palette.py
-    makes, and no derivation guarantees it. Before LLM-COP-42
-    .direct-field-tag's `color: #fff` was a valid literal and computed white
-    — 1.0482:1 — so this site became legible on V2 as a SIDE EFFECT of the
-    retarget.
+    THREE GROUNDS AND FOUR OWNER STATES, and the fourth state is why this
+    test is twelve cases and not nine.
 
-    It will change the day V2 gets the token vocabulary. REPLACE THIS TEST
-    THEN with the 4.5:1 assertions
-    test_the_direct_edit_chrome_text_clears_four_and_a_half_to_one makes.
+    WHICH STATES FALSIFY THE .v2-contact-card LINE, stated plainly so a later
+    reader does not delete the default case thinking three picks is three
+    proofs. Delete `body.direct-edit.v2 .v2-contact-card { --accent-edge:
+    var(--v2-rust-edge-navy) }` and the navy-card ring falls back to
+    --v2-rust-edge, measured on #14324a:
 
-    Meanwhile the pin is more than a defect record: reverting
-    .direct-field-tag's color to #fff turns it RED with rgb(255,255,255)
-    printed, so site 2 of the five is guarded here as well as on V1.
+        shipped default  3.0206 -> 2.1987  FAILS
+        #3b1f47 dark    3.0403 -> 1.0760  FAILS
+        #ffe9a8 pale   11.0249 -> 3.7287  still passes, VACUOUS for that line
+        #4fb3bf mid     5.3839 -> 3.7506  still passes, VACUOUS for that line
 
-    IT STAYS ON ONE COLOUR while its three V1 siblings run at three, and
-    that is deliberate rather than an omission. Those three assert a
-    DERIVATION, which is a different function of every pick and therefore
-    has to be sampled. This one asserts a CASCADE ACCIDENT: the value it
-    pins, #3d5f77, is body's --v2-body and is the same whatever the owner
-    picks, because not one declaration here resolves. Driving it at three
-    picks would produce three identical measurements and read as three
-    proofs. The one thing that IS pick-shaped is the stray set below, and
-    ACCENT_DERIVED_FFE9A8 is written out for this colour precisely so the
-    negative can be made without importing the derivation.
+    So a ring proof driven at DIRECT_CASES alone would be GREEN with the navy
+    line reverted. The default and the dark pick are the only two falsifiers
+    it has, and the pale and mid picks are honestly vacuous for it while
+    still falsifying the block as a whole.
 
-    THE TWO NEGATIVES ARE PREDICATES, NEVER WIDTH LITERALS — the exact
-    negation of assert_painted. Border and outline widths are UA-supplied
-    when the feature is off: Chrome 142 collapses to 0px, Chrome 152 reports
-    the UA default and lets `style: none` be what suppresses the edge.
-    Pinning one of those is what went green locally and red on CI in
-    LLM-COP-40.
+    THAT INVERTS DIRECT_CASES' OWN NOTE. There the dark pick is the
+    does-no-harm case and the revert guard is pale and mid, because the V1
+    derivation is the identity at #3b1f47. Here #3b1f47 is a FALSIFIER,
+    because the ground it is measured against is the navy card rather than a
+    member of the surface tuple, and the identity leaves it at 1.0760.
+
+    THE TWO LITERALS PINNED ARE AUTHOR-SUPPLIED, and the distinction cost a
+    red CI run once already. `outline-style: solid` and `outline-width: 2px`
+    are written at direct-edit.css:85 — the same pair the V1 twin
+    test_the_direct_edit_focus_ring_reaches_three_to_one pins. The ABSENCE of
+    a ring is UA-supplied: with `outline-style: none`, Chrome 142 collapses
+    outline-width to 0px while Chrome 152 reports the UA default 3px, and
+    both draw nothing. `outlineWidth == "0px"` was therefore a claim about a
+    browser VERSION, it went red on a Chrome upgrade with the product
+    unchanged, and nothing in this file pins an absence as a width any more —
+    every one goes through assert_painted's predicate.
+
+    The screenshot is taken by this test rather than a separate one, so no
+    picture here can be filed as evidence without a number beside it.
     """
-    open_direct_chrome(page, live_app, "v2", "#ffe9a8")
+    plant(live_app, "v2", accent=state)
+    page.goto(f"{live_app.base_url}/muokkaa/sivu")
+    assert_skin(page, "v2")
+    page.wait_for_selector(selector)
+    page.focus(selector)
+
+    where = f"v2 {state or 'default'} focus ring on {label}"
+    row = measure_edges(page, ((selector, "outlineColor", None, "outline"),))
+    row = row[selector]
+    assert_painted(row, "outline", where)
+    assert row["outlineStyle"] == "solid", row["outlineStyle"]
+    assert row["outlineWidth"] == "2px", row["outlineWidth"]
+    assert rgb(row["under"]) == expected_ground, (
+        f"{where} is read against {row['under']}, not the "
+        f"{expected_ground} this case is about"
+    )
+    for ground in edge_grounds(row, "outline"):
+        measured = ratio(rgb(row["value"]), rgb(ground))
+        assert measured >= 3.0, (
+            f"{where} is {measured:.4f}:1 ({row['value']} on {ground})"
+        )
+
+    path = os.path.join(
+        shots, f"v2-focus-ring-{label}-{state.lstrip('#') or 'default'}.png"
+    )
+    page.screenshot(path=path)
+    assert os.path.getsize(path) > 0
+
+
+@pytest.mark.parametrize("accent", DIRECT_CASES, ids=("pale", "mid", "dark"))
+def test_the_v2_direct_edit_chrome_text_clears_four_and_a_half_to_one(
+    page, expect, live_app, shots, accent
+):
+    """THE THREE TEXT SITES, on V2, at a PALE, a MID and a DARK owner pick.
+
+    The V2 twin of test_the_direct_edit_chrome_text_clears_four_and_a_half_to_one
+    above, and the successor to group A of the dead tripwire. That one pinned
+    all three sites at (61,95,119) on (247,250,252) — 6.4593:1 reached BY
+    FAILURE MODE, because every declaration here was invalid and `color` is
+    inherited, so all three fell back to body's --v2-body. It said in as many
+    words that it should be replaced by this test the day V2 got the
+    vocabulary. That day is LLM-COP-43.
+
+    DIRECT_TEXT_SITES IS REUSED VERBATIM, and the reason is checked rather
+    than assumed. Its two literal grounds are (255,255,255), which is what
+    .direct-topbar and .direct-publishbar become once --card resolves to
+    --v2-card #ffffff (style-v2.css:33); and .direct-field-tag's ground is
+    OWN_ACCENT, its own `background: var(--accent)`, which is the owner's
+    pick on either skin.
+
+    THE GROUND ASSERTION ON .direct-field-tag IS THE POSITIVE OF THE DEAD
+    TRIPWIRE'S `backgroundOwn == "rgba(0, 0, 0, 0)"`. That pin said the tag
+    had no fill at all because --accent did not resolve; this one says the
+    fill IS the owner's pick. Same fact, asserted the right way round, and
+    _MEASURE's walk starts at the element ITSELF, so deleting --accent: makes
+    the tag transparent, the walk carries on to body #f7fafc, and this goes
+    red before any ratio is taken.
+
+    MEASURED, at the three picks in order: 5.3115 / 5.3307 / 14.2572 for
+    .direct-esikatsele and .direct-changes, and 17.4730 / 8.5328 / 14.2572
+    for .direct-field-tag.
+
+    EVERY COLOUR IS READ OFF THE ELEMENT THAT OWNS THE DECLARATION, never off
+    .direct-topbar or .direct-publishbar — this file's own recorded ancestor
+    hazard, the one an earlier draft of USR-COP-2 walked into and would have
+    gone green at 1.07:1 on.
+
+    The visibility expectations come FIRST, for the reason open_direct_chrome
+    gives; the ratio comes before the exact triple so a revert reports the
+    number the site collapsed to rather than only that a literal moved.
+    """
+    open_direct_chrome(page, live_app, "v2", accent)
     expect(page.locator(".direct-field-tag")).to_be_visible()
     expect(page.locator(".direct-changes")).to_be_visible()
 
-    values = []
+    derived = DIRECT_DERIVED_V2[accent]
     seen = measure(page, [site for site, _, _ in DIRECT_TEXT_SITES])
-    for selector, _v1_ground, _v1_token in DIRECT_TEXT_SITES:
+    for selector, where, token in DIRECT_TEXT_SITES:
+        ground = direct_ground(where, accent)
         row = seen[selector]
-        assert row["found"] and row["rendered"], selector
-        assert rgb(row["color"]) == (61, 95, 119), (
-            f"{selector} is {row['color']}, not body's inherited --v2-body "
-            "— V2's cascade has moved and this pin is out of date"
+        assert row["found"], f"{selector} is not on the page"
+        assert row["rendered"], f"{selector} rendered at zero size"
+        assert rgb(row["background"]) == ground, (
+            f"v2 {accent} {selector} is read against {row['background']}, "
+            f"not the {ground} the derivation was computed for"
         )
-        assert rgb(row["background"]) == (247, 250, 252), row["background"]
-        measured = ratio(rgb(row["color"]), rgb(row["background"]))
-        assert round(measured, 4) == 6.4593, f"{selector}: {measured:.4f}:1"
-        values.append(rgb(row["color"]))
+        measured = ratio(rgb(row["color"]), ground)
+        assert measured >= 4.5, (
+            f"v2 {accent} {selector} is {measured:.4f}:1 "
+            f"({row['color']} on {row['background']})"
+        )
+        assert rgb(row["color"]) == derived[token], (
+            f"v2 {accent} {selector}: {row['color']}, not the "
+            f"{derived[token]} --accent-{token} must derive to"
+        )
 
-    # The tag's `background: var(--accent)` is invalid here too, so it has no
-    # fill at all — body-coloured text on the page ground, legible but no
-    # longer looking like a tag. Asserted because it is the other half of why
-    # the 6.4593:1 above is luck: on V1 this site's ground IS the owner's
-    # pick, which is what makes --accent-ink the right token there.
-    assert seen[".direct-field-tag"]["backgroundOwn"] == "rgba(0, 0, 0, 0)", (
-        seen[".direct-field-tag"]["backgroundOwn"]
+    path = os.path.join(
+        shots, f"direct-chrome-text-v2-{accent.lstrip('#')}.png"
+    )
+    page.screenshot(path=path)
+    assert os.path.getsize(path) > 0
+
+
+@pytest.mark.parametrize("accent", DIRECT_CASES, ids=("pale", "mid", "dark"))
+def test_the_v2_direct_edit_chrome_edges_reach_three_to_one(
+    page, expect, live_app, accent
+):
+    """THE TWO RESTING --accent-edge EDGES of V2's chrome, in one table.
+
+    Row one, .direct-changes, is the V2 twin of
+    test_the_direct_edit_change_badge_border_reaches_three_to_one and the
+    successor to the first of the dead tripwire's two not-painted border
+    predicates. Its border is `1px solid var(--accent-edge)`
+    (direct-edit.css:277), which drew nothing at all on V2 before this change.
+
+    ROW TWO IS THE OTHER HALF OF THE OTHER TRIPWIRE, and it is here because
+    nothing else in this suite asserts it. .direct-topbar .button.secondary
+    was measured by the last five lines of the now-deleted
+    test_the_v2_direct_edit_page_draws_no_author_outline_at_all and by
+    nothing else: DIRECT_TEXT_SITES and PHONE_SITES run on `/`,
+    and the whole-document sweep checks ground MEMBERSHIP, not a ratio.
+
+    ITS VALUE IS INVARIANT UNDER THIS CHANGE AND ITS GROUND IS NOT, which is
+    the whole reason the ground is asserted here rather than merely divided
+    by. The border comes from style-v2.css:169 `.button.secondary {
+    border-color: var(--v2-rust-edge) }` over .button's `border: 1px solid`,
+    and this PR touches neither line. What moves is underneath it:
+    .direct-topbar's own fill goes rgba(0,0,0,0) -> #ffffff, so the walked
+    ground goes #f7fafc -> #ffffff and the ratio 3.3902 -> 3.5536. The dead
+    tripwire asserted the stale 3.3902; this asserts the re-measured one.
+
+    WHICH ASSERTION FALSIFIES --card HERE, because it is not the obvious one.
+    Delete `--card:` from the block and the ground returns to #f7fafc and the
+    ratio to 3.3902 — WHICH STILL CLEARS 3.0. The ratio does not catch it.
+    The GROUND PIN does, going red with rgb(247, 250, 252) printed. That is
+    why the ground is asserted first: the ground is the claim.
+
+    MEASURED at the three picks: 3.5536 / 3.5328 / 14.2572, on both rows.
+
+    THE BADGE DOES NOT EXIST UNTIL SOMETHING CHANGES. It ships `hidden`
+    (direct_edit_chrome.html:53) and updateChanges() unhides it on the first
+    edit, so the keystroke inside open_direct_chrome is what produces the
+    element this measures, and the to_be_visible is what proves that worked.
+
+    assert_painted runs before every ratio and IS the CI-safe form of the
+    precondition — a predicate, never a width literal. The LLM-COP-40
+    incident that rule comes from is recorded in full in the ring test's
+    docstring above.
+    """
+    open_direct_chrome(page, live_app, "v2", accent)
+    expect(page.locator(".direct-changes")).to_be_visible()
+
+    rows = tuple(
+        (selector, prop, None, "border")
+        for selector, prop, _side in V2_CHROME_EDGES
+    )
+    seen = measure_edges(page, rows)
+    for selector, _prop, side in V2_CHROME_EDGES:
+        row = seen[selector]
+        where = f"v2 {accent} {selector}"
+        assert_painted(row, "border", where, side=side)
+        # THE GROUND FIRST, because the ground is the claim.
+        assert rgb(row["under"]) == (255, 255, 255), (
+            f"{where} is seen against {row['under']}, not the bar's own "
+            "--card #ffffff — the bar has stopped painting its own fill"
+        )
+        for ground in edge_grounds(row, "border"):
+            measured = ratio(rgb(row["value"]), rgb(ground))
+            assert measured >= 3.0, (
+                f"{where} is {measured:.4f}:1 ({row['value']} on {ground})"
+            )
+        assert rgb(row["value"]) == DIRECT_DERIVED_V2[accent]["edge"], (
+            f"{where} is {row['value']}, not the "
+            f"{DIRECT_DERIVED_V2[accent]['edge']} --accent-edge must derive to"
+        )
+
+
+@pytest.mark.parametrize("accent", DIRECT_CASES, ids=("pale", "mid", "dark"))
+def test_the_v2_direct_edit_toolbar_hover_border_reaches_three_to_one(
+    page, expect, live_app, shots, accent
+):
+    """The format toolbar's hover edge on V2, produced by a REAL page.hover().
+
+    The V2 twin of
+    test_the_direct_edit_toolbar_hover_border_reaches_three_to_one and the
+    successor to the second of the dead tripwire's two not-painted border
+    predicates. The rule is `.direct-toolbar button:hover:not(:disabled) {
+    border-color: var(--accent-edge) }` (direct-edit.css:223) over the base
+    `border: 1px solid var(--line)` (:214) — both invalid on V2 until this
+    change, so the toolbar had no border at all, hovered or not.
+
+    TWO GROUNDS, NOT ONE, and that is strictly more than the V1 twin gets.
+    After this change `.direct-toolbar button` has `background: var(--card)`
+    (:215), an opaque own fill, so edge_grounds returns the button's own
+    #ffffff AND the walked .direct-toolbar #ffffff (:182), and both are
+    asserted. Measured 3.5536 / 3.5328 / 14.2572 on each.
+
+    THE BUTTON IS .direct-undo AND THE CHOICE IS FORCED, the same forced
+    choice the V1 twin records: activate() sets `button.disabled =
+    !field.rich` on the three .direct-command buttons (direct-edit.js:164),
+    app/fields.py:17 declares "title" a PLAIN field, and .direct-list ships
+    disabled in the template. .direct-undo is the only enabled button here.
+
+    THE VACUITY GUARD, AND WHAT IT DOES NOT PROVE. A second, un-hovered
+    button must still read rgb(214, 226, 236), --v2-line #d6e2ec. That proves
+    the base value is DISTINGUISHABLE from the hover value, so a test that
+    failed to produce a hover would read the grey and go red rather than pass
+    on the wrong colour. It does NOT prove the hover was scoped to one
+    button: the control, .direct-list, is a DISABLED sibling, and a disabled
+    button keeps the base border whether or not :hover leaked to it. On a
+    plain field there is no enabled un-hovered sibling to use instead, so the
+    control is forced too.
+
+    THE CONTROL'S GREY IS NOT DERIVED, so one hardcoded triple serves all
+    three picks: --v2-line is a frozen literal at style-v2.css:34 and no
+    ROLE_TOKENS["v2"] row emits it — that row emits --v2-header,
+    --v2-header-ink, --v2-header-accent, --v2-rust and its -dark, -ink,
+    -dark-ink, -fg, -edge, three rings and two darks, and not one of them is
+    --v2-line. Same argument the V1 twin makes for its own --line grey.
+
+    --ink IS FALSIFIED HERE AND NOWHERE ELSE. `grep -n 'var(--ink)'
+    app/static/direct-edit.css` returns exactly one line, :216,
+    `.direct-toolbar button { color: var(--ink) }`. Before this change that
+    declaration was invalid on V2 and, `color` being inherited, the buttons
+    took body's --v2-body #3d5f77; after it they take --v2-ink #14293d. The
+    two assertions below are DIFFERENT CLAIMS and both are kept: the ratio is
+    the accessibility claim (14.8483:1 against the button's own --card fill),
+    and the exact triple is the revert guard. WHICH ONE IS THE FALSIFIER IS
+    NOT THE OBVIOUS ONE — delete `--ink:` and the buttons inherit #3d5f77,
+    which is 6.7705:1 on #ffffff and PASSES 4.5. The ratio does not catch it;
+    the value pin does, going red with rgb(61, 95, 119) printed.
+
+    A SCREENSHOT PER PICK, because this hovered edge is the one site no
+    resting shot can show.
+    """
+    open_direct_chrome(page, live_app, "v2", accent)
+    expect(page.locator(".direct-toolbar")).to_be_visible()
+    assert not page.locator(DIRECT_UNDO).is_disabled(), (
+        "Kumoa is disabled, so :hover:not(:disabled) can never match and "
+        "this test would measure the base border while claiming the hover"
     )
 
     page.hover(DIRECT_UNDO)
     rows = (
-        (".direct-changes", "borderTopColor", None, "border"),
         (DIRECT_UNDO, "borderTopColor", None, "border"),
+        (DIRECT_UNHOVERED, "borderTopColor", None, "border"),
     )
-    edges = measure_edges(page, rows)
-    for selector, _property, _pseudo, _kind in rows:
-        row = edges[selector]
-        assert row["found"] and row["rendered"], selector
-        painted = (
-            row["borderTopStyle"] not in ("none", "hidden")
-            and float(row["borderTopWidth"].rstrip("px")) > 0
-        )
-        assert not painted, (
-            f"{selector} now draws a border on V2 "
-            f"({row['borderTopWidth']} {row['borderTopStyle']} "
-            f"{row['value']}). That is the fix this test was written to "
-            "notice: replace it with the 3:1 assertions the V1 edge tests "
-            "make"
-        )
-        values.append(rgb(row["value"]))
+    seen = measure_edges(page, rows)
+    hovered, control = seen[DIRECT_UNDO], seen[DIRECT_UNHOVERED]
 
-    # All five retargeted sites, and not one of them carries a colour the
-    # override could have produced on either skin.
-    assert len(values) == 5, values
-    strays = [value for value in values if value in ACCENT_DERIVED_FFE9A8]
-    assert not strays, (
-        f"V2's edit chrome now takes colour from the owner's pick: {strays}"
+    assert_painted(hovered, "border", f"v2 {accent} toolbar hover")
+    for ground in edge_grounds(hovered, "border"):
+        measured = ratio(rgb(hovered["value"]), rgb(ground))
+        assert measured >= 3.0, (
+            f"v2 {accent}: the hovered toolbar border is {measured:.4f}:1 "
+            f"({hovered['value']} on {ground})"
+        )
+    assert rgb(hovered["value"]) == DIRECT_DERIVED_V2[accent]["edge"], (
+        f"v2 {accent}: the hovered toolbar border is {hovered['value']}, not "
+        f"the {DIRECT_DERIVED_V2[accent]['edge']} --accent-edge must derive to"
+    )
+    assert rgb(control["value"]) == (214, 226, 236), (
+        f"the un-hovered control reads {control['value']}, not the --v2-line "
+        "grey — the base and the hover values are no longer distinguishable, "
+        "so the assertion above could be satisfied with no hover at all"
     )
 
-    path = os.path.join(shots, "direct-chrome-text-v2.png")
+    # --ink, at the one site in direct-edit.css that reads it.
+    assert rgb(hovered["own"]) == (255, 255, 255), (
+        f"the toolbar button's own fill is {hovered['own']}, not the --card "
+        "#ffffff its label's ratio is computed against"
+    )
+    ink = ratio(rgb(hovered["color"]), rgb(hovered["own"]))
+    assert ink >= 4.5, (
+        f"v2 {accent}: the toolbar button label is {ink:.4f}:1 "
+        f"({hovered['color']} on {hovered['own']})"
+    )
+    assert rgb(hovered["color"]) == (20, 41, 61), (
+        f"the toolbar button label is {hovered['color']}, not --v2-ink "
+        "rgb(20, 41, 61) — --ink has stopped resolving and the label is "
+        "inheriting body's --v2-body"
+    )
+
+    path = os.path.join(
+        shots, f"direct-chrome-hover-v2-{accent.lstrip('#')}.png"
+    )
     page.screenshot(path=path)
     assert os.path.getsize(path) > 0
+
+
+@pytest.mark.parametrize(
+    "state", V2_DIRECT_STATES, ids=("default", "pale", "mid", "dark")
+)
+def test_both_v2_direct_edit_bars_paint_their_own_ground(
+    page, live_app, shots, state
+):
+    """The two fixed bars, which on V2 were transparent strips over the page.
+
+    `background: var(--card)` (direct-edit.css:105, :270) was invalid on a
+    skin that declared no --card, so both bars painted nothing and the
+    document scrolled under them. This is what the whole text half of this
+    section stands on: DIRECT_TEXT_SITES' two literal (255,255,255) grounds
+    are these two fills, and --accent-fg is readable_on(accent, V2_SURFACES),
+    so those sites are only covered while they really sit on a member of that
+    tuple.
+
+    READ OFF THE BAR ITSELF, NOT WALKED. row["own"] is the bar's own
+    backgroundColor; the walked ground would find body's --v2-page and go
+    green on a bar that paints nothing at all. The failure mode is built in:
+    rgb() refuses a translucent string rather than blending it, so a reverted
+    fill cannot satisfy this.
+
+    FOUR OWNER STATES, although the bars are pick-INDEPENDENT — --card and
+    --line are frozen literals (style-v2.css:33, :34) that no ROLE_TOKENS
+    row emits. Driven at four anyway because a reader will otherwise assume
+    the bars move with the pick, and four identical measurements said out
+    loud are cheaper than that assumption.
+
+    EACH BAR IS ASSERTED ON THE SIDE IT DECLARES AND ON NO OTHER.
+    .direct-topbar declares `border-bottom` and nothing else (:106);
+    .direct-publishbar declares `border-top` and nothing else (:271). The
+    other side computes `0px none` on a correctly painted bar, and that width
+    is UA-SUPPLIED — pinning one is what took LLM-COP-40 green locally and
+    red on CI. assert_painted's `side` exists for exactly these two rows.
+
+    NO 3:1 ASSERTION ON THAT BORDER, deliberately. rgb(214,226,236) on
+    rgb(255,255,255) is 1.3167:1 — a decorative hairline separating two
+    surfaces, not a control boundary or a graphical object SC 1.4.11 covers.
+    V1 has shipped the same restraint since LLM-COP-6 at 1.3477:1. Asserting
+    3:1 here would be inventing a criterion nobody stated and would fail the
+    day it was written.
+    """
+    plant(live_app, "v2", accent=state)
+    page.goto(f"{live_app.base_url}/muokkaa/sivu")
+    assert_skin(page, "v2")
+    page.wait_for_selector(".direct-topbar")
+    page.wait_for_selector(".direct-publishbar")
+
+    rows = tuple(
+        (selector, prop, None, "border")
+        for selector, prop, _side in V2_DIRECT_BARS
+    )
+    seen = measure_edges(page, rows)
+    for selector, _prop, side in V2_DIRECT_BARS:
+        row = seen[selector]
+        where = f"v2 {state or 'default'} {selector}"
+        assert row["own"] == "rgb(255, 255, 255)", (
+            f"{where} paints its own background {row['own']}, not the "
+            "--card #ffffff — the page scrolls under it"
+        )
+        assert_painted(row, "border", where, side=side)
+        assert rgb(row["value"]) == (214, 226, 236), (
+            f"{where} border-{side} is {row['value']}, not --v2-line "
+            "rgb(214, 226, 236)"
+        )
+
+    path = os.path.join(
+        shots, f"v2-direct-bars-{state.lstrip('#') or 'default'}.png"
+    )
+    page.screenshot(path=path)
+    assert os.path.getsize(path) > 0
+
+
+# --- the sixth token: --muted, on both skins -------------------------------
+
+# The six sites direct-edit.css paints in --muted, with the ground each is
+# ACTUALLY read against, per skin. Each is read off the element that owns the
+# `color` declaration, never off .direct-topbar or .direct-publishbar — this
+# file's own recorded ancestor hazard, the one an earlier USR-COP-2 draft
+# walked into and would have gone green at 1.07:1 on.
+#
+# .direct-hint is not bar-hosted: it reaches white through its OWN
+# `background: var(--card)` (direct-edit.css:236), and _MEASURE's walk starts
+# at the element itself, so that is the ground it gets.
+#
+# .direct-counter is a child of div.direct-chrome, a direct child of body
+# moved by style.top/left in direct-edit.js:131-133, so its walked ground is
+# the PAGE, not a bar — which is why its number differs from the three above
+# it on both skins.
+#
+# THE LAST TWO ROWS ARE A CORRECTION, not an addition. direct-edit.js:63-73
+# renames every `.direct-section-names [data-kind]` span to
+# .direct-section-name and insertBefore's it as the first child of the
+# matching section, so there are as many chips as sections and a bare
+# ".direct-section-name" row would measure whichever querySelector reached
+# first while silently claiming nothing about the rest. The two chips sit on
+# DIFFERENT grounds, so both are addressed and both are measured.
+#
+# ONE HONEST LIMIT ON THE HERO ROW, stated rather than found later. On V2
+# .v2-hero-photo is `position: absolute; inset: 0` with a gradient
+# (style-v2.css:245-249) and is a LATER sibling than the inserted firstChild
+# chip, so it paints above it, and the ancestor walk this file's machinery
+# performs cannot see an overlapping sibling. That is a pre-existing property
+# of the machinery, not something LLM-COP-43 introduces, and no claim is made
+# here that the hero chip is visually unobstructed. The yhteydenotto row
+# carries no such doubt: its chip sits inside .v2-contact-band, which paints
+# its own opaque --v2-tint, so that is the load-bearing row of the two. Both
+# still falsify the --muted mapping.
+DIRECT_MUTED_SITES = (
+    # selector, v1 ground, v2 ground
+    (".direct-breadcrumb", (255, 255, 255), (255, 255, 255)),
+    (".direct-autosave", (255, 255, 255), (255, 255, 255)),
+    (".direct-hint", (255, 255, 255), (255, 255, 255)),
+    (".direct-counter", (250, 247, 242), (247, 250, 252)),
+    (
+        'section[data-kind="hero"] .direct-section-name',
+        (250, 247, 242),
+        (247, 250, 252),
+    ),
+    (
+        'section[data-kind="yhteydenotto"] .direct-section-name',
+        (250, 247, 242),
+        (230, 238, 246),
+    ),
+)
+
+# What --muted resolves to per skin: V1's frozen #5f6c72, and V2's mapping to
+# --v2-body #3d5f77. Written out, not imported.
+DIRECT_MUTED_INK = {"v1": (95, 108, 114), "v2": (61, 95, 119)}
+
+
+def test_the_direct_edit_muted_chrome_clears_four_and_a_half_to_one(
+    page, expect, live_app, skin
+):
+    """THE SIXTH TOKEN, and the one break nothing in this suite catches today.
+
+    --muted is the last of the eight names direct-edit.css reads. LLM-COP-43
+    maps it to --v2-body #3d5f77 and NOT, name for name, to --v2-muted
+    #6b8296 — and that choice is the whole reason this test exists. --v2-muted
+    measures 3.9934:1 on --v2-card #ffffff, 3.8099:1 on --v2-page #f7fafc and
+    3.4087:1 on --v2-tint #e6eef6, every one of them under SC 1.4.3's 4.5.
+    FIVE DECLARATIONS read --muted and they paint SIX elements — the count in
+    direct-edit.css's own header is the declarations, the count here is what
+    renders, and .direct-section-name is the one that differs because
+    direct-edit.js inserts one chip per section[data-kind]. So the
+    tidier-looking mapping would have shipped six text failures. Change
+    `--muted: var(--v2-body)` to `var(--v2-muted)` and six rows here go red;
+    nothing else in the repository notices.
+
+    BOTH SKINS, because V1 reads the same six sites through the same
+    declarations and a proof of one is not a proof of the other — this file's
+    own `skin` fixture states that rule. V1's ink is --muted #5f6c72, a frozen
+    literal; V2's is --v2-body #3d5f77 through the new mapping.
+
+    MEASURED. V2: 6.7705 at .direct-breadcrumb, .direct-autosave and
+    .direct-hint; 6.4593 at .direct-counter and the hero chip; 5.7792 at the
+    yhteydenotto chip. V1: 5.4199 at the first three, 5.0718 at the last
+    three — V1's .hero and .contact declare no background, so both chips walk
+    to body's --paper.
+
+    THE CHROME IS DRIVEN INTO EXISTENCE, not unhidden by a fixture, and two
+    of these six sites do not exist until it is. .direct-autosave ships
+    `hidden` and updateChanges() unhides it only once the change count leaves
+    zero (direct-edit.js:119-120); .direct-counter ships `hidden` and
+    updateCounter() unhides it only for a field with a `cap` (:144-149), and
+    app/fields.py:17 gives exactly one field one — "title", which is the h1
+    open_direct_chrome clicks. So the click and the keystroke are what produce
+    four of these six elements, and the visibility expectations below are what
+    prove that worked rather than assuming it.
+
+    ONE OWNER STATE, and it is the shipped default. --muted is
+    pick-INDEPENDENT on both skins: no ROLE_TOKENS row emits --muted or
+    --v2-body, so four states would be four identical measurements. The ring
+    and the bars run at four because what they assert does move with the pick.
+    """
+    open_direct_chrome(page, live_app, skin, "")
+    expect(page.locator(".direct-field-tag")).to_be_visible()
+    expect(page.locator(".direct-counter")).to_be_visible()
+    expect(page.locator(".direct-autosave")).to_be_visible()
+
+    ink = DIRECT_MUTED_INK[skin]
+    seen = measure(page, [site for site, _, _ in DIRECT_MUTED_SITES])
+    for selector, v1_ground, v2_ground in DIRECT_MUTED_SITES:
+        ground = v2_ground if skin == "v2" else v1_ground
+        row = seen[selector]
+        assert row["found"], f"{skin}: {selector} is not on the page"
+        assert row["rendered"], f"{skin}: {selector} rendered at zero size"
+        assert rgb(row["background"]) == ground, (
+            f"{skin} {selector} is read against {row['background']}, not the "
+            f"{ground} this row is about"
+        )
+        measured = ratio(rgb(row["color"]), ground)
+        assert measured >= 4.5, (
+            f"{skin} {selector} is {measured:.4f}:1 "
+            f"({row['color']} on {row['background']})"
+        )
+        assert rgb(row["color"]) == ink, (
+            f"{skin} {selector}: {row['color']}, not the {ink} --muted "
+            "resolves to on this skin"
+        )
 
 
 def test_the_edge_token_never_reaches_the_admin_inbox(page, live_app, skin):
@@ -1950,11 +2450,18 @@ _SWEEP_EDGES = """
 """
 
 # Where the sweep runs. `/` on both skins, and /muokkaa/sivu on both — the
-# plan scoped the second to v1, where the outlines live, but v2's copy of the
-# chrome carries four secondary buttons on a different ground (body
-# --v2-page, because .direct-topbar's `background: var(--card)` is invalid on
-# a skin that declares no --card) and sweeping it is strictly more fence for
-# no more machinery. Both were run; both are green.
+# LLM-COP-42 plan scoped the second to v1, where the outlines lived at the
+# time, but v2's copy of the chrome carries four secondary buttons too and
+# sweeping it is strictly more fence for no more machinery. Both were run;
+# both are green.
+#
+# THE GROUND UNDER THOSE FOUR BUTTONS MOVED IN LLM-COP-43. It used to be
+# body --v2-page, because .direct-topbar's `background: var(--card)` was
+# invalid on a skin that declared no --card; direct-edit.css:55-64 now maps
+# --card to --v2-card, so the bar paints #ffffff and that is what they sit
+# on. Both grounds are members of V2_SURFACES, so the fence below was
+# satisfied before the change and is satisfied after it — what changed is
+# which member.
 SWEEP_ROUTES = ("/", "/muokkaa/sivu")
 
 
@@ -2003,13 +2510,26 @@ def test_no_edge_is_drawn_on_a_surface_the_tuple_does_not_name(
     V1_SURFACES, so the fence is satisfied and this test stays green.
 
     The NON-EMPTY GUARD: a sweep that finds nothing proves nothing. Measured
-    here: 6 hits on V1's `/`, 49 on V1's /muokkaa/sivu, 5 and 21 on V2's.
+    here: 6 hits on V1's `/`, 49 on V1's /muokkaa/sivu, 5 and 42 on V2's.
     The V1 edit route was 45 before LLM-COP-42; the four new hits are
     span.direct-changes' border-top/right/bottom/left, which the walk finds
     without any typing because _SWEEP_EDGES has no visibility check and
-    Chrome reports the border on a `hidden` element. V2 gains none — every
-    rule in direct-edit.css naming --accent-edge is invalid there, on a skin
-    that declares no such token.
+    Chrome reports the border on a `hidden` element.
+
+    V2's EDIT ROUTE WAS 21 AND IS 42 SINCE LLM-COP-43. It used to gain
+    nothing from direct-edit.css at all — every rule there naming
+    --accent-edge was invalid on a skin that declared no such token, so its
+    21 were the page's and the chrome's own .button.secondary faces plus one
+    pseudo-background. direct-edit.css:55-64 maps the name, and the 21 new
+    hits are 17 [data-field] outlines and span.direct-changes' four border
+    faces. SEVENTEEN, not 23: page_v2.html carries 23 [data-field] elements
+    and the six inside .v2-contact-card take --v2-rust-edge-navy instead, a
+    different colour that this sweep's needle does not match and that
+    test_no_dark_edge_is_drawn_on_anything_but_the_navy_card hunts for
+    separately. One of the 17 is div.v2-hero-intro.phone-only, which renders
+    at 0x0 at this viewport and is a hit anyway, for the same
+    no-visibility-check reason the badge is. The fence itself did not move:
+    every one of those grounds is #ffffff or #f7fafc, both in V2_SURFACES.
 
     WHAT IT CANNOT DO, said rather than implied: it sees only the
     backgrounds these two routes actually render. The retarget table in the

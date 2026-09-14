@@ -22,11 +22,25 @@ to, and which RULES read them. `--header-bg` declared `var(--card)` while
 `.site-header` still said `background: var(--card)` would pass every
 assertion in test_palette.py and ship a header the owner cannot colour.
 
-SINCE LLM-COP-40 A THIRD STYLESHEET IS READ. direct-edit.css declares none
-of these tokens and never could — it is loaded only by /muokkaa/sivu, after
-style.css, in the same document — but it READS one, at the editable
-affordance and the focus ring, so the "every rule that owns a visible colour
-references the token" half of the claim now reaches it.
+SINCE LLM-COP-40 A THIRD STYLESHEET IS READ, AND SINCE LLM-COP-43 IT ALSO
+DECLARES. direct-edit.css is loaded only by /muokkaa/sivu, after style.css,
+in the same document. It READS --accent-edge at the editable affordance and
+the focus ring, which is how the "every rule that owns a visible colour
+references the token" half of the claim reaches it. It now also DECLARES
+--accent-edge, --accent-ink and --accent-fg — all three of them rows of
+NEW_TOKENS below — plus --accent, --card, --line, --ink and --muted.
+
+THAT IS NOT A SECOND DEFAULT, AND THIS TABLE IS STILL HONEST WITHOUT A ROW
+FOR IT. What NEW_TOKENS pins is the `:root` DEFAULT each token falls back to
+when the owner has chosen nothing, and those live in style.css and
+style-v2.css alone: direct-edit.css declares no `:root` rule at all. What it
+declares is a SKIN-SCOPED REMAP — the same names pointed at V2's own tokens,
+under `body.direct-edit.v2`, so that V2's edit chrome resolves the
+vocabulary V1's already did. That is a different kind of declaration and it
+is fenced by a different test, test_every_selector_stays_inside_direct_edit_mode
+in tests/test_direct_edit_css.py, not by this one — the walkers here read
+`:root`, and the direct-edit.css rows key on exact selector text that
+neither new selector matches.
 
 The walkers are imported from tests/test_direct_edit_css.py rather than
 copied. `_rules` and `_declarations` take any source; only `_css()` there is
@@ -306,7 +320,7 @@ RETARGETED = (
     #
     # --accent-ink appears once and the exception is the point:
     # .direct-field-tag's GROUND is the accent itself (`background:
-    # var(--accent)`, direct-edit.css:129), which is the .button.primary
+    # var(--accent)`, direct-edit.css:168), which is the .button.primary
     # case. --accent-fg is readable_on(accent, V1_SURFACES) and says
     # nothing about legibility ON the accent — for #ffe9a8 it is #856f2e,
     # which on #ffe9a8 measures 4.0536:1 and FAILS 4.5. The other four sit

@@ -1,14 +1,19 @@
-/* Direct edit mode (LLM-COP-6) — self-contained, loaded only by the
-   /muokkaa/sivu render of page.html. style.css stays the public page's
-   stylesheet and is untouched, the same discipline edit.css and
-   preview.js follow.
+/* Direct edit mode (LLM-COP-6) — self-contained, loaded by the
+   /muokkaa/sivu render of BOTH page templates: page.html:8 and
+   page_v2.html:44. That second link has been there since V2 shipped; what
+   makes it mean anything is the token block below (LLM-COP-43). style.css
+   stays the public page's stylesheet and is untouched, the same discipline
+   edit.css and preview.js follow.
 
    The dashed affordance hangs off body.direct-edit, so it cannot reach
    the public page or the draft preview: no element carries an inline
    style and no rule here applies without that class.
 
-   TOKENS COME FROM style.css, which loads first in the same document, and
-   this file declares none of its own. The ones it reads are --card, --line,
+   TOKENS COME FROM style.css ON V1, which loads first in the same document,
+   and are MAPPED HERE, scoped to body.direct-edit.v2, ON V2 (LLM-COP-43):
+   the one block below is the only place this file declares a token of its
+   own, and it declares no default that style.css or style-v2.css does not
+   already own. The ones it reads are --card, --line,
    --ink and --muted for the chrome's own furniture, and the owner-derived
    --accent, --accent-fg, --accent-ink and --accent-edge for everything the
    chosen colour reaches (LLM-COP-40 and LLM-COP-42). --card and --line are
@@ -16,15 +21,49 @@
    what makes readable_on's V1_SURFACES the right tuple for the text sites
    here with no new surface added.
 
-   THAT VOCABULARY IS V1'S, AND THE BOUNDARY IS KNOWN. style-v2.css
-   declares not one of those eight, so every rule below naming one is
-   invalid at computed-value time on V2: the edit chrome there draws no
-   borders and takes no colour from the owner's pick at all. That is a
-   defect of its own rather than something this file's retargets caused or
-   fixed, and it is recorded, not repaired — see app/palette.py's site list
-   and test_the_v2_direct_edit_chrome_takes_no_colour_from_the_override.
-   Giving V2 the vocabulary means a fallback at each site, which repaints
-   its edit chrome for every owner including those who chose nothing. */
+   THAT VOCABULARY IS V1'S, AND ON V2 IT IS NOW MAPPED RATHER THAN MERELY
+   RECORDED (LLM-COP-43). style-v2.css declares not one of those eight, so
+   every rule below naming one used to be invalid at computed-value time
+   there: no focus ring, no bar background, no colour from the owner's pick
+   at all. The block directly below repairs that without migrating either
+   skin — it maps the same eight names onto V2's own tokens under
+   body.direct-edit.v2, and V1 is untouched BY SELECTOR NON-MATCH
+   (page.html:20 serves a bare <body>, page_v2.html:56 serves
+   <body class="v2">) rather than by any cascade argument. Not one existing
+   rule body in this file changes.
+
+   --muted MAPS TO --v2-body AND NOT TO --v2-muted, deliberately. --v2-muted
+   #6b8296 measures 3.9934:1 on --v2-card #ffffff and 3.8099:1 on --v2-page
+   #f7fafc, both under SC 1.4.3's 4.5; --v2-body #3d5f77 is 6.7705:1 on
+   #ffffff. Five sites here read --muted, so the name-for-name mapping would
+   have shipped five text failures to buy a tidier-looking block.
+
+   THE SECOND --accent-edge MAPPING, scoped to .v2-contact-card, exists
+   because six [data-field] elements sit on --v2-navy #14324a, a ground no
+   member of V2_SURFACES names. Without that line the focus ring measures
+   2.1987:1 there at the shipped default and 1.0760:1 at a dark pick; with
+   it, 3.0206:1 and 3.0403:1. --v2-rust-edge-navy already ships for exactly
+   this ground, from app/palette.py's `darks` row against the frozen
+   singleton ("#14324a",), so no derivation is added here and no new surface
+   tuple is introduced.
+
+   THE COST, STATED: body.direct-edit arrives from direct-edit.js:60, so the
+   block is inert for the frame before boot — and nothing it would have
+   coloured exists yet in that frame anyway, because the same script is what
+   inserts the two fixed bars and the chrome around them. */
+
+body.direct-edit.v2 {
+  --accent: var(--v2-rust);
+  --accent-fg: var(--v2-rust-fg);
+  --accent-ink: var(--v2-rust-ink);
+  --accent-edge: var(--v2-rust-edge);
+  --card: var(--v2-card);
+  --line: var(--v2-line);
+  --ink: var(--v2-ink);
+  --muted: var(--v2-body);
+}
+
+body.direct-edit.v2 .v2-contact-card { --accent-edge: var(--v2-rust-edge-navy); }
 
 /* --- the editable affordance --- */
 
