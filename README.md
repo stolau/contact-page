@@ -216,8 +216,12 @@ It is an explicit switch rather than something the app works out for itself,
 and that is deliberate. The app never reads `X-Forwarded-Proto` — it is a
 header anyone can send, and this repository already refused to believe that
 header family once, in `TRUSTED_PROXY`'s treatment of `X-Forwarded-For`. Left
-unset, nothing changes: the cookies keep the shape they have always had and no
-`Strict-Transport-Security` is sent, so plain-HTTP development is untouched.
+unset, nothing changes for a plain-HTTP deployment: the three cookies the
+login flow writes come out byte-identical to what they were before this
+switch existed, and no `Strict-Transport-Security` is sent. (The two cookie
+*deletions* did change shape, in both modes — they now carry `HttpOnly` and
+`SameSite=Lax` to match the writes — but a deletion clears the cookie either
+way, so nothing an operator can observe moves.)
 
 **`max-age` starts at one day on purpose.** HSTS is remembered by the browser
 and there is no way to take it back from the server, so a year-long pin turns

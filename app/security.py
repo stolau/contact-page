@@ -81,11 +81,13 @@ carries the header, so plain-HTTP development is untouched.
 
 **Told, never derived.** https_only() reads the HTTPS_ONLY environment
 variable and nothing about the request. Three grounds, each checkable in this
-tree. First, there is no scheme-trust here to extend: ProxyFix,
-request.is_secure, wsgi.url_scheme and X-Forwarded-Proto appear nowhere in
-app/ or tests/, so deriving the scheme would not read something the app
-already knows — it would CREATE a trust relationship, in the very change whose
-job is to tighten the transport story. Second, derivation would silently never
+tree. First, there is no scheme-trust here to extend: no code anywhere reads
+ProxyFix, request.is_secure, wsgi.url_scheme or X-Forwarded-Proto — grep app/
+finds those names only in this docstring, and tests/ only in
+tests/test_transport.py, which sends them precisely in order to prove they
+are ignored. So deriving the scheme would not read
+something the app already knows — it would CREATE a trust relationship, in
+the very change whose job is to tighten the transport story. Second, derivation would silently never
 fire where it is needed: request.is_secure reads wsgi.url_scheme, which is
 http on exactly the deployment README.md §4 prescribes, where a reverse proxy
 terminates TLS and forwards plain HTTP to 127.0.0.1:8000. The operator does
