@@ -65,11 +65,53 @@ same-origin — the one case every implementation agrees on — so the echo cost
 nothing and cannot contradict frame-ancestors 'self'.
 
 **No upgrade-insecure-requests, and that is a decision rather than an
-oversight.** The site is served over plain HTTP, so the directive would break
-every subresource on a real deployment. It belongs with TLS, and so does HSTS.
-The same fact is the ceiling on this whole module: over plain HTTP a
-man-in-the-middle can strip the header before the browser ever sees it, which
-makes all of this defence in depth behind TLS and never a substitute for it.
+oversight.** The site may be served over plain HTTP, so the directive would
+break every subresource on such a deployment. Rewriting a URL is a claim about
+one DOCUMENT's subresources, and nothing here knows they are all reachable
+over TLS. Over plain HTTP a man-in-the-middle can strip any of these headers
+before the browser sees them, which is the ceiling on this whole module: all
+of it is defence in depth BEHIND TLS and never a substitute for it.
+
+**HSTS has arrived, gated (LLM-COP-35 item 1).** https_only() below answers
+whether this deployment is served over TLS and strict_transport_security()
+answers the header value; app/__init__.py's after_request sends it when the
+first says so. Unset — the default — the three set_cookie calls in the login
+flow emit exactly the bytes they emitted before this change and no response
+carries the header, so plain-HTTP development is untouched.
+
+**Told, never derived.** https_only() reads the HTTPS_ONLY environment
+variable and nothing about the request. Three grounds, each checkable in this
+tree. First, there is no scheme-trust here to extend: ProxyFix,
+request.is_secure, wsgi.url_scheme and X-Forwarded-Proto appear nowhere in
+app/ or tests/, so deriving the scheme would not read something the app
+already knows — it would CREATE a trust relationship, in the very change whose
+job is to tighten the transport story. Second, derivation would silently never
+fire where it is needed: request.is_secure reads wsgi.url_scheme, which is
+http on exactly the deployment README.md §4 prescribes, where a reverse proxy
+terminates TLS and forwards plain HTTP to 127.0.0.1:8000. The operator does
+everything right, the flag never goes on, and nothing anywhere says so — the
+same silent shape as the forgotten nonce named above. Third, making derivation
+fire means believing X-Forwarded-Proto, and this repository has already
+refused that trade in writing: with TRUSTED_PROXY unset, app/auth.py ignores
+X-Forwarded-For entirely so a spoofed header cannot mint a fresh window. Same
+header family, same forgeability, same remedy — an operator's explicit say-so.
+
+**Read per request, not once at factory time**, for the reasons app/auth.py
+already gives for TRUSTED_PROXY: a deployment can be flipped without a
+restart, a test can set it around a single call, and both consumers — the five
+cookie calls and the after_request — already run per request, so there is
+nothing to cache. os.environ.get is a dict lookup.
+
+**Every response, not only text/html.** HSTS is a claim about the CONNECTION
+rather than about a document (RFC 6797 §7.1 has the agent process it on any
+HTTPS response), so a visitor whose first contact is GET /kuvat/<digest>, a
+stylesheet or POST /api/messages must be pinned too. It sits beside
+HEADERS_EVERYWHERE and deliberately not inside it: that dict is unconditional
+and this value is not.
+
+**max-age is one DAY, and there is no includeSubDomains and no preload.** The
+arguments are at HSTS_MAX_AGE and strict_transport_security below, next to the
+values they govern.
 
 **Computed ONCE, at factory time.** inline_script_hashes walks the template
 directory, and doing that per response would put a directory walk and three
@@ -133,6 +175,51 @@ HEADERS_EVERYWHERE = {
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
 }
+
+# Strict-Transport-Security's max-age, in seconds: one DAY, not the year the
+# examples reach for. The failure this number governs is a certificate the
+# operator later cannot renew — HSTS is remembered CLIENT-side and there is no
+# server-side remedy, so a year-long pin turns a lapsed certificate into a
+# year-long outage for every returning visitor. One day still closes the
+# sslstrip window for anyone who comes back, which is the whole point of the
+# header, and it heals a botched TLS setup within a day. README.md tells the
+# operator to raise it once a renewal cycle has survived, which is the only
+# honest order to do those two things in.
+HSTS_MAX_AGE = 86400
+
+
+def https_only():
+    """Whether this deployment is served over TLS — because it was TOLD so.
+
+    Reads the HTTPS_ONLY environment variable and nothing else: never the
+    request, never a header. The argument for that, and for reading it on
+    every call rather than once at factory time, is in the module docstring.
+
+    Empty is unset, the same rule _data_path states in app/__init__.py. An
+    EnvironmentFile line left as `HTTPS_ONLY=` means the operator has not set
+    it, not that they set it to the empty string.
+    """
+    return bool(os.environ.get("HTTPS_ONLY"))
+
+
+def strict_transport_security():
+    """The Strict-Transport-Security value, whole.
+
+    max-age and nothing else. No includeSubDomains: it would apply to
+    *.<this host>, which does not exist, so it protects nothing real; it
+    would break a later dev.<this host> served over HTTP; and if this app is
+    ever deployed at the apex of a shared parent rather than on a subdomain
+    of it, the directive reaches sibling hosts this app does not own and
+    cannot un-break. A whole-domain claim belongs at the proxy, where
+    whoever owns the whole domain is standing. No preload either: it is a
+    one-way public commitment to a browser vendor's list that nobody here
+    has asked for, and it requires includeSubDomains plus a max-age of at
+    least a year — both of which were just declined.
+
+    A function rather than a constant string so a test can pin the value
+    without a literal, and so the two decisions above have somewhere to live.
+    """
+    return f"max-age={HSTS_MAX_AGE}"
 
 
 class _InlineScripts(HTMLParser):
