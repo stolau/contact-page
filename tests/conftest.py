@@ -33,16 +33,33 @@ PERSONA_PATTERN = (
 )
 
 
+# Every variable this product reads straight out of the process
+# environment, bare and unprefixed. A module constant rather than three
+# delenv lines inside the fixture, so a test has a surface to assert
+# membership against: deleting a name from the scrub on a machine that
+# never exported it leaves every other row in the suite green, and this
+# tuple is the only thing that reddens whether or not the shell has it.
+_AMBIENT_NAMES = ("DATABASE", "UPLOAD_DIR", "HTTPS_ONLY")
+
+
 @pytest.fixture(scope="session", autouse=True)
-def _no_ambient_data_paths():
+def _no_ambient_environment():
     """The suite is not at the mercy of the developer's shell.
 
-    create_app now reads DATABASE and UPLOAD_DIR from the process
-    environment (LLM-COP-34), so a developer or CI runner with either
-    exported would point every test in this suite at that one database —
-    and the mutating majority of them write to it. Exporting the author's
-    real database is exactly what produced the artifact this fixture comes
-    with, so the read ships with the guard.
+    create_app reads DATABASE and UPLOAD_DIR from the process environment
+    (LLM-COP-34), so a developer or CI runner with either exported would
+    point every test in this suite at that one database — and the mutating
+    majority of them write to it. Exporting the author's real database is
+    exactly what produced the artifact that fixture came with, so the read
+    ships with the guard.
+
+    HTTPS_ONLY joins them for the same reason in a different shape
+    (LLM-COP-35 item 1): app/security.py reads it per request, so an
+    operator who has it exported in the shell they run pytest from would
+    put the WHOLE suite in the HTTPS mode — every cookie Secure, every
+    response carrying Strict-Transport-Security — and redden every
+    assertion about the default behaviour. That is a false red about the
+    shell, not about the code.
 
     Session-scoped, and that is not a style choice: page_html below is
     scope="session" and calls create_app itself, and higher-scoped
@@ -53,12 +70,13 @@ def _no_ambient_data_paths():
     in test_auth.py, which copy os.environ at call time — delenv mutates
     the real os.environ, so a child inherits it already cleaned.
 
-    A test that needs one of the two set uses the ordinary function-scoped
-    monkeypatch.setenv on top; that is undone after each test.
+    A test that needs one of the three set uses the ordinary
+    function-scoped monkeypatch.setenv on top; that is undone after each
+    test.
     """
     with pytest.MonkeyPatch.context() as patch:
-        patch.delenv("DATABASE", raising=False)
-        patch.delenv("UPLOAD_DIR", raising=False)
+        for name in _AMBIENT_NAMES:
+            patch.delenv(name, raising=False)
         yield
 
 

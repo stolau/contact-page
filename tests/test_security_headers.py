@@ -390,10 +390,13 @@ def test_the_policy_shuts_each_of_these(name, value):
 
 
 def test_the_policy_does_not_upgrade_insecure_requests():
-    """A decision, not an oversight: the site is served over plain HTTP
-    (item 1 is the TLS work), so the directive would break every
-    subresource on a real deployment. It belongs with TLS, and so does
-    HSTS — which is why neither appears here."""
+    """A decision, not an oversight: the site may be served over plain
+    HTTP, so the directive would break every subresource on such a
+    deployment. HSTS, since item 1, DOES ship — as a header, gated on
+    HTTPS_ONLY (app/security.py) and sent from the after_request. This row
+    asserts it never appears in the POLICY STRING, which is a different
+    thing: Strict-Transport-Security is not a CSP directive, and this is
+    what notices if someone ever tries to stuff it into one."""
     policy = content_security_policy(inline_script_hashes(TEMPLATE_DIR))
 
     assert "upgrade-insecure-requests" not in policy

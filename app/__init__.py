@@ -14,7 +14,7 @@ from flask import (
 from markupsafe import Markup
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from . import auth, passwords, totp
+from . import auth, passwords, security, totp
 from . import db as database
 from .direct_edit import bp as direct_edit_bp
 from .edit import bp as edit_bp
@@ -215,6 +215,18 @@ def create_app(instance_path=None):
         # they go on everything — JSON, images, static files, fragments.
         for header, value in HEADERS_EVERYWHERE.items():
             response.headers[header] = value
+        # HSTS is a claim about the CONNECTION rather than about a document,
+        # so it sits OUTSIDE the text/html gate below and has to stay there:
+        # a visitor whose first contact is GET /kuvat/<digest>, a stylesheet
+        # or POST /api/messages would otherwise never be pinned at all. It is
+        # not folded into HEADERS_EVERYWHERE because that dict is
+        # unconditional and this value is not — app/security.py reads
+        # HTTPS_ONLY per request, so an operator terminating TLS turns it on
+        # without a restart.
+        if security.https_only():
+            response.headers["Strict-Transport-Security"] = (
+                security.strict_transport_security()
+            )
         # CSP and X-Frame-Options are claims about a DOCUMENT, and the gate
         # is load-bearing rather than tidy: app/images.py serves
         # GET /kuvat/<digest> with its own, far stricter
@@ -366,13 +378,20 @@ def create_app(instance_path=None):
                     auth.clear_login_attempts(conn, key)
                     token = auth.mint_session(conn, user["id"], remember)
                     response = redirect(login_target(conn))
-                    # Secure is omitted deliberately: the site is served over
-                    # plain HTTP, and a Secure cookie would never come back.
+                    # Secure is the operator's statement, never the request's:
+                    # app/security.py reads HTTPS_ONLY and nothing derived
+                    # from a header. Set, a browser will not carry this token
+                    # back over a plain-HTTP connection. Unset — a developer
+                    # reaching `flask run --host=0.0.0.0` from a phone, say —
+                    # it is omitted, because a Secure cookie the browser
+                    # silently drops is a login that appears to do nothing
+                    # while the database says it worked.
                     response.set_cookie(
                         auth.SESSION_COOKIE,
                         token,
                         httponly=True,
                         samesite="Lax",
+                        secure=security.https_only(),
                         max_age=auth.REMEMBER_LIFETIME if remember else None,
                     )
                     return response
@@ -408,12 +427,14 @@ def create_app(instance_path=None):
             )
             # A session cookie (no max_age): the pending row carries its own
             # 5-minute expiry, and this half-state should not outlive the
-            # browser. Secure is omitted for the reason given above.
+            # browser. Secure follows the same rule as the session cookie
+            # above — HTTPS_ONLY, and nothing read off the request.
             response.set_cookie(
                 auth.PENDING_COOKIE,
                 pending_token,
                 httponly=True,
                 samesite="Lax",
+                secure=security.https_only(),
             )
             return response
         return render_page(
@@ -500,13 +521,27 @@ def create_app(instance_path=None):
                             token,
                             httponly=True,
                             samesite="Lax",
+                            secure=security.https_only(),
                             max_age=(
                                 auth.REMEMBER_LIFETIME
                                 if pending["remember"]
                                 else None
                             ),
                         )
-                        response.delete_cookie(auth.PENDING_COOKIE)
+                        # A deletion is a Set-Cookie like any other, so it
+                        # carries the same three attributes the set above
+                        # does. Nothing is broken without them — a bare
+                        # deletion does clear a Secure cookie — but RFC
+                        # 6265bis's "leave secure cookies alone" is ONE
+                        # rule, and five cookie calls all reading it is
+                        # cheaper to keep true than three reading it and
+                        # two not.
+                        response.delete_cookie(
+                            auth.PENDING_COOKIE,
+                            httponly=True,
+                            samesite="Lax",
+                            secure=security.https_only(),
+                        )
                     else:
                         auth.audit(
                             conn,
@@ -542,7 +577,14 @@ def create_app(instance_path=None):
         finally:
             conn.close()
         response = redirect(url_for("page"))
-        response.delete_cookie(auth.SESSION_COOKIE)
+        # Attribute-matched, exactly like the pending deletion in
+        # /yllapito/koodi: one rule for all five cookie calls in this file.
+        response.delete_cookie(
+            auth.SESSION_COOKIE,
+            httponly=True,
+            samesite="Lax",
+            secure=security.https_only(),
+        )
         return response
 
     @app.cli.command("admin-create")

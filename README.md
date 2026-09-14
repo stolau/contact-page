@@ -98,7 +98,9 @@ the checkout. `instance/` is gitignored and is not backed up.
 
 The mail and proxy settings (`SMTP_*`, `MAIL_*`, `TRUSTED_PROXY`) are read per
 request rather than at startup, and are documented under
-[Contact messages](#contact-messages).
+[Contact messages](#contact-messages). `HTTPS_ONLY` is read per request too —
+it is the transport switch, and it is documented under
+[4. Terminate TLS in front of it](#4-terminate-tls-in-front-of-it).
 
 ## Secrets, and what this app logs
 
@@ -195,6 +197,46 @@ to `127.0.0.1:8000`. Then set `TRUSTED_PROXY=1` so both rate limiters key on
 the rightmost `X-Forwarded-For` entry rather than on the proxy's own address —
 without it, behind a proxy, every visitor shares one window.
 
+**Set `HTTPS_ONLY=1` in the same file, and do not skip it.** Terminating TLS
+at the proxy does not by itself tell the app anything: the proxy forwards
+plain HTTP to `127.0.0.1:8000`, so as far as the app can see from the request,
+the connection is not encrypted. The variable is how you say otherwise, and it
+does two things:
+
+- **Every cookie the login flow writes or deletes gets `Secure`.** Without it
+  the admin session cookie will travel over plain HTTP if the browser ever
+  gets the chance, and an admin session lifted off the wire is a full admin
+  session.
+- **Every response carries `Strict-Transport-Security: max-age=86400`**, so a
+  returning visitor's browser refuses plain HTTP to this host for a day
+  without asking. That closes the sslstrip window, which is the request the
+  cookie flag alone cannot protect: the first one of a session.
+
+It is an explicit switch rather than something the app works out for itself,
+and that is deliberate. The app never reads `X-Forwarded-Proto` — it is a
+header anyone can send, and this repository already refused to believe that
+header family once, in `TRUSTED_PROXY`'s treatment of `X-Forwarded-For`. Left
+unset, nothing changes for a plain-HTTP deployment: the three cookies the
+login flow writes come out byte-identical to what they were before this
+switch existed, and no `Strict-Transport-Security` is sent. (The two cookie
+*deletions* did change shape, in both modes — they now carry `HttpOnly` and
+`SameSite=Lax` to match the writes — but a deletion clears the cookie either
+way, so nothing an operator can observe moves.)
+
+**`max-age` starts at one day on purpose.** HSTS is remembered by the browser
+and there is no way to take it back from the server, so a year-long pin turns
+a certificate you later cannot renew into a year-long outage for everyone who
+has visited. One day is long enough to protect a returning visitor and short
+enough that a botched TLS setup heals itself. Raise it — in
+`app/security.py`'s `HSTS_MAX_AGE` — once you have watched a renewal cycle
+succeed, and not before.
+
+**`includeSubDomains` and `preload` are not sent, and belong at the proxy if
+you want them.** They are claims about a whole domain — subdomains this app
+has never heard of, and, with `preload`, a one-way commitment to browser
+vendors' built-in lists. Make them where whoever owns the whole domain is
+standing.
+
 ### 5. Keep it running
 
 A minimal systemd unit — adjust paths, and put the environment in a file the
@@ -225,8 +267,8 @@ WantedBy=multi-user.target
 ```
 
 `/srv/contact-page/contact-page.env` holds `DATABASE=…`, `UPLOAD_DIR=…`,
-`TRUSTED_PROXY=1` and any `SMTP_*` values — `chmod 600`, owned by the service
-user. It is not in the repository and must never be.
+`TRUSTED_PROXY=1`, `HTTPS_ONLY=1` and any `SMTP_*` values — `chmod 600`, owned
+by the service user. It is not in the repository and must never be.
 
 ### 6. Create the admin account on the server
 
@@ -258,10 +300,14 @@ copying.
 Stated plainly, because a deployment guide that hides its gaps is worse than
 none:
 
-- **The session cookie is never marked `Secure`.** It is `HttpOnly` and
-  `SameSite=Lax`, but the `Secure` flag is not set anywhere in the code, so
-  the browser will send it over plain HTTP if it ever gets the chance.
-  Terminating TLS is necessary but does not by itself set that flag.
+- **The session cookie is marked `Secure` only when you set `HTTPS_ONLY`.** It
+  is always `HttpOnly` and `SameSite=Lax`; the `Secure` flag is the one thing
+  the app will not decide for you, because a `Secure` cookie a browser refuses
+  to send back is a login that silently does nothing. Terminating TLS is
+  necessary and is not sufficient — if you do it and leave `HTTPS_ONLY` unset,
+  the cookies still cross the network in the clear and an admin session can be
+  lifted off the wire. Set it: see
+  [4. Terminate TLS in front of it](#4-terminate-tls-in-front-of-it).
 - **HTML responses carry a `Content-Security-Policy`, and plain HTTP can
   strip it.** Every HTML response sends `default-src 'self'` with a
   `script-src` naming SHA-256 hashes of the app's own inline scripts — so
@@ -414,6 +460,7 @@ body of the notification, and that copy stays the authoritative one.
 | `MAIL_TO` | Recipient. Unset means no notifications. |
 | `MAIL_FROM` | Sender, defaults to `MAIL_TO`. |
 | `TRUSTED_PROXY` | See below. Governs both rate limiters. |
+| `HTTPS_ONLY` | Not a mail setting, listed here because it belongs in the same environment file: set it to any non-empty value when TLS is terminated in front of the app, and every cookie gets `Secure` and every response gets HSTS. See [4. Terminate TLS in front of it](#4-terminate-tls-in-front-of-it). |
 
 Posting is rate limited to 5 messages per hour per client. The limiter
 assumes the app is reached directly (as `flask --app app run` above serves
