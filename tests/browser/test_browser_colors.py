@@ -2260,10 +2260,14 @@ def test_the_direct_edit_muted_chrome_clears_four_and_a_half_to_one(
     maps it to --v2-body #3d5f77 and NOT, name for name, to --v2-muted
     #6b8296 — and that choice is the whole reason this test exists. --v2-muted
     measures 3.9934:1 on --v2-card #ffffff, 3.8099:1 on --v2-page #f7fafc and
-    3.4087:1 on --v2-tint #e6eef6, every one of them under SC 1.4.3's 4.5. Six
-    sites read --muted, so the tidier-looking mapping would have shipped six
-    text failures. Change `--muted: var(--v2-body)` to `var(--v2-muted)` and
-    six rows here go red; nothing else in the repository notices.
+    3.4087:1 on --v2-tint #e6eef6, every one of them under SC 1.4.3's 4.5.
+    FIVE DECLARATIONS read --muted and they paint SIX elements — the count in
+    direct-edit.css's own header is the declarations, the count here is what
+    renders, and .direct-section-name is the one that differs because
+    direct-edit.js inserts one chip per section[data-kind]. So the
+    tidier-looking mapping would have shipped six text failures. Change
+    `--muted: var(--v2-body)` to `var(--v2-muted)` and six rows here go red;
+    nothing else in the repository notices.
 
     BOTH SKINS, because V1 reads the same six sites through the same
     declarations and a proof of one is not a proof of the other — this file's
