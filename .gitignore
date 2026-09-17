@@ -1,6 +1,8 @@
-# SpecWeaver binding and agent files — local tooling, not part of the public product
+# ProbaImpera binding and agent files — local tooling, not part of the public product
 .claude/
 CLAUDE.md
+PROBAIMPERA.md
+# The pre-rename binding file (SpecWeaver was renamed ProbaImpera); kept ignored until it is removed.
 SPECWEAVER.md
 
 # Python

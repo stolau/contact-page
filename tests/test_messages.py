@@ -1,6 +1,6 @@
 """LLM-COP-3 — the contact dialog, POST /api/messages, and the admin inbox.
 
-Spec: cp-contact-dialog (fetched from the SpecWeaver server; every
+Spec: cp-contact-dialog (fetched from the ProbaImpera server; every
 contains-text string below is copied byte-for-byte out of that JSON, never
 retyped — the Finnish diacritics are load-bearing).
 
