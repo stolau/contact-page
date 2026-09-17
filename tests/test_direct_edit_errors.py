@@ -32,7 +32,7 @@ DIRECT_URL = "/muokkaa/sivu"
 # The spec address these tests speak for, named in every failure message so a
 # red run points at the contract rather than at a class token.
 #
-# NOTE FOR THE NEXT READER: this region DOES NOT EXIST on the SpecWeaver
+# NOTE FOR THE NEXT READER: this region DOES NOT EXIST on the ProbaImpera
 # server yet. The artifact's whole finding is that `.direct-errors` has no
 # spec region and no test; the spec half is being written separately. If you
 # GET cp-main-direct-edit and cannot find this address, the test is not stale
